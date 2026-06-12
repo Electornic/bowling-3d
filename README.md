@@ -1,0 +1,50 @@
+# bowling-3d 🎳
+
+브라우저에서 돌아가는 3D 볼링 게임. 정식 10프레임 룰(스트라이크/스페어 보너스), 슬립 기반 훅(스핀) 물리, 오일 패턴까지 구현했다. **외부 에셋 0개** — 도형·텍스처·충돌음 전부 코드로 생성.
+
+## 기술 스택
+
+| 역할 | 선택 |
+|---|---|
+| 3D 렌더링 | [Three.js](https://threejs.org/) |
+| 물리 | [Rapier](https://rapier.rs/) (`@dimforge/rapier3d-compat`, Rust→WASM) |
+| 빌드/테스트 | Vite + Vitest |
+| 언어 | TypeScript |
+
+## 실행
+
+```bash
+npm install
+npm run dev    # http://localhost:5173
+npm test       # 점수 계산 단위테스트
+```
+
+## 조작
+
+- **마우스 이동** — 조준 (스핀 반영 곡선 예측선 표시)
+- **마우스 꾹 눌렀다 떼기** — 파워 차징 → 발사
+- **Q / E** — 좌/우 스핀 (하단 게이지)
+- **우상단 슬라이더** — 볼 무게 6~16 lb (무거울수록 느리지만 묵직)
+
+## 물리 구현 하이라이트
+
+- **스키드 → 훅 → 롤 3단계 궤적**: 볼링공이 휘는 건 마그누스가 아니라 지면 동마찰. 슬립 기반 측면력을 매 스텝 `applyImpulse(F·dt)`로 주입하고, 오일 존(앞 10.5m)/드라이 존 마찰 차등으로 실제 볼링처럼 막판에 꺾인다.
+- **마찰 결합 규칙 트릭**: 레인은 `Min` 결합(오일 시뮬), 핀은 `Max` 결합(항상 접지) — Rapier의 규칙 우선순위(Max > Min > Average)로 바닥 콜라이더 하나를 공유하면서 접촉 쌍별 마찰 정책을 분리.
+- **Ghost collision 회피**: 바닥을 구간별 콜라이더로 분할하면 이음새에서 공이 튄다(엔진 공통 함정). 전장 단일 콜라이더 + 공 위치 기준 동적 `setFriction`으로 해결.
+- **점수는 순수함수**: 누적 점수를 저장하지 않고 flat한 투구 배열에서 매번 재계산 → 스트라이크/스페어 보너스 룩어헤드가 단순해짐 (Vitest로 퍼펙트/올스페어/파울 등 검증).
+- 고정 timestep(1/60) + accumulator, 렌더 보간, CCD, contact force 이벤트 기반 충돌음.
+
+## 문서
+
+- [docs/GAME_DESIGN.md](docs/GAME_DESIGN.md) — 설계 도안 (좌표계·물리 상수·상태머신·Rapier API 검증 부록)
+- [docs/PROGRESS.md](docs/PROGRESS.md) — 세션별 진행 기록·튜닝 노트·다음 할 일
+
+## 디버그
+
+브라우저 콘솔에 전역 노출: `__game` `__ball` `__pins` `__engine` `__cameraRig`
+
+```js
+// 수동 물리 스텝 (백그라운드 탭에서 rAF 멈출 때)
+__game.throwBall(0, 1, 0);
+for (let i = 0; i < 600; i++) { __engine.step(1/60); __game.update(1/60); }
+```
