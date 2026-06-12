@@ -1,13 +1,12 @@
-import type { Ball } from '../scene/Ball';
 import type { GameState } from '../game/GameState';
 import { makeBallSpec } from '../game/BallSpec';
 
 /**
  * 볼 무게 선택 슬라이더 (도안 §4.5). 6~16 lb 무단계.
- * AIMING 중에만 무게 변경 적용 (굴러가는 중 변경 방지).
+ * 사람 플레이어 전용 — GameState가 턴별로 공 스펙을 적용한다.
  */
 export class BallPicker {
-  constructor(ball: Ball, game: GameState) {
+  constructor(game: GameState) {
     const wrap = document.createElement('div');
     Object.assign(wrap.style, {
       position: 'fixed',
@@ -35,7 +34,8 @@ export class BallPicker {
     input.addEventListener('input', () => {
       const lb = parseFloat(input.value);
       label.textContent = `볼 무게: ${lb} lb`;
-      if (game.state === 'AIMING') ball.setSpec(makeBallSpec(lb));
+      // 사람 스펙으로 저장 — AI 턴 중엔 게임이 사람 차례에 다시 적용 (로드맵 P1.5)
+      game.setHumanBallSpec(makeBallSpec(lb));
     });
 
     wrap.appendChild(label);

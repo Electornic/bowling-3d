@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import type RAPIER from '@dimforge/rapier3d-compat';
 import type { Engine } from '../core/Engine';
 import { getRapier } from '../core/Boot';
-import { PIN_HEIGHT, PIN_MASS } from '../game/constants';
+import { PIN_HEIGHT, PIN_MASS, PIN_RESTITUTION, PIN_LINEAR_DAMPING } from '../game/constants';
 
 export const PIN_RADIUS = 0.06; // 콜라이더 반경 (도안 §4.4: ≥0.06, 터널링 방지)
 
@@ -36,7 +36,9 @@ export class Pin {
     this.body = engine.world.createRigidBody(
       RAPIER.RigidBodyDesc.dynamic()
         .setTranslation(x, PIN_HEIGHT / 2, z)
-        .setCcdEnabled(true),
+        .setCcdEnabled(true)
+        // P0.5 캐리 밸런스: 날아가는 핀 감속 → 직구 천장 억제 (constants.ts 주석)
+        .setLinearDamping(PIN_LINEAR_DAMPING),
     );
     // 마찰 결합 Max: 레인 바닥이 Min 결합(공의 오일 시뮬용, Lane.ts)이라 그대로 두면
     // 핀-레인 마찰까지 오일값으로 끌려가 핀이 토플 대신 멀리 미끄러진다.
@@ -45,7 +47,7 @@ export class Pin {
     engine.world.createCollider(
       RAPIER.ColliderDesc.cylinder(PIN_HEIGHT / 2, PIN_RADIUS)
         .setMass(PIN_MASS)
-        .setRestitution(0.2)
+        .setRestitution(PIN_RESTITUTION)
         .setFriction(0.3)
         .setFrictionCombineRule(RAPIER.CoefficientCombineRule.Max)
         .setActiveEvents(RAPIER.ActiveEvents.CONTACT_FORCE_EVENTS)

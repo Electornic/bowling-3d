@@ -43,6 +43,8 @@ export class Controls {
   private readonly aimLine: THREE.Line;
   private readonly gaugeFill: HTMLDivElement;
   private readonly spinFill: HTMLDivElement;
+  private readonly gaugeWrap: HTMLDivElement;
+  private readonly spinWrap: HTMLDivElement;
 
   constructor(
     private readonly engine: Engine,
@@ -59,7 +61,7 @@ export class Controls {
     engine.scene.add(this.aimLine);
 
     // 파워 게이지 (우측 하단 — 중앙은 공과 겹침)
-    const wrap = document.createElement('div');
+    const wrap = (this.gaugeWrap = document.createElement('div'));
     Object.assign(wrap.style, {
       position: 'fixed',
       bottom: '24px',
@@ -82,7 +84,7 @@ export class Controls {
     document.body.appendChild(wrap);
 
     // 스핀 게이지 (파워 게이지 위, 중앙 기준 좌/우로 차오름)
-    const spinWrap = document.createElement('div');
+    const spinWrap = (this.spinWrap = document.createElement('div'));
     Object.assign(spinWrap.style, {
       position: 'fixed',
       bottom: '46px',
@@ -143,7 +145,8 @@ export class Controls {
       this.aim = (1 - (e.clientX / window.innerWidth) * 2) * AIM_RANGE;
     });
     window.addEventListener('pointerdown', (e) => {
-      if (!this.onCanvas(e) || this.game.state !== 'AIMING') return;
+      // AI 턴(로드맵 P1.5 입력 락)·메뉴에선 차징 불가
+      if (!this.onCanvas(e) || this.game.state !== 'AIMING' || !this.game.isHumanTurn()) return;
       this.charging = true;
       this.power = 0;
       this.chargeDir = 1;
@@ -156,6 +159,7 @@ export class Controls {
       this.spin = 0;
     });
     window.addEventListener('keydown', (e) => {
+      if (this.game.state !== 'AIMING' || !this.game.isHumanTurn()) return;
       if (e.code === 'KeyQ') this.spin = Math.max(-1, Math.round((this.spin - 0.2) * 10) / 10);
       else if (e.code === 'KeyE') this.spin = Math.min(1, Math.round((this.spin + 0.2) * 10) / 10);
     });
@@ -181,7 +185,12 @@ export class Controls {
     this.spinFill.style.left = s < 0 ? `${50 - Math.abs(s) * 50}%` : '50%';
     this.spinFill.style.background = s < 0 ? '#38bdf8' : '#fb923c';
 
-    const aiming = this.game.state === 'AIMING';
+    // 메뉴/AI 턴엔 입력 UI 전체 숨김 (로드맵 P1/P1.5)
+    const inGame = this.game.state !== 'MENU' && this.game.isHumanTurn();
+    this.gaugeWrap.style.display = inGame ? '' : 'none';
+    this.spinWrap.style.display = inGame ? '' : 'none';
+
+    const aiming = this.game.state === 'AIMING' && this.game.isHumanTurn();
     this.aimLine.visible = aiming;
     if (aiming) this.updateAimLine();
   }

@@ -13,6 +13,7 @@ const clamp = THREE.MathUtils.clamp;
  */
 export class CameraRig {
   private readonly target = new THREE.Vector3(0, 0.1, 8);
+  private menuTime = 0; // MENU 카메라 슬로우 스웨이용
 
   constructor(
     private readonly engine: Engine,
@@ -34,6 +35,14 @@ export class CameraRig {
     let tz = Math.min(b.z + 4, 20);
 
     switch (this.game.state) {
+      case 'MENU':
+        // 와이드 시네마틱 + 느린 좌우 스웨이 (메뉴 배경)
+        this.menuTime += dt;
+        px = 1.4 + Math.sin(this.menuTime * 0.25) * 0.5;
+        py = 1.7;
+        pz = -3.4;
+        tx = 0; ty = 0.2; tz = 9;
+        break;
       case 'AIMING':
         // 낮고 가까운 1인칭 느낌 — 레인이 화면을 채우고 원근이 살도록
         px = 0; py = 1.12; pz = -2.7;

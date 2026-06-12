@@ -16,6 +16,20 @@ export const BALL_START_Z = -1; // 공 시작 (파울라인 뒤)
 export const HEADPIN_Z = 18.29; // 1번핀
 export const ROW_GAP = PIN_SPACING * Math.cos(Math.PI / 6); // ≈0.264 행 간격
 export const PIN_DECK_END = HEADPIN_Z + 3 * ROW_GAP; // ≈19.08 마지막 행 (전환 트리거 기준 §4.2)
+// 행별 핀 열 오프셋 (PIN_SPACING 배수). 행 0=헤드핀 ... 행 3=뒷줄. PinSet·splits 공용.
+export const PIN_ROWS: readonly (readonly number[])[] = [
+  [0],
+  [-0.5, 0.5],
+  [-1, 0, 1],
+  [-1.5, -0.5, 0.5, 1.5],
+];
+
+// --- 핀 캐리 밸런스 (P0.5, sim-carry.mjs 그리드 스캔으로 확정) ---
+// 선형 감쇠 0.8: 날아가는 핀을 감속시켜 "운 좋은 체인 스트라이크"를 억제 →
+// 직구 풀파워 윈도우 8/31→4/31, 훅 풀파워 7/31 유지 (직구의 1.75배, 최적해 역전).
+// 반발 0.2→0.3: 감쇠로 죽은 미드파워 캐리를 핀-핀 에너지 전달로 일부 복원.
+export const PIN_RESTITUTION = 0.3;
+export const PIN_LINEAR_DAMPING = 0.8;
 
 // --- 물리 (도안 §4.4 튜닝 시작값) ---
 export const GRAVITY = -9.81;

@@ -7,10 +7,9 @@ import {
   PIN_HEIGHT,
   SETTLE_VEL_EPS,
   LANE_WIDTH,
+  PIN_ROWS,
 } from '../game/constants';
-
-// 정삼각형 배치 (도안 §3). 행 0=헤드핀(1번) ... 행 3=뒷줄(7~10번)
-const ROWS = [[0], [-0.5, 0.5], [-1, 0, 1], [-1.5, -0.5, 0.5, 1.5]];
+import { PIN_NUMBERS } from '../game/splits';
 
 const UP_COS_45 = Math.cos(Math.PI / 4); // ≈0.707
 
@@ -21,7 +20,7 @@ export class PinSet {
   readonly pins: Pin[] = [];
 
   constructor(engine: Engine) {
-    ROWS.forEach((cols, r) => {
+    PIN_ROWS.forEach((cols, r) => {
       for (const c of cols) {
         const x = c * PIN_SPACING;
         const z = HEADPIN_Z + r * ROW_GAP;
@@ -80,5 +79,13 @@ export class PinSet {
   /** 핀 전체를 똑바로 다시 세움 (BETWEEN_FRAMES) */
   resetAll() {
     for (const p of this.pins) p.reset();
+  }
+
+  /** 지정한 핀 번호만 세우고 나머지는 치움 (스페어 챌린지, 로드맵 P1) */
+  setLayout(standingPinNumbers: number[]) {
+    this.pins.forEach((p, i) => {
+      if (standingPinNumbers.includes(PIN_NUMBERS[i])) p.reset();
+      else p.stash();
+    });
   }
 }

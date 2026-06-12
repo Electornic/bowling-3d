@@ -1,0 +1,102 @@
+import { describe, it, expect } from 'vitest';
+import { totalScore, frameScores, rollStats } from '../src/game/Scoreboard';
+import { detectSplit, pinIndexByNumber, PIN_NUMBERS } from '../src/game/splits';
+
+/** 핀 번호 목록 → standingMask */
+const mask = (standing: number[]): boolean[] =>
+  PIN_NUMBERS.map((n) => standing.includes(n));
+
+describe('블리츠 모드 점수 (frames=3)', () => {
+  it('퍼펙트 블리츠 (5 스트라이크) = 90', () => {
+    expect(totalScore(Array(5).fill(10), 3)).toBe(90);
+  });
+
+  it('올 스페어 블리츠 (5,5)×3 + 5 = 45', () => {
+    expect(totalScore([5, 5, 5, 5, 5, 5, 5], 3)).toBe(45);
+  });
+
+  it('마지막 프레임 보너스 규칙 유지: [3,4, 10, 10,5,3]', () => {
+    // f1=7, f2=10+10+5=25(누적32), f3=10+5+3=18(누적50)
+    expect(frameScores([3, 4, 10, 10, 5, 3], 3)).toEqual([7, 32, 50]);
+  });
+
+  it('frames 기본값 10은 기존과 동일 (퍼펙트 300)', () => {
+    expect(totalScore(Array(12).fill(10))).toBe(300);
+  });
+});
+
+describe('rollStats (하이스코어 통계 분류)', () => {
+  it('퍼펙트 게임: 스트라이크 12/12', () => {
+    const rolls = [...Array(9).fill([10]), [10, 10, 10]];
+    expect(rollStats(rolls)).toEqual({
+      strikes: 12,
+      strikeChances: 12,
+      spares: 0,
+      spareChances: 0,
+    });
+  });
+
+  it('올 스페어: 스페어 10/10', () => {
+    const rolls = [...Array(9).fill([5, 5]), [5, 5, 5]];
+    const st = rollStats(rolls);
+    expect(st.spares).toBe(10);
+    expect(st.spareChances).toBe(10);
+    // 스페어 변환 뒤 10프레임 3구는 새 랙 = 스트라이크 기회
+    expect(st.strikeChances).toBe(11);
+    expect(st.strikes).toBe(0);
+  });
+
+  it('진행 중 게임 혼합: X / (5,5) / (3,4)', () => {
+    expect(rollStats([[10], [5, 5], [3, 4]])).toEqual({
+      strikes: 1,
+      strikeChances: 3,
+      spares: 1,
+      spareChances: 2,
+    });
+  });
+});
+
+describe('detectSplit (인접 그래프 판정)', () => {
+  it('7-10은 스플릿', () => {
+    const r = detectSplit(mask([7, 10]));
+    expect(r.isSplit).toBe(true);
+    expect(r.label).toBe('7-10');
+  });
+
+  it('베이비 스플릿 3-10, 2-7도 스플릿', () => {
+    expect(detectSplit(mask([3, 10])).isSplit).toBe(true);
+    expect(detectSplit(mask([2, 7])).isSplit).toBe(true);
+  });
+
+  it('4-6 (5번 다운) 스플릿, 5-7도 스플릿', () => {
+    expect(detectSplit(mask([4, 6])).isSplit).toBe(true);
+    expect(detectSplit(mask([5, 7])).isSplit).toBe(true);
+  });
+
+  it('슬리퍼 2-8은 스플릿 아님 (일직선, 사이 핀 없음)', () => {
+    expect(detectSplit(mask([2, 8])).isSplit).toBe(false);
+  });
+
+  it('헤드핀이 서 있으면 스플릿 아님 (1-2-4-7 피켓 펜스)', () => {
+    expect(detectSplit(mask([1, 2, 4, 7])).isSplit).toBe(false);
+  });
+
+  it('인접 클러스터(2-4-5)는 스플릿 아님, 단일 핀도 아님', () => {
+    expect(detectSplit(mask([2, 4, 5])).isSplit).toBe(false);
+    expect(detectSplit(mask([10])).isSplit).toBe(false);
+  });
+
+  it('빅포 4-6-7-10은 스플릿', () => {
+    const r = detectSplit(mask([4, 6, 7, 10]));
+    expect(r.isSplit).toBe(true);
+    expect(r.label).toBe('4-6-7-10');
+  });
+
+  it('핀 번호 매핑: 인덱스0=1번, 뒷줄 좌→우 7~10', () => {
+    expect(PIN_NUMBERS[0]).toBe(1);
+    expect(pinIndexByNumber(1)).toBe(0);
+    // 뒷줄(인덱스 6~9)은 x 내림차순으로 7,8,9,10 — 인덱스 6은 x가 가장 작음(화면 오른쪽) = 10번
+    expect(PIN_NUMBERS[6]).toBe(10);
+    expect(PIN_NUMBERS[9]).toBe(7);
+  });
+});

@@ -1,13 +1,24 @@
 # 진행 상황 & 다음 세션 핸드오프
 
-> 마지막 작업: 2026-06-12 (4차 세션 — 레인 이음새 튕김·거터 핀 판정 버그픽스, 스핀 레이트 훅 강화)
-> 설계 문서는 [GAME_DESIGN.md](./GAME_DESIGN.md) 참고.
+> 마지막 작업: 2026-06-12 (5차 세션 — 로드맵 P0.5/P1/P1.5 구현: 핀 캐리 밸런스, 게임 루프 완성, AI 라이벌)
+> 설계 문서는 [GAME_DESIGN.md](./GAME_DESIGN.md), 게임성 로드맵은 [GAMEPLAY_ROADMAP.md](./GAMEPLAY_ROADMAP.md) 참고.
 
 ---
 
 ## 한 줄 요약
 
-**M0~M7 완성 + 점수표 UI·팔로우 카메라·오일존 레이트 훅까지.** 스핀이 "보정값"이 아니라 실제 볼링처럼 오일 존(앞 10.5m) 직진 → 드라이 존에서 막판에 꺾이는 구조가 됐다. 남은 건 손맛 튜닝과 에셋.
+**게임 루프 완성.** 메뉴 → (풀게임/블리츠/스페어 챌린지) × (혼자/AI 라이벌 3인) → 결과/하이스코어 → 재시작. 핀 캐리 튜닝으로 직구 천장을 깎아 훅이 최적해가 됐다. 남은 건 P0 손맛 피드백과 P2 연출 본편.
+
+## 5차 세션에 한 일 (로드맵 P0.5 → P1 → P1.5)
+
+1. **P0.5 핀 캐리 밸런스** — sim-carry.mjs를 CLI 파라미터화(`--pinRest --pinDamp --pinMass --pinFric --ballRest --pinComY`)하고 그리드 스캔. **핀 선형 감쇠 0.8 + 핀 반발 0.3** 확정 (`PIN_LINEAR_DAMPING`/`PIN_RESTITUTION`, constants.ts): 직구 풀파워 윈도우 8/31→**4/31**, 훅 풀파워 7/31 유지 = 직구의 1.75배(목표 2배에 1카운트 부족, 인접 조합 전부 열세 — 부족분은 P3 릴리스 타이밍 레버가 후보). 감쇠가 "날아가는 핀의 운 좋은 체인"을 죽이는 게 직구만 선택적으로 깎는 유일한 레버였음. 단일 레버(반발↓/마찰↑/질량↑/COM↓)는 전부 훅을 더 깎음.
+2. **P1 게임 루프** — `GameStateName`에 MENU 추가, `GameState.startMatch(config)/toMenu()` (리셋 체크리스트 반영). 신규: `ui/Menu.ts`(시작/결과 오버레이), `game/Stats.ts`(localStorage `bowling3d.stats.v1`, 모드별 최고/평균/스트라이크%/스페어%), `game/splits.ts`(인접 그래프 스플릿 감지 — 슬리퍼 2-8/3-9는 비스플릿, USBC 근사), `Scoreboard.frameScores/totalScore`에 `frames` 파라미터(블리츠 3프레임) + `rollStats`(통계 분류), `PinSet.setLayout`(스페어 챌린지 10 클래식 리브).
+3. **P1.5 AI 라이벌** — `game/ai.ts` 3인 프로필(김부장 안정 직구/한프로 스페어 장인/도박사 윤 풀스핀 도박). 점수 상태(frame/ball/rolls) 플레이어별 분리 + 프레임 교대, AI 턴 입력 락(Controls/BallPicker 가드 `isHumanTurn`), AI 턴 빨리감기 `Loop.timeScale=3`(accumulator 유입만 스케일 — 물리 dt 불변, P2 슬로모와 공용 인프라), Hud 2인 시트(현재 플레이어 골드). AI 조준은 sim 캘리브레이션(직구 진입 x≈aim×19.29, 풀스핀 풀파워 훅 드리프트 0.33m, 포켓 직구 0cm/훅 +6.7cm). 사람/AI 볼 스펙 턴별 적용(`setHumanBallSpec`).
+4. **P2 선반영** — `GameState.onEvent`(strike/spare/split/splitConverted/turn/gameOver), `Hud.banner` 텍스트 팝(STRIKE!/DOUBLE!/TURKEY!/N BAGGER!, 스플릿/변환), 결과 화면 새 기록 배지.
+
+검증: tsc 클린 + vitest **22/22**(신규: 블리츠 점수·rollStats·detectSplit 15케이스) + 브라우저 라이브 확인(AI 매치 교대·AI 스트라이크/스페어 처리·2인 점수표·턴 락 정상 — 실플레이로 확인됨).
+
+⚠️ 주의: 핀에 선형 감쇠 0.8이 들어가 핀 날아가는 속도가 이전보다 묵직해 보일 수 있음 — P0 손맛 확인 항목에 포함할 것.
 
 ## 4차 세션에 한 일 (버그 2건 + 부수 수정)
 
@@ -72,33 +83,35 @@ npm test           # Vitest (점수 로직, 7개 통과)
 
 ## ⚠️ 다음 세션 첫 할 일
 
-**사용자 손맛 확인** — 수치 검증은 끝났지만 실플레이 느낌 확인은 아직:
-- 레이트 훅 느낌 (오일/드라이 경계 `OIL_END_Z` 10.5, 훅 세기 `FRICTION_K` 0.12·`LANE_FRICTION_DRY` 0.14, 오일 존 잔여 휨은 `BALL_FRICTION`·`LANE_FRICTION_OIL`로 조절)
-- 팔로우 카메라 느낌 (공 뒤 거리 4.5, 높이 1.5 — `CameraRig.ts`)
-- 조준 감도(`AIM_RANGE` 0.08), 점수표 가독성
+**사용자 손맛 확인 (P0)** — 수치 검증은 끝났지만 실플레이 느낌 확인은 아직:
+- 레이트 훅 느낌 (오일/드라이 경계 `OIL_END_Z` 10.5, 훅 세기 `FRICTION_K` 0.16·`LANE_FRICTION_DRY` 0.14, 풀스핀 -61cm가 과하면 `SPIN_RATE` 14→12)
+- **핀 액션 느낌** — 5차 캐리 튜닝으로 핀 선형 감쇠 0.8 추가: 핀이 묵직하게 느껴지면 `PIN_LINEAR_DAMPING`·`PIN_RESTITUTION` 조정 (단, sim-carry.mjs로 직구/훅 윈도우 재측정 필수)
+- 팔로우 카메라 느낌 (공 뒤 거리 4.5, 높이 1.5 — `CameraRig.ts`, 레인 좁아 보이면 높이 1.2 시도)
+- 조준 감도(`AIM_RANGE` 0.08), AI 난이도 체감(`ai.ts` 프로필 분산값)
 
 ## 남은 작업 (우선순위 순)
 
-> 게임성 개선 방향은 [GAMEPLAY_ROADMAP.md](./GAMEPLAY_ROADMAP.md) 참고 (P1 루프 완성 → P2 타격감 → P3 숙련 깊이 → P4 콘텐츠). 착수 전 결정 필요 항목 2개가 문서 상단에 있음.
+> 게임성 개선 방향은 [GAMEPLAY_ROADMAP.md](./GAMEPLAY_ROADMAP.md) 참고. P0.5/P1/P1.5는 5차 세션 완료.
 
 - [ ] **(P0) 위 손맛 확인** → 피드백 따라 상수 튜닝 (`constants.ts`에 모여 있음)
-- [ ] 스핀 UX 추가 아이디어 (사용자와 논의): 투구 중 실시간 스핀 입력(아케이드식), 플릭 제스처, 오일 패턴 시각화 강화, 레인별 오일 패턴 프리셋
-- [ ] 실물 에셋 — GLTF 핀·공(장식 핀이 현재 원기둥이라 클로즈업에서 컵처럼 보임), HDRI, 실제 음원
-- [ ] 하이스코어(localStorage), 스플릿 표시, 메뉴/재시작 UI
-- [ ] 모바일 터치 검증 (포인터 이벤트는 통합돼 있음)
+- [ ] **(P2) 타격감 본편** — 스트라이크 슬로모(트리거+복원 정책, `Loop.timeScale` 인프라는 준비됨), 핀덱 클로즈업 컷, 카메라 셰이크, 사운드 럼블/크래시 구분 (이벤트 노출 완료로 연결만 하면 됨)
+- [ ] **(P3) 숙련 깊이** — 오일 상태 파라미터화(hookFactor/OIL_END_Z 전역 → 객체) 선행 후 예측선 난이도/오일 프리셋/레인 전환, 릴리스 타이밍(직구 천장 추가 억제 레버)
+- [ ] 실물 에셋 — GLTF 핀·공, HDRI, 실제 음원 (P4)
+- [ ] 모바일 터치 검증 + 터치 스핀 입력 (모바일 지원 결정 시 P1급)
 
 ## 소스 구조
 
 ```
 src/
-  core/    Boot(부팅·RAPIER init) · Engine(렌더+물리+보간) · Loop(고정 timestep+alpha)
-  scene/   Lane(레인+거터) · Environment(볼링장 배경+나무텍스처) · Ball(공·스핀) · Pin(병모양) · PinSet(배치·판정)
-  game/    GameState(상태머신) · Scoreboard(점수,순수함수) · BallSpec(무게) · constants(튜닝 상수 집결)
-  input/   Controls(마우스+키보드, 곡선 조준선·스핀/파워 게이지)
-  camera/  CameraRig(상태별 뷰, 거터샷 와이드 유지)
+  core/    Boot(부팅·조립·이벤트 배선) · Engine(렌더+물리+보간) · Loop(고정 timestep+alpha+timeScale)
+  scene/   Lane(레인+거터) · Environment(볼링장 배경+나무텍스처) · Ball(공·스핀) · Pin(병모양) · PinSet(배치·판정·setLayout)
+  game/    GameState(상태머신+모드+멀티플레이어) · Scoreboard(점수·rollStats) · BallSpec(무게)
+           constants(튜닝 상수 집결) · ai(라이벌 프로필) · splits(스플릿 감지) · Stats(localStorage 기록)
+  input/   Controls(마우스+키보드, 곡선 조준선·스핀/파워 게이지, AI 턴 락)
+  camera/  CameraRig(상태별 뷰, MENU 스웨이)
   audio/   SoundManager(합성 충돌음)
-  ui/      Hud · BallPicker
-tests/     scoreboard.test.ts
+  ui/      Hud(2인 점수표+배너) · BallPicker · Menu(시작/결과 오버레이)
+tests/     scoreboard.test.ts · gameplay.test.ts
 ```
 
 **디버그 전역**: `window.__game / __ball / __pins / __engine / __cameraRig`
