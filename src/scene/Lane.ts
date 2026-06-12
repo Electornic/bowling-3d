@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import type RAPIER from '@dimforge/rapier3d-compat';
 import type { Engine } from '../core/Engine';
 import { getRapier } from '../core/Boot';
 import {
@@ -8,6 +9,7 @@ import {
   LANE_FRICTION_OIL,
   LANE_FRICTION_DRY,
   OIL_END_Z,
+  hookFactor,
 } from '../game/constants';
 import { makeWoodTexture } from './Environment';
 
@@ -17,6 +19,8 @@ import { makeWoodTexture } from './Environment';
  * 바깥 벽은 공이 코스 밖으로 이탈하는 것만 막는다.
  */
 export class Lane {
+  private readonly floor: RAPIER.Collider;
+
   constructor(engine: Engine) {
     const RAPIER = getRapier();
 
@@ -38,19 +42,21 @@ export class Lane {
     floor.receiveShadow = true;
     engine.addVisual(floor);
 
-    // 물리 바닥은 오일 존/드라이 존 2분할 — 마찰 차등이 레이트 훅(스키드→훅)을 만든다
-    for (const [z0, z1, fric] of [
-      [startZ, OIL_END_Z, LANE_FRICTION_OIL],
-      [OIL_END_Z, endZ, LANE_FRICTION_DRY],
-    ] as const) {
-      const body = engine.world.createRigidBody(
-        RAPIER.RigidBodyDesc.fixed().setTranslation(0, -0.05, (z0 + z1) / 2),
-      );
-      engine.world.createCollider(
-        RAPIER.ColliderDesc.cuboid(half, 0.05, (z1 - z0) / 2).setFriction(fric).setRestitution(0),
-        body,
-      );
-    }
+    // 물리 바닥은 전장 단일 콜라이더 — 오일/드라이로 2분할하면 이음새(z=OIL_END_Z)
+    // 모서리에 공이 걸려 수십 cm 튀어오른다(CCD가 내부 엣지를 잡음).
+    // 마찰 차등(레이트 훅)은 updateFriction()이 공 위치 기준으로 매 스텝 전환.
+    const floorBody = engine.world.createRigidBody(
+      RAPIER.RigidBodyDesc.fixed().setTranslation(0, -0.05, midZ),
+    );
+    // 마찰 결합 Min: 기본 Average면 공 마찰(0.1)과 평균돼 오일 존이 0.05 밑으로
+    // 못 내려감 → 슬립이 오일 존에서 닫혀 막판 훅이 죽는다 (constants.ts 주석 참고)
+    this.floor = engine.world.createCollider(
+      RAPIER.ColliderDesc.cuboid(half, 0.05, len / 2)
+        .setFriction(LANE_FRICTION_OIL)
+        .setFrictionCombineRule(RAPIER.CoefficientCombineRule.Min)
+        .setRestitution(0),
+      floorBody,
+    );
 
     // 오일 존 시각 힌트: 미세한 광택 시트 (어디서부터 꺾이는지 읽힌다)
     const oil = new THREE.Mesh(
@@ -100,5 +106,16 @@ export class Lane {
       );
       engine.world.createCollider(RAPIER.ColliderDesc.cuboid(0.025, 0.15, len / 2), wBody);
     }
+  }
+
+  /**
+   * 공 z 위치 기준 오일→드라이 마찰 전환 (hookFactor와 동일 램프). 매 물리 스텝 호출.
+   * 핀도 같은 바닥을 쓰지만, 공이 오일 존에 있는 동안 핀은 정지(sleeping) 상태라
+   * 마찰값이 낮아도 영향 없고, 공이 핀에 닿을 때(z>OIL_END_Z)는 항상 드라이 값이다.
+   */
+  updateFriction(ballZ: number) {
+    this.floor.setFriction(
+      LANE_FRICTION_OIL + (LANE_FRICTION_DRY - LANE_FRICTION_OIL) * hookFactor(ballZ),
+    );
   }
 }

@@ -38,11 +38,16 @@ export class Pin {
         .setTranslation(x, PIN_HEIGHT / 2, z)
         .setCcdEnabled(true),
     );
+    // 마찰 결합 Max: 레인 바닥이 Min 결합(공의 오일 시뮬용, Lane.ts)이라 그대로 두면
+    // 핀-레인 마찰까지 오일값으로 끌려가 핀이 토플 대신 멀리 미끄러진다.
+    // Rapier 규칙 우선순위 Max > Min이라 핀-레인은 항상 max(0.3, 레인) = 0.3 고정,
+    // 공-레인(Average vs Min → Min)은 영향 없음.
     engine.world.createCollider(
       RAPIER.ColliderDesc.cylinder(PIN_HEIGHT / 2, PIN_RADIUS)
         .setMass(PIN_MASS)
         .setRestitution(0.2)
         .setFriction(0.3)
+        .setFrictionCombineRule(RAPIER.CoefficientCombineRule.Max)
         .setActiveEvents(RAPIER.ActiveEvents.CONTACT_FORCE_EVENTS)
         .setContactForceEventThreshold(2),
       this.body,

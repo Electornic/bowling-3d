@@ -1,5 +1,6 @@
 import type { Ball } from '../scene/Ball';
 import type { PinSet } from '../scene/PinSet';
+import type { Lane } from '../scene/Lane';
 import type { Hud } from '../ui/Hud';
 import { LANE_WIDTH, BALL_RADIUS, PIN_DECK_END, SETTLE_TIMEOUT } from './constants';
 import { totalScore } from './Scoreboard';
@@ -28,6 +29,7 @@ export class GameState {
     private readonly ballObj: Ball,
     private readonly pins: PinSet,
     private readonly hud: Hud,
+    private readonly lane: Lane,
   ) {
     this.refreshHud();
   }
@@ -43,6 +45,9 @@ export class GameState {
 
   /** Loop의 물리 스텝마다 호출 */
   update(dt: number) {
+    // 오일/드라이 마찰 전환 (단일 바닥 콜라이더, Lane.updateFriction 참고).
+    // Loop가 아니라 여기 두는 이유: 수동 스텝 디버그(__engine.step + __game.update)에서도 동작해야 함
+    this.lane.updateFriction(this.ballObj.body.translation().z);
     if (this.state === 'ROLLING') {
       this.ballObj.applySpinForce(dt); // 훅 측면력 (도안 §4.1)
       const t = this.ballObj.body.translation();

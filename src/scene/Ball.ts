@@ -98,8 +98,10 @@ export class Ball {
    * hookFactor(z) 게이트 — 오일 존에선 0(직진), 드라이 존에서 1(레이트 훅).
    */
   applySpinForce(dt: number) {
-    const hook = hookFactor(this.body.translation().z);
+    const t = this.body.translation();
+    const hook = hookFactor(t.z);
     if (hook <= 0) return;
+    if (t.y > BALL_RADIUS + 0.005) return; // 접지 마찰 모델 — 공중(바운드 중)엔 주입 금지
     const v = this.body.linvel();
     const w = this.body.angvel();
     const slipX = v.x + w.z * BALL_RADIUS;

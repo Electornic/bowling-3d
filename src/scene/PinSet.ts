@@ -1,6 +1,13 @@
 import type { Engine } from '../core/Engine';
 import { Pin } from './Pin';
-import { PIN_SPACING, HEADPIN_Z, ROW_GAP, PIN_HEIGHT, SETTLE_VEL_EPS } from '../game/constants';
+import {
+  PIN_SPACING,
+  HEADPIN_Z,
+  ROW_GAP,
+  PIN_HEIGHT,
+  SETTLE_VEL_EPS,
+  LANE_WIDTH,
+} from '../game/constants';
 
 // 정삼각형 배치 (도안 §3). 행 0=헤드핀(1번) ... 행 3=뒷줄(7~10번)
 const ROWS = [[0], [-0.5, 0.5], [-1, 0, 1], [-1.5, -0.5, 0.5, 1.5]];
@@ -29,10 +36,13 @@ export class PinSet {
    * ⚠️ 반드시 모두 정지(SETTLING 완료)한 뒤 1회만 호출할 것.
    */
   private isStanding(pin: Pin): boolean {
+    const t = pin.body.translation();
+    // 레인 밖(거터·벽)으로 튕겨난 핀은 자세와 무관하게 쓰러짐 — 벽에 기대 선 핀이
+    // "서 있음"으로 남아 영영 못 치는 케이스 방지 (도안 §4.3 "레인 밖 튕겨나감")
+    if (Math.abs(t.x) > LANE_WIDTH / 2) return false;
     const q = pin.body.rotation();
     // 회전된 (0,1,0)의 y성분 = cos(tilt)
     const upY = 1 - 2 * (q.x * q.x + q.z * q.z);
-    const t = pin.body.translation();
     return upY > UP_COS_45 && t.y > PIN_HEIGHT * 0.25;
   }
 

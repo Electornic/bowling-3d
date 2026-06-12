@@ -14,14 +14,17 @@ import {
   ROLL_RATIO,
   HEADPIN_Z,
   AIM_RANGE,
+  BALL_FRICTION,
+  LANE_FRICTION_OIL,
+  LANE_FRICTION_DRY,
   hookFactor,
 } from '../game/constants';
 
 const PREVIEW_N = 32; // 조준선 점 개수
 const PREVIEW_DT = 0.08; // 예측 시뮬 스텝 (s)
-// 드라이 존에선 Rapier 자체 접촉 마찰도 훅에 가세 → 실제 훅 > 주입력 모델.
-// 예측선은 주입력 수식만 쓰므로 경험 보정 계수 (실측 대비 튜닝)
-const PREVIEW_HOOK_GAIN = 1.4;
+// 예측 모델 = 주입 측면력(∝1/mass) + Rapier 접촉 마찰(질량 무관, μ=min 결합) 2성분.
+// 실제 물리 대비 잔차 보정 계수 (시뮬 5케이스 평균오차 ~1cm)
+const PREVIEW_HOOK_GAIN = 1.0;
 
 /**
  * 포인터(마우스+터치) + 키보드 입력 추상화 (도안 §8).
@@ -185,7 +188,8 @@ export class Controls {
 
   /**
    * 예측 조준선: Ball.launch + applySpinForce와 같은 수식으로 짧게 전방 시뮬.
-   * 스핀이 들어가면 선이 휘고, 무거운 공일수록(REF_MASS 정규화) 덜 휜다.
+   * 주입 측면력(hookFactor 게이트, ∝1/mass)에 Rapier 자체 접촉 마찰 성분
+   * (질량 무관, 오일/드라이 μ 따라 변함)을 더해 실제 궤적을 근사한다.
    * 차징 중에는 현재 파워 기준, 평소엔 중간 파워 기준 경로.
    */
   private updateAimLine() {
@@ -194,9 +198,9 @@ export class Controls {
     const n = Math.hypot(this.aim, 1);
     let vx = (this.aim / n) * speed;
     let vz = (1 / n) * speed;
-    const wzR = (-vx * ROLL_RATIO) + this.spin * SPIN_RATE * BALL_RADIUS; // ωz·R
+    let wzR = (-vx * ROLL_RATIO) + this.spin * SPIN_RATE * BALL_RADIUS; // ωz·R (마찰로 감쇠)
     const wxR = vz * ROLL_RATIO; // ωx·R
-    const accel = ((FRICTION_K * REF_MASS * 9.81) / this.ball.massKg) * PREVIEW_HOOK_GAIN;
+    const inject = (FRICTION_K * REF_MASS * 9.81) / this.ball.massKg;
 
     let x = 0;
     let z = BALL_START_Z;
@@ -208,9 +212,14 @@ export class Controls {
       const slipZ = vz - wxR;
       const mag = Math.hypot(slipX, slipZ);
       const hook = hookFactor(z); // 오일 존 직진 → 드라이 존 레이트 훅 (발사 물리와 동일 게이트)
-      if (mag > SLIP_EPS && hook > 0) {
-        vx -= (slipX / mag) * accel * hook * PREVIEW_DT;
-        vz -= (slipZ / mag) * accel * hook * PREVIEW_DT;
+      if (mag > SLIP_EPS) {
+        const laneFric = LANE_FRICTION_OIL + (LANE_FRICTION_DRY - LANE_FRICTION_OIL) * hook;
+        const rapier = Math.min(BALL_FRICTION, laneFric) * 9.81; // 접촉 마찰 (레인 combine=Min)
+        const a = (inject * hook + rapier) * PREVIEW_HOOK_GAIN;
+        vx -= (slipX / mag) * a * PREVIEW_DT;
+        vz -= (slipZ / mag) * a * PREVIEW_DT;
+        // 마찰은 회전도 진행에 정렬시킴 → 스핀 감쇠 (균일 구: 슬립 닫힘의 2.5배율)
+        wzR -= (slipX / mag) * rapier * PREVIEW_HOOK_GAIN * 2.5 * PREVIEW_DT;
       }
       x += vx * PREVIEW_DT;
       z += vz * PREVIEW_DT;

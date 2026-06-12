@@ -33,7 +33,7 @@ export async function boot() {
   const { game, controls, cameraRig } = buildScene(engine);
   new Loop(
     engine,
-    (dt) => game.update(dt), // 물리 스텝마다 상태머신
+    (dt) => game.update(dt), // 물리 스텝마다 상태머신 (+레인 마찰 전환)
     (dt) => {
       controls.update(); // 렌더 프레임마다 UI(조준선·게이지)
       cameraRig.update(dt); // 상태별 카메라 연출
@@ -52,12 +52,12 @@ function buildScene(engine: Engine): {
   controls: Controls;
   cameraRig: CameraRig;
 } {
-  new Lane(engine);
+  const lane = new Lane(engine);
   new Environment(engine); // 볼링장 배경 (옆 레인·벽·천장·네온, 시각 전용)
   const pins = new PinSet(engine);
   const ball = new Ball(engine, makeBallSpec(10));
   const hud = new Hud();
-  const game = new GameState(ball, pins, hud);
+  const game = new GameState(ball, pins, hud, lane);
   const controls = new Controls(engine, game, ball);
   new BallPicker(ball, game);
   const cameraRig = new CameraRig(engine, game, ball);
