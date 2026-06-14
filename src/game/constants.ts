@@ -63,3 +63,31 @@ export const AIM_RANGE = 0.08;
 export const SETTLE_VEL_EPS = 0.05;
 export const SETTLE_TIMEOUT = 4; // s
 export const PIN_FALL_ANGLE = Math.PI / 4; // 45° 쓰러짐 임계
+
+// --- P2 타격감 (juice) ---
+// 공이 이 z를 넘으면 '핀 임팩트'로 취급 (셰이크·크래시 사운드·슬로모 트리거).
+// 그 전(레인 굴림 중) 접촉은 기존 playHit 그대로 — 굴림 거동은 안 건드린다.
+export const PIN_CONTACT_Z = HEADPIN_Z - 0.18; // ≈18.11 — 공(R0.109)+핀(R0.06)이 헤드핀에 실제 닿는 z. 임팩트(사운드·슬로모) 트리거.
+// 스트라이크/포켓 슬로모: 임팩트 순간 timeScale를 떨궜다가 복원 (Loop.timeScale 인프라 공용).
+// ⚠️ 물리 dt는 불변 — accumulator 유입만 스케일 (Loop 주석 참고).
+export const SLOWMO_SCALE = 0.32; // 슬로모 배속 (낮을수록 더 느림)
+export const SLOWMO_REAL_SEC = 0.85; // 슬로모 지속 (실시간 s) — 복원 정책 필수
+// 카메라 셰이크: 임팩트 contact force 누적 → 진폭, 실시간 감쇠.
+// 토글 OFF — 볼링 손맛은 슬로모+사운드+핀물리가 들고 있고, 화면 셰이크(평행이동 화이트노이즈)는
+// 톤이 어긋나고 과하게 읽힘. 일단 끄고 실플레이 검증(P0). 허전하면 셰이크 복원이 아니라
+// 핀 쪽 push-in(dolly/FOV)으로 채우는 방향.
+export const SHAKE_ENABLED = false;
+export const SHAKE_MAX = 0.12; // 최대 진폭 (m)
+export const SHAKE_DECAY = 10; // 감쇠율 (1/s, 클수록 빨리 잦아듦 — ~0.4s)
+export const SHAKE_FORCE_REF = 150; // 단일 contact force 기준값 (force/이값 비율 × KICK)
+export const SHAKE_KICK = 0.05; // contact 1건당 진폭 기여 상한 (크래시는 여러 건 누적 → SHAKE_MAX)
+// 임팩트 push-in (셰이크 대체 연출). 충돌 시 카메라가 시선 방향(핀 쪽)으로 dolly-in →
+// 잠깐 유지 → 부드럽게 복귀. 좌우 흔들림 없이 "들여다보는" 흥분. dt는 실시간(Loop.onFrame)이라
+// 슬로모(실시간 0.85s)와 자연 동기. 허전/과함은 아래 상수로 튜닝.
+export const PUSHIN_ENABLED = false; // OFF — 핀 접근 카메라(CAM_APPROACH_Z)가 '근접'을 담당해 이중 적용 방지. 필요시 true.
+export const PUSHIN_DIST = 1.3; // 최대 근접 dolly 거리 (m, 시선 방향)
+export const PUSHIN_HOLD = 0.45; // 최대 근접 유지 (실시간 s) — 핀 접촉마다 갱신
+export const PUSHIN_RATE = 9; // 진입/복귀 스무딩 (1/s, 클수록 빠릿)
+// 핀 접근 카메라 (P2): 공이 이 z를 넘으면 로우·와이드 팔로우 → 수평·근접 핀덱 뷰로 이징.
+// 임팩트/핀 쓰러짐이 잘 보이게. 스무딩(k)이 전환을 흡수해 휙 도는 휘프팬 없이 dolly-in처럼 당겨짐.
+export const CAM_APPROACH_Z = HEADPIN_Z - 6; // ≈12.29 (레인 마지막 1/3에서 전환)

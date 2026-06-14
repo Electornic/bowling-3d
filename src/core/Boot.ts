@@ -13,6 +13,7 @@ import { Controls } from '../input/Controls';
 import { CameraRig } from '../camera/CameraRig';
 import { SoundManager } from '../audio/SoundManager';
 import { makeBallSpec } from '../game/BallSpec';
+import { PIN_CONTACT_Z } from '../game/constants';
 
 let _rapier: typeof RAPIER | null = null;
 
@@ -101,9 +102,22 @@ function buildScene(engine: Engine): {
     }
   };
 
-  // 충돌음: contact force 크기 → 합성음 (도안 §10)
+  // 충돌 신호 → 사운드 + 타격감 (P2). 공이 핀 구역(PIN_CONTACT_Z)에 들어선 접촉만
+  // '임팩트'로 취급: 크래시 사운드 구분 + 카메라 셰이크 + 슬로모. 그 전 굴림 접촉은
+  // 기존 playHit 그대로 (굴림 거동 불변).
   const sound = new SoundManager();
-  engine.onContact = (mag) => sound.playHit(mag);
+  engine.onContact = (mag) => {
+    if (ball.body.translation().z > PIN_CONTACT_Z) {
+      // 핀 구역 개별 충돌은 무음 — 임팩트 사운드는 notifyImpact가 투구당 1회 명령(game.onPinImpact)
+      cameraRig.addShake(mag); // 셰이크 토글 OFF(SHAKE_ENABLED) — 현재 no-op
+      cameraRig.pushIn(); // push-in 토글 OFF(PUSHIN_ENABLED) — 현재 no-op
+      game.notifyImpact();
+    } else if (game.state === 'ROLLING') {
+      sound.playHit(mag); // 굴림음 — ROLLING 중에만 (정지/조준 중 접촉력 이벤트 잡음 방지)
+    }
+  };
+  // 투구당 1회 핀 크래시 — 던질 때 서 있던 핀 수로 세기 (개별 contact 폭주 → '여러 번' 해결)
+  game.onPinImpact = (standing) => sound.playRackCrash(standing);
 
   // 초기 카메라 (이후 CameraRig가 상태별로 보간) — AIMING 뷰와 동일
   engine.camera.position.set(0, 1.12, -2.7);

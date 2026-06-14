@@ -69,10 +69,15 @@ export class PinSet {
     });
   }
 
-  /** 쓰러진 핀(데드우드)을 레인 밖으로 치움. 선 핀은 그대로 유지 (도안 §6) */
-  clearDeadwood() {
+  /**
+   * 자동 핀세터 리스팟 (1·2구 사이): 선 핀은 제 스폿(home)에 똑바로 다시 세우고,
+   * 데드우드(쓰러진 핀)는 치운다. 실제 핀세터도 잔존 핀을 집어 올려 스폿에 재배치하므로,
+   * 밀리거나 기운 핀이 그대로 남지 않는다 (도안 §6).
+   */
+  respot() {
     for (const p of this.pins) {
-      if (!this.isStanding(p)) p.stash();
+      if (this.isStanding(p)) p.reset();
+      else p.stash();
     }
   }
 

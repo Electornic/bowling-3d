@@ -2,7 +2,15 @@ import type { Ball } from '../scene/Ball';
 import type { PinSet } from '../scene/PinSet';
 import type { Lane } from '../scene/Lane';
 import type { Hud } from '../ui/Hud';
-import { LANE_WIDTH, BALL_RADIUS, PIN_DECK_END, SETTLE_TIMEOUT } from './constants';
+import {
+  LANE_WIDTH,
+  BALL_RADIUS,
+  PIN_DECK_END,
+  SETTLE_TIMEOUT,
+  PIN_CONTACT_Z,
+  SLOWMO_SCALE,
+  SLOWMO_REAL_SEC,
+} from './constants';
 import { totalScore } from './Scoreboard';
 import { makeBallSpec, type BallSpec } from './BallSpec';
 import { computeAiThrow, type AiProfile } from './ai';
@@ -73,7 +81,7 @@ export const SPARE_LEAVES: number[][] = [
 ];
 
 const AI_THINK_TIME = 0.9; // AI 투구 전 대기 (s, 시뮬 시간)
-const AI_FAST_FORWARD = 3; // AI 턴 ROLLING/SETTLING 빨리감기 배속
+const AI_FAST_FORWARD = 1; // AI 턴 ROLLING/SETTLING 빨리감기 배속 (1=실시간, 공 굴림을 그대로 봄. 빨리감기 원하면 2~3)
 
 /**
  * 투구 루프 상태머신 (도안 §6 + 로드맵 P1/P1.5).
@@ -95,6 +103,8 @@ export class GameState {
   onEvent?: (e: GameEvent) => void;
   /** AI 턴 빨리감기용 Loop.timeScale 주입 (Boot에서 연결) */
   setTimeScale?: (scale: number) => void;
+  /** 투구당 1회 핀 임팩트 사운드 (Boot에서 SoundManager 연결). 인자 = 던질 때 서 있던 핀 수. */
+  onPinImpact?: (standingCount: number) => void;
 
   private players: PlayerState[] = [];
   private settleTimer = 0;
@@ -102,6 +112,8 @@ export class GameState {
   private aiWait = 0;
   private pendingSplit: string | null = null;
   private humanSpec: BallSpec = makeBallSpec(10);
+  private slowmoTimer = 0; // 남은 슬로모 시간 (sim s) — Loop.timeScale로 환산 적용
+  private slowmoUsed = false; // 투구당 1회 (매 throwBall 리셋)
 
   constructor(
     private readonly ballObj: Ball,
@@ -149,6 +161,8 @@ export class GameState {
     this.settleTimer = 0;
     this.aiWait = 0;
     this.pendingSplit = null;
+    this.slowmoTimer = 0;
+    this.slowmoUsed = false;
     if (this.mode === 'spare') this.pins.setLayout(SPARE_LEAVES[0]);
     else this.pins.resetAll();
     this.standingAtThrow = this.pins.standingCount();
@@ -165,6 +179,8 @@ export class GameState {
     this.players = [];
     this.pins.resetAll();
     this.ballObj.reset();
+    this.slowmoTimer = 0;
+    this.slowmoUsed = false;
     this.setTimeScale?.(1);
     this.refreshHud();
   }
@@ -182,7 +198,24 @@ export class GameState {
     this.ballObj.launch(aim, power, spin);
     this.state = 'ROLLING';
     this.settleTimer = 0;
+    this.slowmoUsed = false;
+    this.slowmoTimer = 0;
     this.refreshHud();
+  }
+
+  /**
+   * 충돌 신호 (Boot에서 engine.onContact 배선). 굴러온 공이 핀 구역에 닿는
+   * 첫 임팩트면 투구당 1회 슬로모 발동 (거터볼 제외 — 레인 위 공만).
+   * 트리거 빈도를 줄이려면: PIN_CONTACT_Z 상향, ball===1 게이트 추가, 또는 magnitude 임계 추가.
+   */
+  notifyImpact() {
+    if (this.slowmoUsed || this.state !== 'ROLLING') return;
+    const t = this.ballObj.body.translation();
+    if (t.z > PIN_CONTACT_Z && Math.abs(t.x) < LANE_WIDTH / 2) {
+      this.slowmoUsed = true;
+      this.slowmoTimer = SLOWMO_REAL_SEC * SLOWMO_SCALE; // 실시간 SLOWMO_REAL_SEC (배속 보정)
+      this.onPinImpact?.(this.standingAtThrow); // 투구당 1회 크래시 (개별 contact 사운드 대신)
+    }
   }
 
   /** Loop의 물리 스텝마다 호출 */
@@ -193,10 +226,18 @@ export class GameState {
     // Loop가 아니라 여기 두는 이유: 수동 스텝 디버그(__engine.step + __game.update)에서도 동작해야 함
     this.lane.updateFriction(this.ballObj.body.translation().z);
 
-    // AI 턴 빨리감기 (로드맵 P1.5) — 물리 dt는 그대로, accumulator 유입만 스케일 (Loop.timeScale)
+    // 시간 배속 (물리 dt는 그대로, accumulator 유입만 스케일 — Loop.timeScale).
+    // AI 턴 빨리감기(P1.5) vs 임팩트 슬로모(P2) — 슬로모가 활성일 땐 그게 우선.
     const ai = this.currentPlayer?.ai;
     const fastForward = !!ai && (this.state === 'ROLLING' || this.state === 'SETTLING');
-    this.setTimeScale?.(fastForward ? AI_FAST_FORWARD : 1);
+    let scale = fastForward ? AI_FAST_FORWARD : 1;
+    if (this.slowmoTimer > 0) {
+      // dt는 sim 시간. 슬로모 중 scale배로 흐르므로, 실시간 T초 = sim (T·scale)초 소비.
+      // 따라서 timer를 (REAL_SEC·SCALE) sim초로 잡으면 실시간 REAL_SEC 동안 지속된다.
+      this.slowmoTimer -= dt;
+      scale = SLOWMO_SCALE;
+    }
+    this.setTimeScale?.(scale);
 
     if (this.state === 'AIMING') {
       if (ai) {
@@ -290,7 +331,7 @@ export class GameState {
       }
       this.finishFrame();
     } else {
-      this.pins.clearDeadwood(); // 데드우드 제거, 선 핀 유지
+      this.pins.respot(); // 선 핀은 제자리에 똑바로 재배치 + 데드우드 치움 (자동 핀세터 리스팟)
       p.ball = 2;
       this.ballObj.reset();
       this.state = 'AIMING';
@@ -320,7 +361,7 @@ export class GameState {
 
     if (p.ball === 1) {
       if (standing === 0) this.pins.resetAll();
-      else this.pins.clearDeadwood();
+      else this.pins.respot();
       p.ball = 2;
       this.ballObj.reset();
       this.state = 'AIMING';
@@ -329,7 +370,7 @@ export class GameState {
       const earnedBonus = f[0] === 10 || f[0] + f[1] === 10; // 1구 스트라이크 또는 스페어
       if (earnedBonus) {
         if (standing === 0) this.pins.resetAll();
-        else this.pins.clearDeadwood();
+        else this.pins.respot();
         p.ball = 3;
         this.ballObj.reset();
         this.state = 'AIMING';
