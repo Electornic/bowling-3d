@@ -61,7 +61,9 @@ jobs:
       - name: Install NDK
         run: sdkmanager "ndk;27.1.12297006"
 
-      - run: npm ci
+      # npm ci 대신 install: 락파일이 Mac에서 생성돼 Linux 전용 optional 의존성
+      # (@emnapi/* — rolldown WASM 폴백)을 못 담는 npm 크로스플랫폼 버그 우회.
+      - run: npm install
 
       # debug 빌드 = debug 키로 서명되어 바로 설치 가능 (시크릿 불필요).
       # aarch64 단일 = 실기기 대부분 커버 + CI 시간 절약.
