@@ -32,13 +32,14 @@ export async function boot() {
   _rapier = RAPIER;
 
   const engine = new Engine();
-  const { game, controls, cameraRig } = buildScene(engine);
+  const { game, controls, cameraRig, environment } = buildScene(engine);
   const loop = new Loop(
     engine,
     (dt) => game.update(dt), // 물리 스텝마다 상태머신 (+레인 마찰 전환)
     (dt) => {
       controls.update(); // 렌더 프레임마다 UI(조준선·게이지)
       cameraRig.update(dt); // 상태별 카메라 연출
+      environment.update(dt); // 전광판 애니메이션
     },
   );
   game.setTimeScale = (s) => {
@@ -57,9 +58,10 @@ function buildScene(engine: Engine): {
   game: GameState;
   controls: Controls;
   cameraRig: CameraRig;
+  environment: Environment;
 } {
   const lane = new Lane(engine);
-  new Environment(engine); // 볼링장 배경 (옆 레인·벽·천장·네온, 시각 전용)
+  const environment = new Environment(engine); // 볼링장 배경 (옆 레인·벽·천장·네온·전광판)
   const pins = new PinSet(engine);
   const ball = new Ball(engine, makeBallSpec(10));
   const hud = new Hud();
@@ -75,26 +77,29 @@ function buildScene(engine: Engine): {
   );
   menu.showMenu();
 
-  // 게임 이벤트 → 연출 (P2 연속 스트라이크/스플릿 피드백 선반영)
+  // 게임 이벤트 → 연출. 모든 이벤트 텍스트는 전광판(diegetic)에만 표시 — HUD 중앙 배너 중복 제거.
   game.onEvent = (e) => {
     switch (e.type) {
       case 'strike': {
         const label =
           e.streak >= 4 ? `${e.streak} BAGGER!!` : e.streak === 3 ? 'TURKEY!!' : e.streak === 2 ? 'DOUBLE!' : 'STRIKE!';
-        hud.banner(label);
+        environment.announce(label, '#ff2d78');
         break;
       }
       case 'spare':
-        hud.banner('SPARE!', '#7dd3fc');
+        environment.announce('SPARE!', '#22d3ee');
+        break;
+      case 'gutter':
+        environment.announce('GUTTER', '#9aa6bd'); // 탈색조 — 아쉬운 투구
         break;
       case 'split':
-        hud.banner(`${e.label} 스플릿!`, '#ef6a6a');
+        environment.announce(`${e.label} 스플릿!`, '#ef6a6a');
         break;
       case 'splitConverted':
-        hud.banner(`${e.label} 스플릿 변환! 🔥`, '#4ade80', 2000);
+        environment.announce(`${e.label} 변환!`, '#4ade80');
         break;
       case 'turn':
-        if (e.ai) hud.banner(`${e.playerName}의 차례`, '#aab3c2', 1000);
+        if (e.ai) environment.announce(`${e.playerName} 차례`, '#aab3c2');
         break;
       case 'gameOver':
         menu.showResult(e.summary);
@@ -137,5 +142,5 @@ function buildScene(engine: Engine): {
   w.__game = game;
   w.__cameraRig = cameraRig;
 
-  return { game, controls, cameraRig };
+  return { game, controls, cameraRig, environment };
 }

@@ -37,6 +37,33 @@ export class Ball {
     );
     this.mesh.castShadow = true;
 
+    // 표면 마킹 (회전이 '보이게' — 무지 구는 ωz가 커도 도는 게 안 보인다). 자식이라 공과 함께 회전.
+    const placeMark = (dir: THREE.Vector3, radius: number, color: number) => {
+      const m = new THREE.Mesh(
+        new THREE.CircleGeometry(radius, 16),
+        new THREE.MeshStandardMaterial({ color, roughness: 0.7 }),
+      );
+      m.position.copy(dir).multiplyScalar(BALL_RADIUS + 0.0006); // 표면 바로 위 (z-fight 방지)
+      m.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), dir); // 법선 = 바깥
+      this.mesh.add(m);
+    };
+    // 손가락 구멍 3개 (grip 주변 작은 삼각형, 어두움)
+    // NOTE: setSpec은 공 본체색만 바꾸고 구멍색은 고정(0x0a0a0a)이라 어두운 공에선 대비가 낮아 묻힘 — 알려진 사양(유지)
+    const grip = new THREE.Vector3(0.4, 0.9, 0.3).normalize();
+    const tan = new THREE.Vector3(0, 1, 0).cross(grip).normalize();
+    const bitan = grip.clone().cross(tan).normalize();
+    for (let i = 0; i < 3; i++) {
+      const a = (i * 2 * Math.PI) / 3;
+      const dir = grip
+        .clone()
+        .addScaledVector(tan, Math.cos(a) * 0.2)
+        .addScaledVector(bitan, Math.sin(a) * 0.2)
+        .normalize();
+      placeMark(dir, 0.013, 0x0a0a0a);
+    }
+    // 로고 점 (밝은색 — 어두운 공에서도 회전 추적용 기준점)
+    placeMark(new THREE.Vector3(-0.5, -0.1, -0.85).normalize(), 0.024, 0xeae0c8);
+
     this.body = engine.world.createRigidBody(
       RAPIER.RigidBodyDesc.dynamic()
         .setTranslation(0, BALL_RADIUS, BALL_START_Z)

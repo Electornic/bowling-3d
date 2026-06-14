@@ -61,6 +61,7 @@ export interface GameSummary {
 export type GameEvent =
   | { type: 'strike'; streak: number }
   | { type: 'spare' }
+  | { type: 'gutter' }
   | { type: 'split'; label: string }
   | { type: 'splitConverted'; label: string }
   | { type: 'turn'; playerIndex: number; playerName: string; ai: boolean }
@@ -289,6 +290,9 @@ export class GameState {
     const standing = this.pins.standingCount();
     const knocked = Math.max(0, this.standingAtThrow - standing);
     p.rolls[p.frame - 1].push(knocked);
+
+    // 거터(쓰러뜨린 핀 0) — 스트라이크/스페어처럼 메인 배너 연출 (모드 무관)
+    if (knocked === 0) this.emit({ type: 'gutter' });
 
     if (this.mode === 'spare') {
       this.scoreSpareMode(standing);

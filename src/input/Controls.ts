@@ -19,8 +19,10 @@ import {
   LANE_FRICTION_DRY,
   hookFactor,
 } from '../game/constants';
+import { css, NEON, FONT_UI, rgba, ensureNeonStyles } from '../ui/theme';
 
-const PREVIEW_N = 32; // 조준선 점 개수
+const PREVIEW_N = 32; // 조준선 예측 시뮬 점 개수 (전체 경로 계산용)
+const PREVIEW_DRAW_N = 8; // 실제로 그리는 앞부분 점 수 — 짧은 방향 가이드만 (훅 결과는 숨김)
 const PREVIEW_DT = 0.08; // 예측 시뮬 스텝 (s)
 // 예측 모델 = 주입 측면력(∝1/mass) + Rapier 접촉 마찰(질량 무관, μ=min 결합) 2성분.
 // 실제 물리 대비 잔차 보정 계수 (시뮬 5케이스 평균오차 ~1cm)
@@ -30,8 +32,8 @@ const PREVIEW_HOOK_GAIN = 1.0;
  * 포인터(마우스+터치) + 키보드 입력 추상화 (도안 §8).
  * - 마우스 X → 조준(aim), 스핀까지 반영된 **곡선 예측 조준선** 표시
  * - 캔버스 누르고 있으면 파워 게이지 핑퐁 차징, 떼면 발사 (차징 중 조준선도 파워 반영)
- * - Q/E → 스핀(좌/우 훅), 하단 스핀 게이지로 시각 피드백
- * UI 요소(슬라이더 등) 위 포인터는 무시(canvas 타겟만).
+ * - 스핀: Q/E 키 또는 하단 스핀 바 **드래그**(좌=훅L, 우=훅R), 수치 피드백
+ * UI 요소(슬라이더 등) 위 포인터는 무시(canvas 타겟만 차징/조준).
  */
 export class Controls {
   private aim = 0;
@@ -39,18 +41,24 @@ export class Controls {
   private power = 0;
   private charging = false;
   private chargeDir = 1;
+  private draggingSpin = false;
 
   private readonly aimLine: THREE.Line;
+  private readonly powerWrap: HTMLDivElement;
   private readonly gaugeFill: HTMLDivElement;
-  private readonly spinFill: HTMLDivElement;
-  private readonly gaugeWrap: HTMLDivElement;
   private readonly spinWrap: HTMLDivElement;
+  private readonly spinTrack: HTMLDivElement;
+  private readonly spinFill: HTMLDivElement;
+  private readonly spinThumb: HTMLDivElement;
+  private readonly spinValue: HTMLSpanElement;
 
   constructor(
     private readonly engine: Engine,
     private readonly game: GameState,
     private readonly ball: Ball,
   ) {
+    ensureNeonStyles();
+
     // 곡선 조준선 (스핀 훅 예측 경로)
     const pts = Array.from({ length: PREVIEW_N }, () => new THREE.Vector3(0, 0.02, BALL_START_Z));
     const geo = new THREE.BufferGeometry().setFromPoints(pts);
@@ -58,77 +66,146 @@ export class Controls {
       geo,
       new THREE.LineBasicMaterial({ color: 0xff8800, transparent: true, opacity: 0.95 }),
     );
+    this.aimLine.geometry.setDrawRange(0, PREVIEW_DRAW_N); // 앞부분만 짧게 그림 (전체 경로는 계산만)
     engine.scene.add(this.aimLine);
 
-    // 파워 게이지 (우측 하단 — 중앙은 공과 겹침)
-    const wrap = (this.gaugeWrap = document.createElement('div'));
-    Object.assign(wrap.style, {
+    // === 파워 게이지 (우측 하단 — 중앙은 공과 겹침) ===
+    const powerWrap = (this.powerWrap = document.createElement('div'));
+    css(powerWrap, {
       position: 'fixed',
       bottom: '24px',
       right: '24px',
       width: '240px',
-      height: '14px',
-      background: 'rgba(255,255,255,0.15)',
-      borderRadius: '7px',
-      overflow: 'hidden',
       zIndex: '20',
       pointerEvents: 'none',
-    } as CSSStyleDeclaration);
+    });
+    const powerLabel = document.createElement('div');
+    powerLabel.textContent = 'POWER';
+    css(powerLabel, {
+      font: FONT_UI,
+      fontSize: '10px',
+      letterSpacing: '0.16em',
+      color: NEON.dim,
+      margin: '0 2px 4px',
+    });
+    const gaugeTrack = document.createElement('div');
+    css(gaugeTrack, {
+      width: '100%',
+      height: '14px',
+      background: 'rgba(255,255,255,0.1)',
+      border: `1px solid ${rgba(NEON.cyan, 0.25)}`,
+      borderRadius: '8px',
+      overflow: 'hidden',
+    });
     this.gaugeFill = document.createElement('div');
-    Object.assign(this.gaugeFill.style, {
+    css(this.gaugeFill, {
       width: '0%',
       height: '100%',
       background: 'linear-gradient(90deg,#4ade80,#facc15,#ef4444)',
-    } as CSSStyleDeclaration);
-    wrap.appendChild(this.gaugeFill);
-    document.body.appendChild(wrap);
+      boxShadow: '0 0 12px rgba(250,204,21,0.5)',
+    });
+    gaugeTrack.appendChild(this.gaugeFill);
+    powerWrap.appendChild(powerLabel);
+    powerWrap.appendChild(gaugeTrack);
+    document.body.appendChild(powerWrap);
 
-    // 스핀 게이지 (파워 게이지 위, 중앙 기준 좌/우로 차오름)
+    // === 스핀 게이지 (파워 위) — Q/E 또는 드래그로 좌/우 훅 설정 ===
     const spinWrap = (this.spinWrap = document.createElement('div'));
-    Object.assign(spinWrap.style, {
+    css(spinWrap, {
       position: 'fixed',
-      bottom: '46px',
+      bottom: '72px',
       right: '24px',
       width: '240px',
-      height: '8px',
-      background: 'rgba(255,255,255,0.12)',
-      borderRadius: '4px',
       zIndex: '20',
       pointerEvents: 'none',
-    } as CSSStyleDeclaration);
+    });
+
+    // 헤더: "스핀" 라벨 + 현재 수치
+    const spinHead = document.createElement('div');
+    css(spinHead, {
+      display: 'flex',
+      justifyContent: 'space-between',
+      alignItems: 'baseline',
+      margin: '0 2px 4px',
+    });
+    const spinLabel = document.createElement('span');
+    spinLabel.textContent = '스핀';
+    css(spinLabel, {
+      font: FONT_UI,
+      fontSize: '10px',
+      letterSpacing: '0.16em',
+      color: NEON.dim,
+      textTransform: 'uppercase',
+    });
+    this.spinValue = document.createElement('span');
+    css(this.spinValue, { font: "700 12px/1 ui-monospace, 'SF Mono', monospace", color: NEON.dim });
+    spinHead.appendChild(spinLabel);
+    spinHead.appendChild(this.spinValue);
+
+    // 드래그 가능한 트랙 (중앙=0, 좌/우로 차오름)
+    const spinTrack = (this.spinTrack = document.createElement('div'));
+    css(spinTrack, {
+      position: 'relative',
+      width: '100%',
+      height: '10px',
+      background: 'rgba(255,255,255,0.1)',
+      border: `1px solid ${rgba(NEON.purple, 0.25)}`,
+      borderRadius: '999px',
+      pointerEvents: 'auto',
+      cursor: 'ew-resize',
+      touchAction: 'none',
+    });
     const tick = document.createElement('div'); // 중앙 눈금
-    Object.assign(tick.style, {
+    css(tick, {
       position: 'absolute',
       left: '50%',
-      top: '-2px',
+      top: '-3px',
       width: '2px',
-      height: '12px',
+      height: '16px',
       marginLeft: '-1px',
-      background: 'rgba(255,255,255,0.5)',
-    } as CSSStyleDeclaration);
+      background: rgba(NEON.ice, 0.5),
+    });
     this.spinFill = document.createElement('div');
-    Object.assign(this.spinFill.style, {
+    css(this.spinFill, {
       position: 'absolute',
       left: '50%',
       top: '0',
       width: '0%',
       height: '100%',
-      borderRadius: '4px',
-    } as CSSStyleDeclaration);
-    const label = document.createElement('div');
-    label.textContent = 'Q ◀ 스핀 ▶ E';
-    Object.assign(label.style, {
+      borderRadius: '999px',
+    });
+    this.spinThumb = document.createElement('div');
+    css(this.spinThumb, {
       position: 'absolute',
-      top: '-18px',
       left: '50%',
-      transform: 'translateX(-50%)',
-      font: '600 11px/1 system-ui, sans-serif',
-      color: 'rgba(232,237,245,0.75)',
-      whiteSpace: 'nowrap',
-    } as CSSStyleDeclaration);
-    spinWrap.appendChild(this.spinFill);
-    spinWrap.appendChild(tick);
-    spinWrap.appendChild(label);
+      top: '50%',
+      width: '16px',
+      height: '16px',
+      marginLeft: '-8px',
+      marginTop: '-8px',
+      borderRadius: '50%',
+      background: '#fff',
+      border: `2px solid ${NEON.purple}`,
+      boxShadow: `0 0 8px ${rgba(NEON.purple, 0.8)}`,
+    });
+    spinTrack.appendChild(this.spinFill);
+    spinTrack.appendChild(tick);
+    spinTrack.appendChild(this.spinThumb);
+
+    const spinHint = document.createElement('div');
+    spinHint.textContent = '드래그 또는 Q ◀ ▶ E';
+    css(spinHint, {
+      font: FONT_UI,
+      fontSize: '9px',
+      letterSpacing: '0.04em',
+      color: rgba(NEON.ice, 0.4),
+      textAlign: 'center',
+      margin: '4px 0 0',
+    });
+
+    spinWrap.appendChild(spinHead);
+    spinWrap.appendChild(spinTrack);
+    spinWrap.appendChild(spinHint);
     document.body.appendChild(spinWrap);
 
     this.bindEvents();
@@ -138,8 +215,20 @@ export class Controls {
     return (e.target as HTMLElement)?.tagName === 'CANVAS';
   }
 
+  /** 스핀 바 위 포인터 x → spin ∈ [-1,1] (0.1 단위, Q/E와 동일 해상도) */
+  private setSpinFromPointer(clientX: number) {
+    const r = this.spinTrack.getBoundingClientRect();
+    const ratio = (clientX - r.left) / r.width; // 0..1
+    const s = Math.max(-1, Math.min(1, ratio * 2 - 1));
+    this.spin = Math.round(s * 10) / 10;
+  }
+
   private bindEvents() {
     window.addEventListener('pointermove', (e) => {
+      if (this.draggingSpin) {
+        this.setSpinFromPointer(e.clientX);
+        return;
+      }
       if (!this.onCanvas(e)) return;
       // 카메라(-z에서 +z 방향)는 world +x가 화면 왼쪽 → 부호 반전해야 마우스 방향 = 공 방향
       this.aim = (1 - (e.clientX / window.innerWidth) * 2) * AIM_RANGE;
@@ -152,11 +241,19 @@ export class Controls {
       this.chargeDir = 1;
     });
     window.addEventListener('pointerup', () => {
+      this.draggingSpin = false;
       if (!this.charging) return;
       this.charging = false;
       this.game.throwBall(this.aim, this.power, this.spin);
       this.power = 0;
       this.spin = 0;
+    });
+    // 스핀 바 드래그 (캔버스 차징과 독립 — div 타겟이라 onCanvas=false)
+    this.spinTrack.addEventListener('pointerdown', (e) => {
+      if (this.game.state !== 'AIMING' || !this.game.isHumanTurn()) return;
+      this.draggingSpin = true;
+      this.setSpinFromPointer(e.clientX);
+      e.preventDefault();
     });
     window.addEventListener('keydown', (e) => {
       if (this.game.state !== 'AIMING' || !this.game.isHumanTurn()) return;
@@ -179,15 +276,26 @@ export class Controls {
     }
     this.gaugeFill.style.width = `${this.power * 100}%`;
 
-    // 스핀 게이지: 중앙에서 좌(Q, 파랑)/우(E, 주황)로 차오름
+    // 스핀 게이지: 중앙에서 좌(Q/드래그, 시안)/우(E/드래그, 앰버)로 차오름 + 썸 + 수치
     const s = this.spin;
+    const dirColor = s < 0 ? NEON.cyan : NEON.amber;
     this.spinFill.style.width = `${Math.abs(s) * 50}%`;
     this.spinFill.style.left = s < 0 ? `${50 - Math.abs(s) * 50}%` : '50%';
-    this.spinFill.style.background = s < 0 ? '#38bdf8' : '#fb923c';
+    this.spinFill.style.background = dirColor;
+    this.spinThumb.style.left = `${50 + s * 50}%`;
+    this.spinThumb.style.borderColor = s === 0 ? NEON.purple : dirColor;
+    this.spinThumb.style.boxShadow = `0 0 8px ${rgba(s === 0 ? NEON.purple : dirColor, 0.85)}`;
+    if (s === 0) {
+      this.spinValue.textContent = '0';
+      this.spinValue.style.color = NEON.dim;
+    } else {
+      this.spinValue.textContent = s < 0 ? `◀ L ${Math.abs(s).toFixed(1)}` : `R ${s.toFixed(1)} ▶`;
+      this.spinValue.style.color = dirColor;
+    }
 
     // 메뉴/AI 턴엔 입력 UI 전체 숨김 (로드맵 P1/P1.5)
     const inGame = this.game.state !== 'MENU' && this.game.isHumanTurn();
-    this.gaugeWrap.style.display = inGame ? '' : 'none';
+    this.powerWrap.style.display = inGame ? '' : 'none';
     this.spinWrap.style.display = inGame ? '' : 'none';
 
     const aiming = this.game.state === 'AIMING' && this.game.isHumanTurn();
@@ -207,7 +315,7 @@ export class Controls {
     const n = Math.hypot(this.aim, 1);
     let vx = (this.aim / n) * speed;
     let vz = (1 / n) * speed;
-    let wzR = (-vx * ROLL_RATIO) + this.spin * SPIN_RATE * BALL_RADIUS; // ωz·R (마찰로 감쇠)
+    let wzR = -vx * ROLL_RATIO + this.spin * SPIN_RATE * BALL_RADIUS; // ωz·R (마찰로 감쇠)
     const wxR = vz * ROLL_RATIO; // ωx·R
     const inject = (FRICTION_K * REF_MASS * 9.81) / this.ball.massKg;
 
