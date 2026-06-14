@@ -2,12 +2,22 @@
 <html lang="ko">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!-- maximum-scale/user-scalable=no는 iOS 10+에서 무시되지만 안드로이드 줌 보조. iOS 줌 차단은 canvas의 touch-action이 담당 (MOBILE_SUPPORT.md §4). -->
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover"
+    />
     <title>3D 볼링</title>
     <style>
       * { margin: 0; padding: 0; box-sizing: border-box; }
-      html, body { width: 100%; height: 100%; overflow: hidden; background: #101018; }
-      canvas { display: block; }
+      /* overscroll-behavior: 당겨서새로고침·러버밴딩 차단(Safari 16+, html·body 양쪽). user-select/touch-callout: 롱프레스 선택·메뉴 차단 */
+      html, body {
+        width: 100%; height: 100%; overflow: hidden; background: #101018;
+        overscroll-behavior: none;
+        -webkit-user-select: none; user-select: none; -webkit-touch-callout: none;
+      }
+      /* 게임 표면: 브라우저 제스처(핀치/더블탭 줌·스크롤) 전부 차단 — 입력은 우리가 처리 */
+      canvas { display: block; touch-action: none; }
       #loading {
         position: fixed; inset: 0;
         display: flex; align-items: center; justify-content: center;

@@ -2,6 +2,18 @@ import * as THREE from 'three';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import type RAPIER from '@dimforge/rapier3d-compat';
 import { getRapier } from './Boot';
+import { isCoarsePointer } from './device';
+
+/**
+ * 저사양(주로 모바일) 판정 — 부팅 1회 (MOBILE_SUPPORT.md §6).
+ * deviceMemory(Chrome)·coarse 포인터·화면폭 휴리스틱. antialias는 생성자 옵션이라
+ * 런타임 토글 불가 → 여기서 한 번 결정. pixelRatio·shadowMap도 이 판정으로 낮춘다.
+ */
+function isLowEnd(): boolean {
+  const mem = (navigator as Navigator & { deviceMemory?: number }).deviceMemory;
+  const smallScreen = Math.min(window.innerWidth, window.innerHeight) < 420;
+  return isCoarsePointer() && ((mem !== undefined && mem <= 4) || smallScreen);
+}
 
 /** three 메시 ↔ rapier 강체 페어 */
 export interface PhysicsObject {
@@ -34,15 +46,27 @@ export class Engine {
   constructor() {
     const RAPIER = getRapier();
 
-    // --- 렌더러 ---
-    this.renderer = new THREE.WebGLRenderer({ antialias: true });
+    // --- 렌더러 --- (저사양은 antialias off + pixelRatio 1.5 상한, MOBILE_SUPPORT.md §6)
+    const lowEnd = isLowEnd();
+    this.renderer = new THREE.WebGLRenderer({ antialias: !lowEnd });
     this.renderer.setSize(window.innerWidth, window.innerHeight);
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, lowEnd ? 1.5 : 2));
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFShadowMap;
     document.body.appendChild(this.renderer.domElement);
+
+    // 캔버스 위 브라우저 제스처 차단: 롱프레스 메뉴(contextmenu) + 멀티터치 핀치줌(touchstart>1)
+    const canvas = this.renderer.domElement;
+    canvas.addEventListener('contextmenu', (e) => e.preventDefault());
+    canvas.addEventListener(
+      'touchstart',
+      (e) => {
+        if (e.touches.length > 1) e.preventDefault();
+      },
+      { passive: false },
+    );
 
     // --- 씬 ---
     this.scene = new THREE.Scene();
@@ -69,7 +93,7 @@ export class Engine {
     const dir = new THREE.DirectionalLight(0xffffff, 1.3);
     dir.position.set(6, 14, -2);
     dir.castShadow = true;
-    dir.shadow.mapSize.set(1024, 1024);
+    dir.shadow.mapSize.set(lowEnd ? 512 : 1024, lowEnd ? 512 : 1024);
     dir.shadow.camera.near = 1;
     dir.shadow.camera.far = 50;
     const r = 14;

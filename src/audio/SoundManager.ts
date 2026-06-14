@@ -20,6 +20,16 @@ export class SoundManager {
     window.addEventListener('keydown', resume);
   }
 
+  /** 백그라운드 진입 시 오디오 스레드 정지 (배터리/발열). visibilitychange에서 호출 (MOBILE_SUPPORT.md §6). */
+  suspend() {
+    if (this.ctx && this.ctx.state === 'running') void this.ctx.suspend();
+  }
+
+  /** 포그라운드 복귀 시 재개. */
+  resume() {
+    if (this.ctx && this.ctx.state === 'suspended') void this.ctx.resume();
+  }
+
   /** 충돌음: magnitude(contact force) → 볼륨·피치로 매핑. 레인 굴림 등 일반 접촉용. */
   playHit(magnitude: number) {
     if (!this.ctx || !this.enabled) return;
@@ -140,5 +150,23 @@ export class SoundManager {
     osc.connect(og).connect(ctx.destination);
     osc.start(now);
     osc.stop(now + 0.24);
+
+    // 3) 나무 핀 클래터 — 이산 우드 클랙 다발. 노이즈 워시만으론 '쉭'에 가까워, 핀끼리 부딪는
+    //    피치 있는 '딱딱딱'을 여러 발 스태거해 실제 나무 클래터 질감을 더한다.
+    //    한 번의 playRackCrash 안에서 스케줄되는 '한 이벤트'라 슬로모 '탭탭탭' 아티팩트 없음.
+    const clacks = 3 + Math.round(intensity * 5); // 핀 많을수록 촘촘 (~3~8발)
+    for (let i = 0; i < clacks; i++) {
+      const t = now + 0.015 + Math.random() * (0.32 + intensity * 0.25); // ~0.5s 창에 분산
+      const o = ctx.createOscillator();
+      const g = ctx.createGain();
+      o.type = 'triangle';
+      o.frequency.value = 380 + Math.random() * 520; // 나무 공명 대역
+      const v = (0.05 + Math.random() * 0.07) * (0.6 + intensity * 0.6);
+      g.gain.setValueAtTime(v, t);
+      g.gain.exponentialRampToValueAtTime(0.001, t + 0.05 + Math.random() * 0.04);
+      o.connect(g).connect(ctx.destination);
+      o.start(t);
+      o.stop(t + 0.12);
+    }
   }
 }

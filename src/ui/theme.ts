@@ -69,6 +69,12 @@ export function ensureNeonStyles(): void {
   background: #fff; box-shadow: 0 0 10px ${rgba(NEON.cyan, 0.9)};
 }
 .neon-range::-moz-range-track { height: 6px; border-radius: 999px; background: transparent; }
+/* 터치(coarse): 슬라이더 썸 18→28px로 키워 손가락 타깃 확보 (MOBILE_SUPPORT.md §3.1) */
+@media (pointer: coarse) {
+  .neon-range { height: 10px; }
+  .neon-range::-webkit-slider-thumb { width: 28px; height: 28px; }
+  .neon-range::-moz-range-thumb { width: 28px; height: 28px; }
+}
 @keyframes neonPulse {
   0%, 100% { box-shadow: inset 0 0 0 1.5px ${rgba(NEON.gold, 0.55)}, 0 0 9px ${rgba(NEON.gold, 0.3)}; }
   50%      { box-shadow: inset 0 0 0 1.5px ${rgba(NEON.gold, 1)}, 0 0 16px ${rgba(NEON.gold, 0.55)}; }

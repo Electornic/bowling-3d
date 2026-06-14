@@ -14,6 +14,7 @@ import { CameraRig } from '../camera/CameraRig';
 import { SoundManager } from '../audio/SoundManager';
 import { makeBallSpec } from '../game/BallSpec';
 import { PIN_CONTACT_Z } from '../game/constants';
+import { isCoarsePointer } from './device';
 
 let _rapier: typeof RAPIER | null = null;
 
@@ -32,14 +33,23 @@ export async function boot() {
   _rapier = RAPIER;
 
   const engine = new Engine();
-  const { game, controls, cameraRig, environment } = buildScene(engine);
+  const { game, controls, cameraRig, environment, sound } = buildScene(engine);
+  let shadowMoving = true; // 그림자 정적화 상태 추적 (§6)
   const loop = new Loop(
     engine,
     (dt) => game.update(dt), // 물리 스텝마다 상태머신 (+레인 마찰 전환)
     (dt) => {
-      controls.update(); // 렌더 프레임마다 UI(조준선·게이지)
+      controls.update(dt); // 렌더 프레임마다 UI(조준선·게이지) — dt 기반 파워 차징(프레임레이트 독립)
       cameraRig.update(dt); // 상태별 카메라 연출
       environment.update(dt); // 전광판 애니메이션
+      // 그림자 정적화: 공·핀이 멈춘 상태(AIMING/MENU/GAME_OVER)엔 셰도우맵 재렌더 중단,
+      // ROLLING/SETTLING에만 갱신 (시간 대부분이 조준이라 이득 큼).
+      const moving = game.state === 'ROLLING' || game.state === 'SETTLING';
+      if (moving !== shadowMoving) {
+        shadowMoving = moving;
+        engine.renderer.shadowMap.autoUpdate = moving;
+        if (!moving) engine.renderer.shadowMap.needsUpdate = true; // 정지 직전 1회 갱신
+      }
     },
   );
   game.setTimeScale = (s) => {
@@ -47,7 +57,56 @@ export async function boot() {
   };
   loop.start();
 
+  // 비가시(탭 전환·잠금) 시 렌더·오디오 정지 → 배터리/발열 절감 (§6)
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) {
+      loop.stop();
+      sound.suspend();
+    } else {
+      sound.resume();
+      loop.start();
+    }
+  });
+
+  // 세로 화면이면 가로 권장 1회 안내 (비차단, §5)
+  maybeShowOrientationHint();
+
   document.getElementById('loading')?.remove();
+}
+
+/**
+ * 세로(portrait) 터치 기기에서 "가로로 돌리면 더 잘 보여요" 1회 안내 (MOBILE_SUPPORT.md §5).
+ * 비차단 오버레이 — 일정 시간 뒤 또는 가로 전환 시 사라진다. 강제 잠금은 하지 않음.
+ */
+function maybeShowOrientationHint() {
+  if (!isCoarsePointer()) return;
+  const portrait = matchMedia('(orientation: portrait)');
+  if (!portrait.matches) return;
+
+  const el = document.createElement('div');
+  el.textContent = '↻ 가로로 돌리면 더 잘 보여요';
+  el.style.cssText = [
+    'position:fixed',
+    'left:50%',
+    'bottom:calc(16px + env(safe-area-inset-bottom))',
+    'transform:translateX(-50%)',
+    'padding:8px 16px',
+    'border-radius:999px',
+    'background:rgba(14,17,27,0.92)',
+    'border:1px solid rgba(34,211,238,0.4)',
+    'color:#e8edf5',
+    "font:600 12px/1.4 system-ui, sans-serif",
+    'z-index:50',
+    'pointer-events:none',
+    'box-shadow:0 6px 26px rgba(0,0,0,0.5)',
+  ].join(';');
+  document.body.appendChild(el);
+
+  const dismiss = () => el.remove();
+  setTimeout(dismiss, 3500);
+  portrait.addEventListener('change', (e) => {
+    if (!e.matches) dismiss();
+  });
 }
 
 /**
@@ -59,6 +118,7 @@ function buildScene(engine: Engine): {
   controls: Controls;
   cameraRig: CameraRig;
   environment: Environment;
+  sound: SoundManager;
 } {
   const lane = new Lane(engine);
   const environment = new Environment(engine); // 볼링장 배경 (옆 레인·벽·천장·네온·전광판)
@@ -122,7 +182,11 @@ function buildScene(engine: Engine): {
     }
   };
   // 투구당 1회 핀 크래시 — 던질 때 서 있던 핀 수로 세기 (개별 contact 폭주 → '여러 번' 해결)
-  game.onPinImpact = (standing) => sound.playRackCrash(standing);
+  game.onPinImpact = (standing) => {
+    sound.playRackCrash(standing);
+    // 임팩트 햅틱 — Android Chrome만 지원(iOS Safari 미지원), feature-detect 후 호출 (§6)
+    if (typeof navigator.vibrate === 'function') navigator.vibrate(standing > 2 ? 30 : 12);
+  };
 
   // 초기 카메라 (이후 CameraRig가 상태별로 보간) — AIMING 뷰와 동일
   engine.camera.position.set(0, 1.12, -2.7);
@@ -142,5 +206,5 @@ function buildScene(engine: Engine): {
   w.__game = game;
   w.__cameraRig = cameraRig;
 
-  return { game, controls, cameraRig, environment };
+  return { game, controls, cameraRig, environment, sound };
 }

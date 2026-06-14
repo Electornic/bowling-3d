@@ -1,6 +1,13 @@
 import { frameScores } from '../game/Scoreboard';
 import { SPARE_LEAVES, type GameStateName, type GameMode } from '../game/GameState';
+import { isCoarsePointer } from '../core/device';
 import { css, NEON, FONT_UI, FONT_DIGITS, rgba, applyPanel, ensureNeonStyles } from './theme';
+
+// 터치(coarse): 좁은 폰에서 10프레임 점수판이 넘치지 않게 셀 축소 + 가로 스크롤 (MOBILE_SUPPORT.md §3)
+const COARSE = isCoarsePointer();
+const CELL = COARSE ? 13 : 17; // 마크 칸 한 변(px)
+const SCORE_H = COARSE ? 17 : 20; // 누적점수 줄 높이(px)
+const SCORE_FS = COARSE ? 12 : 14; // 누적점수 폰트(px)
 
 export interface HudPlayerView {
   name: string;
@@ -133,6 +140,8 @@ export class Hud {
     const accent = active ? NEON.gold : NEON.cyan;
     const row = document.createElement('div');
     css(row, { display: 'flex', alignItems: 'center', gap: '6px' });
+    // 터치: 셀 축소로도 넘치는 폭(멀티/마지막 프레임)은 가로 스크롤로 흡수. wrap이 pointerEvents:none이라 행에 auto 부여.
+    if (COARSE) css(row, { maxWidth: '96vw', overflowX: 'auto', pointerEvents: 'auto', touchAction: 'pan-x' });
 
     if (d.players.length > 1) {
       const name = document.createElement('div');
@@ -214,8 +223,8 @@ export class Hud {
       for (const m of f === d.frames - 1 ? marksLast(fr) : marksNormal(fr)) {
         const cell = document.createElement('div');
         css(cell, {
-          width: '17px',
-          height: '17px',
+          width: `${CELL}px`,
+          height: `${CELL}px`,
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
@@ -228,11 +237,11 @@ export class Hud {
 
       const score = document.createElement('div');
       css(score, {
-        height: '20px',
+        height: `${SCORE_H}px`,
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
-        fontSize: '14px',
+        fontSize: `${SCORE_FS}px`,
         color: '#fff',
       });
       score.textContent = cum[f] !== undefined ? String(cum[f]) : '';

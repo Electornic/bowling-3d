@@ -1,8 +1,11 @@
 import type { GameMode, MatchConfig, GameSummary } from '../game/GameState';
 import { AI_PROFILES } from '../game/ai';
 import { statsSummary } from '../game/Stats';
+import { isCoarsePointer } from '../core/device';
 
 const css = (el: HTMLElement, style: Partial<CSSStyleDeclaration>) => Object.assign(el.style, style);
+
+const COARSE = isCoarsePointer(); // 터치 환경: 버튼/칩 히트영역 ≥44px (MOBILE_SUPPORT.md §3.1)
 
 const MODES: { key: GameMode; label: string; desc: string }[] = [
   { key: 'full', label: '풀게임', desc: '10프레임 정식 룰' },
@@ -44,8 +47,13 @@ export class MenuUI {
       padding: '28px 32px',
       color: '#e8edf5',
       font: '500 14px/1.5 system-ui, sans-serif',
-      minWidth: '340px',
+      minWidth: COARSE ? 'auto' : '340px', // 좁은 폰에서 340px 강제 → 가로 오버플로 방지
       maxWidth: '92vw',
+      // 짧은 가로(landscape) 화면에서 내용이 넘치면 잘림 → 패널 내부 세로 스크롤 허용.
+      // dvh: iOS 동적 주소창이 vh에 포함돼 밀리는 문제 회피. pan-y: 세로 스크롤만(핀치/더블탭 줌 차단). (§3·§4)
+      maxHeight: '90dvh',
+      overflowY: 'auto',
+      touchAction: 'pan-y',
       boxShadow: '0 18px 60px rgba(0,0,0,0.5)',
     });
     this.backdrop.appendChild(this.panel);
@@ -138,7 +146,9 @@ export class MenuUI {
     // 조작법
     const help = document.createElement('div');
     css(help, { marginTop: '8px', font: '500 11px/1.6 system-ui, sans-serif', color: '#6b7686' });
-    help.textContent = '마우스 이동 = 조준 · 꾹 눌렀다 떼기 = 파워 발사 · Q/E = 좌/우 스핀';
+    help.textContent = COARSE
+      ? '누른 채 좌우로 조준 · 떼면 파워 발사 · 하단 바 = 스핀'
+      : '마우스 이동 = 조준 · 꾹 눌렀다 떼기 = 파워 발사 · Q/E = 좌/우 스핀';
     this.panel.appendChild(help);
 
     this.backdrop.style.display = 'flex';
@@ -262,7 +272,8 @@ export class MenuUI {
     b.title = desc;
     b.textContent = label;
     css(b, {
-      padding: '9px 12px',
+      padding: COARSE ? '12px 14px' : '9px 12px',
+      minHeight: COARSE ? '44px' : '',
       borderRadius: '9px',
       border: '1px solid rgba(255,255,255,0.18)',
       background: 'rgba(255,255,255,0.05)',
