@@ -1,0 +1,98 @@
+name: Release Android APK
+
+# main에 푸시할 때마다 Android APK를 빌드해 GitHub Release로 발행.
+# 태그: vYYMMDDNN (한국시간 날짜 + 같은 날 N번째 = NN 01,02,...)
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write # 릴리스/태그 생성 권한
+
+# 같은 브랜치에서 연속 푸시 시 진행 중 빌드는 취소(최신만 릴리스)
+concurrency:
+  group: release-android
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # 태그 전체를 받아 NN 계산
+
+      - name: Compute tag (vYYMMDDNN)
+        id: tag
+        run: |
+          DATE=$(TZ=Asia/Seoul date +%y%m%d)
+          git fetch --tags --force
+          LAST=$(git tag -l "v${DATE}??" | sort | tail -n1)
+          if [ -z "$LAST" ]; then
+            NN=01
+          else
+            NN=$(printf "%02d" $((10#${LAST: -2} + 1)))
+          fi
+          TAG="v${DATE}${NN}"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "### 릴리스 태그: $TAG" >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24 # 로컬과 동일 · Node 20은 2026-04 EOL
+          cache: npm
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - uses: android-actions/setup-android@v3
+
+      - name: Install NDK
+        run: sdkmanager "ndk;27.1.12297006"
+
+      - run: npm ci
+
+      # debug 빌드 = debug 키로 서명되어 바로 설치 가능 (시크릿 불필요).
+      # aarch64 단일 = 실기기 대부분 커버 + CI 시간 절약.
+      - name: Build APK
+        run: |
+          export NDK_HOME="$ANDROID_HOME/ndk/27.1.12297006"
+          npx tauri android build --debug --apk --target aarch64
+
+      - name: Collect APK
+        run: |
+          mkdir -p out
+          APK=$(find src-tauri/gen/android/app/build/outputs/apk -name '*.apk' | head -n1)
+          echo "Found APK: $APK"
+          cp "$APK" "out/bowling-3d-${{ steps.tag.outputs.tag }}.apk"
+
+      # 직전 태그~HEAD 커밋을 릴리스 노트로 생성 (직푸시 방식이라 PR 기반 자동노트 대신 커밋 로그 사용)
+      - name: Build release notes
+        run: |
+          PREV=$(git describe --tags --abbrev=0 2>/dev/null || true)
+          RANGE=${PREV:+$PREV..HEAD}
+          {
+            echo "## 변경사항"
+            git log $RANGE --no-merges --pretty="- %s (%h)"
+            [ -n "$PREV" ] && printf '\n이전 릴리스: %s\n' "$PREV"
+          } > notes.md
+          cat notes.md
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.tag.outputs.tag }}
+          name: ${{ steps.tag.outputs.tag }}
+          body_path: notes.md
+          files: out/*.apk

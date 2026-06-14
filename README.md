@@ -19,6 +19,19 @@ npm run dev    # http://localhost:5173
 npm test       # 점수 계산 단위테스트
 ```
 
+## 데스크톱 · 모바일 앱
+
+같은 코드를 [Tauri v2](https://v2.tauri.app)로 **Windows · macOS · Android · iOS** 네이티브 앱으로 패키징한다(셸은 `src-tauri/`).
+
+```bash
+npm run app:dev      # 데스크톱 개발 창
+npm run app:build    # 데스크톱 번들 (현재 OS)
+npm run ios:dev      # iOS (Mac + Xcode)
+npm run android:dev  # Android (SDK/NDK 필요)
+```
+
+준비물·스토어·플랫폼별 주의는 [docs/APP_PACKAGING.md](docs/APP_PACKAGING.md) 참고.
+
 ## 조작
 
 **데스크톱 (마우스 + 키보드)**
@@ -47,6 +60,7 @@ npm test       # 점수 계산 단위테스트
 
 - [docs/GAME_DESIGN.md](docs/GAME_DESIGN.md) — 설계 도안 (좌표계·물리 상수·상태머신·Rapier API 검증 부록)
 - [docs/MOBILE_SUPPORT.md](docs/MOBILE_SUPPORT.md) — 모바일/터치 대응 설계·구현 (발사 인터랙션·반응형 UI·뷰포트/제스처·성능 적응)
+- [docs/APP_PACKAGING.md](docs/APP_PACKAGING.md) — Tauri v2 데스크톱/모바일 앱 패키징 (Win·Mac·Android·iOS 빌드·스토어·함정)
 - [docs/PROGRESS.md](docs/PROGRESS.md) — 세션별 진행 기록·튜닝 노트·다음 할 일
 
 ## 디버그

@@ -83,7 +83,8 @@ export class Hud {
     this.wrap = document.createElement('div');
     css(this.wrap, {
       position: 'fixed',
-      top: '10px',
+      // 상단 점수판: 노치/Dynamic Island/상태바 침범 방지 (iOS WKWebView는 viewport-fit=cover로 인셋 제공)
+      top: 'calc(10px + env(safe-area-inset-top))',
       left: '50%',
       transform: 'translateX(-50%)',
       display: 'none',
