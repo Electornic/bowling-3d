@@ -77,7 +77,7 @@ export class Lane {
       const gx = side * (half + gw / 2);
       const gutter = new THREE.Mesh(
         new THREE.BoxGeometry(gw, 0.1, len),
-        new THREE.MeshStandardMaterial({ color: 0x14181f, roughness: 0.7 }),
+        new THREE.MeshStandardMaterial({ color: 0x14181f, roughness: 1, envMapIntensity: 0 }), // 무광 — 반사 시밍 제거
       );
       gutter.position.set(gx, -0.18, midZ); // 레인보다 0.13 낮음 → 공이 빠지면 핀 못 닿음
       gutter.receiveShadow = true;
@@ -91,11 +91,14 @@ export class Lane {
         gBody,
       );
 
-      // 거터 바깥 벽 (코스 이탈 방지)
-      const wx = side * (half + gw);
+      // 거터 바깥 벽 (코스 이탈 방지). 벽 반두께(0.025)만큼 더 바깥에 둬 안쪽 면이 거터 바깥 끝
+      // (half+gw)에 맞게 — 안 그러면 벽이 거터 바닥을 침범해 채널이 공 지름보다 좁아지고 공이 낀다.
+      const wx = side * (half + gw + 0.025);
       const wall = new THREE.Mesh(
         new THREE.BoxGeometry(0.05, 0.3, len),
-        new THREE.MeshStandardMaterial({ color: 0x222831, roughness: 0.85 }),
+        // 무광(roughness 1 + envMapIntensity 0) — 빗각에서 환경맵 반사가 카메라 이동 시 미끄러지며
+        // 번뜩이던(점멸) 것을 제거. 어두운 경계 벽이라 반사 없어도 외형 영향 없음.
+        new THREE.MeshStandardMaterial({ color: 0x222831, roughness: 1, metalness: 0, envMapIntensity: 0 }),
       );
       wall.position.set(wx, 0.1, midZ);
       wall.receiveShadow = true;

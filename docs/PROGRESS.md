@@ -1,13 +1,34 @@
 # 진행 상황 & 다음 세션 핸드오프
 
-> 마지막 작업: 2026-06-12 (5차 세션 — 로드맵 P0.5/P1/P1.5 구현: 핀 캐리 밸런스, 게임 루프 완성, AI 라이벌)
+> 마지막 구현: 2026-06-15 (7차 세션 — ① 스핀 손맛 `spin^0.7` + ② AI 난이도 사다리 130/228/169)
+> 마지막 갱신: 2026-06-15 (7차 세션 — 스핀/AI 배치 구현 완료 [SPIN_FEEL_AND_AI_LADDER.md])
 > 설계 문서는 [GAME_DESIGN.md](./GAME_DESIGN.md), 게임성 로드맵은 [GAMEPLAY_ROADMAP.md](./GAMEPLAY_ROADMAP.md) 참고.
 
 ---
 
 ## 한 줄 요약
 
-**게임 루프 완성.** 메뉴 → (풀게임/블리츠/스페어 챌린지) × (혼자/AI 라이벌 3인) → 결과/하이스코어 → 재시작. 핀 캐리 튜닝으로 직구 천장을 깎아 훅이 최적해가 됐다. 남은 건 P0 손맛 피드백과 P2 연출 본편.
+**게임 루프 + 타격감 + 모바일 + 패키징까지 완성.** 메뉴 → (풀게임/블리츠/스페어 챌린지) × (혼자/AI 라이벌 3인) → 결과/하이스코어 → 재시작. 핀 캐리 튜닝으로 훅이 최적해. P2 연출 본편(슬로모·임팩트 사운드·접근 카메라·전광판)·모바일 터치·Tauri/Android APK까지 구현됨. **7차에 ① 스핀 손맛(`spin^0.7`)·② AI 난이도 사다리(130/228/169) 완료. 남은 건 P2 ⑥ 충돌 시각효과(다음 배치 1순위) + P3 숙련 깊이 + ③승리보상·④에셋** → [SPIN_FEEL_AND_AI_LADDER.md](./SPIN_FEEL_AND_AI_LADDER.md).
+
+## 7차 세션에 한 일 (① 스핀 손맛 + ② AI 난이도 사다리)
+
+계획·검토 문서: [SPIN_FEEL_AND_AI_LADDER.md](./SPIN_FEEL_AND_AI_LADDER.md) (웹서치 물리 정합 재검토 포함).
+
+1. **① 스핀 손맛 — `spin^0.7` 입력 곡선** (`constants.ts` `SPIN_POW=0.7`/`effectiveSpin()`, [Ball.ts](../src/scene/Ball.ts) 발사·[Controls.ts](../src/input/Controls.ts) 예측선 공용). sim-carry 확장(스핀 레버 CLI + 파워×스핀 그리드 + 막판 곡률 출력)으로 **물리 레버 전수 스캔**: `ROLL_RATIO`/`SLIP_EPS`/`FRICTION_K`/`OIL_END_Z`/`HOOK_RAMP` 전부 **저/미드스핀 dead zone을 못 살림(가드만 붕괴) 확정**. 훅은 횡슬립 비율 ∝ 스핀이라 어떤 물리 레버도 풀스핀 가드를 안 깨고 약스핀을 못 살린다 → 스핀 *입력*을 `spin^0.7`로 리매핑(1.0 고정점 = 풀스핀·전 가드 −30cm·4/31·7/31·65cm **자동 불변**, 저/미드 막판스냅 **+40%**). 사용자 손맛 OK.
+2. **② AI 난이도 사다리** — 헤드리스 매치 sim 신규([tests/ai-match-sim.test.ts](../tests/ai-match-sim.test.ts): vitest `.ts`·`runIf(AI_SIM)` 가드·`constants`/`computeAiThrow`/`totalScore` import·투구별 Rapier 핀=드리프트 0). **캘리브레이션 버그 발견·수정**: AI 직구가 `POCKET_X_STRAIGHT=0`(헤드핀 정면=노즈히트=스플릿)을 노려 스트라이크가 안 났음(점수가 jitter 무관 ~120-156에 뭉친 진짜 원인) → 미세스윕으로 실제 포켓 −7cm 확인 → `POCKET_X_STRAIGHT` 0→**−0.07**, `POCKET_X_HOOK` 0.067→**0.05**. jitter 튜닝(N=200): **김부장 130(쉬움)·한프로 228(어려움)·도박사 윤 169±28(고변동·sd 최대)**, 김↔한 98점차. `HOOK_DRIFT_FULL=0.33`은 `effectiveSpin(1)=1`이라 ①과 무관히 유효(윤 재측정 불필요). 메뉴 칩에 `난이도` 표시([Menu.ts](../src/ui/Menu.ts), `AiProfile.difficulty` 신규).
+
+검증: tsc 클린 + **vitest 22/22**(+ 매치 sim 1 skipped, `AI_SIM=1`로 실행) + 브라우저 메뉴 확인. 인사이트는 `knowledge-hub-private/game-dev/ai-difficulty-via-aim-variance.md`에 정리.
+
+## 6차 세션에 한 일 (P2 다듬기 + UI + 모바일 + 패키징)
+
+> ⚠️ GAMEPLAY_ROADMAP.md는 5차(v5)에서 멈춰 P2/모바일을 "남은 작업"으로 적고 있으나 **아래 작업으로 대부분 해소됨** — 로드맵은 다음 갱신 시 v6 반영 필요.
+
+1. **P2 타격감 다듬기** (`3597b60`) — 임팩트 사운드를 투구당 1회 크래시로 통일(`game.notifyImpact`→`onPinImpact`, 충돌 윈도우 누적 드럼난타 제거), 어택을 '나무 크랙'으로 재설계. 임팩트 트리거를 `PIN_CONTACT_Z`(실접촉 거리)로 당김(닿기 전 소리 해소). 카메라 핀 접근뷰(볼 진행도 `u` 연속 종속 smoothstep). 핀 `clearDeadwood`→`respot`(1·2구 사이 선 핀 제 스폿 재배치 = 자동 핀세터, AI 조준도 동반 교정).
+2. **UI 네온 통일 + 전광판 일원화** (`801bd34`) — 공통 네온 토큰(`ui/theme.ts`), 커스텀 네온 볼무게 슬라이더, 스핀 바 드래그 입력(Q/E 병행), 모든 이벤트 텍스트를 전광판으로 일원화(HUD 중앙 배너 중복 제거), 거터 어나운스, 조준선 앞부분만 표시(훅 결과 숨김).
+3. **모바일/터치 대응** (`ac0ef80`) — 터치 발사(드래그 조준 + 홀드 차징), 멀티터치·pointercancel 견고성, 반응형 UI(컴팩트 칩·전체폭 게이지 도크·≥44px), safe-area·햅틱(Android)·저사양 적응. **버그픽스: 파워 차징 dt 기반화**(FPS에 따라 차징 속도 변하던 것). 임팩트 push-in **재활성**(`PUSHIN_DIST` 0.6). [MOBILE_SUPPORT.md](./MOBILE_SUPPORT.md) 신규.
+4. **Tauri v2 패키징 + Android APK CI** (`c447a2b`, `cda1e4a`) — `src-tauri/` 4플랫폼 스캐폴딩, main 푸시 시 `vYYMMDDNN` 태그로 APK 빌드→GitHub Release CI, Hud 상단 safe-area inset. [APP_PACKAGING.md](./APP_PACKAGING.md) 신규.
+
+검증: tsc 클린 + **vitest 22/22** + 실플레이 확인 (각 커밋 메시지 참조).
 
 ## 5차 세션에 한 일 (로드맵 P0.5 → P1 → P1.5)
 
@@ -83,21 +104,23 @@ npm test           # Vitest (점수 로직, 7개 통과)
 
 ## ⚠️ 다음 세션 첫 할 일
 
-**사용자 손맛 확인 (P0)** — 수치 검증은 끝났지만 실플레이 느낌 확인은 아직:
-- 레이트 훅 느낌 (오일/드라이 경계 `OIL_END_Z` 10.5, 훅 세기 `FRICTION_K` 0.16·`LANE_FRICTION_DRY` 0.14, 풀스핀 -61cm가 과하면 `SPIN_RATE` 14→12)
-- **핀 액션 느낌** — 5차 캐리 튜닝으로 핀 선형 감쇠 0.8 추가: 핀이 묵직하게 느껴지면 `PIN_LINEAR_DAMPING`·`PIN_RESTITUTION` 조정 (단, sim-carry.mjs로 직구/훅 윈도우 재측정 필수)
-- 팔로우 카메라 느낌 (공 뒤 거리 4.5, 높이 1.5 — `CameraRig.ts`, 레인 좁아 보이면 높이 1.2 시도)
-- 조준 감도(`AIM_RANGE` 0.08), AI 난이도 체감(`ai.ts` 프로필 분산값)
+**P2 ⑥ 핀 충돌 시각효과** — 7차로 ① 스핀·② AI가 끝나, [SPIN_FEEL_AND_AI_LADDER.md](./SPIN_FEEL_AND_AI_LADDER.md) §4 백로그에서 **비용 대비 체감이 가장 큰 1순위**. 충돌 지점 임팩트 플래시/스파크 + 닿은 핀 발광. `engine.onContact`에 위치·force가 들어오니 배선은 깔끔(슬로모·push-in·크래시음은 이미 있음 — **시각효과만 잔여**). 함께 검토: ③ 승리 보상(보상 정의 미정 — 새 볼 언락/칭호/연출 중 택), ④ 절차적 에셋 다듬기.
+
+**미확정 손맛 체크 (선택, 시간 나면)** — ① 스핀은 사용자 확인됨. 남은 건:
+- **핀 액션 느낌** — 핀 선형 감쇠 0.8이 묵직하면 `PIN_LINEAR_DAMPING`·`PIN_RESTITUTION` 조정 (단, sim-carry.mjs로 직구/훅 윈도우 재측정 필수)
+- 팔로우 카메라(공 뒤 4.5·높이 1.5 — `CameraRig.ts`), 조준 감도(`AIM_RANGE` 0.08)
 
 ## 남은 작업 (우선순위 순)
 
-> 게임성 개선 방향은 [GAMEPLAY_ROADMAP.md](./GAMEPLAY_ROADMAP.md) 참고. P0.5/P1/P1.5는 5차 세션 완료.
+> 게임성 개선 방향은 [GAMEPLAY_ROADMAP.md](./GAMEPLAY_ROADMAP.md) 참고(단 v5에서 멈춤 — P2/모바일 완료 미반영). P0.5/P1/P1.5는 5차, P2 본편·모바일·패키징은 6차 완료.
 
-- [ ] **(P0) 위 손맛 확인** → 피드백 따라 상수 튜닝 (`constants.ts`에 모여 있음)
-- [ ] **(P2) 타격감 본편** — 스트라이크 슬로모(트리거+복원 정책, `Loop.timeScale` 인프라는 준비됨), 핀덱 클로즈업 컷, 카메라 셰이크, 사운드 럼블/크래시 구분 (이벤트 노출 완료로 연결만 하면 됨)
+- [x] **(P0) 스핀 손맛** → [SPIN_FEEL_AND_AI_LADDER.md](./SPIN_FEEL_AND_AI_LADDER.md) ① — **7차 완료** (`spin^0.7` 입력곡선, 물리 레버 전수 스캔으로 dead zone 원인 규명 후 채택)
+- [x] **(P1.5 후처리) AI 난이도 사다리** → 같은 문서 ② — **7차 완료** (130/228/169, 매치 sim 튜닝 + 직구/훅 포켓 캘리브레이션 버그 수정)
+- [ ] **(P2) ⑥ 충돌 시각효과** — P2 본편 중 유일 잔여, **다음 배치 1순위**. 충돌 지점 플래시/스파크 + 닿은 핀 발광 (`engine.onContact`에 위치·force 있음, 배선 깔끔)
 - [ ] **(P3) 숙련 깊이** — 오일 상태 파라미터화(hookFactor/OIL_END_Z 전역 → 객체) 선행 후 예측선 난이도/오일 프리셋/레인 전환, 릴리스 타이밍(직구 천장 추가 억제 레버)
 - [ ] 실물 에셋 — GLTF 핀·공, HDRI, 실제 음원 (P4)
-- [ ] 모바일 터치 검증 + 터치 스핀 입력 (모바일 지원 결정 시 P1급)
+
+**6차 완료분(이전 '남은 작업'에서 해소)**: ~~(P2) 타격감 본편~~ — 슬로모·임팩트 사운드·접근 카메라·전광판 구현(⑥ 시각효과만 잔여). ~~모바일 터치 검증 + 터치 스핀 입력~~ — 터치 발사·반응형 UI 구현(터치 전용 스핀은 바 드래그로 대체, Q/E 병행).
 
 ## 소스 구조
 

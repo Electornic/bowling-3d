@@ -5,6 +5,7 @@ import type { Hud } from '../ui/Hud';
 import {
   LANE_WIDTH,
   BALL_RADIUS,
+  GUTTER_WIDTH,
   PIN_DECK_END,
   SETTLE_TIMEOUT,
   PIN_CONTACT_Z,
@@ -109,6 +110,7 @@ export class GameState {
 
   private players: PlayerState[] = [];
   private settleTimer = 0;
+  private gutterSettled = false; // 이번 투구에서 거터 perch 보정을 1회 적용했는가 (재스냅 방지)
   private standingAtThrow = 10;
   private aiWait = 0;
   private pendingSplit: string | null = null;
@@ -201,6 +203,7 @@ export class GameState {
     this.settleTimer = 0;
     this.slowmoUsed = false;
     this.slowmoTimer = 0;
+    this.gutterSettled = false;
     this.refreshHud();
   }
 
@@ -265,6 +268,7 @@ export class GameState {
       }
     } else if (this.state === 'SETTLING') {
       this.settleTimer += dt;
+      this.settleGutterPerch(); // 레인 끝 모서리에 얹힌 느린 거터볼을 골로 굴려넣음 (perch 버그 보정)
       const done = this.pins.allSettled() && this.ballGoneOrStopped();
       if (done || this.settleTimer > SETTLE_TIMEOUT) {
         this.score();
@@ -278,6 +282,30 @@ export class GameState {
     const t = b.translation();
     const speed = Math.hypot(v.x, v.y, v.z);
     return speed < 0.15 || t.y < -2 || t.z > PIN_DECK_END + 1;
+  }
+
+  /**
+   * 느린 거터볼이 레인 끝 모서리에 얹힌 채(perch) 정산되는 버그 보정. 거터 홈(윗면 y=-0.13)이
+   * 공 반지름(0.109)보다 얕아, 느린 공이 레인 끝(±LANE_WIDTH/2) 날카로운 모서리에 균형을 잡고
+   * 골로 안 빠진다(물리 빗면 시도는 회귀). 정산 순간 거터 x구역(|x|>레인끝-r)에 있으면서 아직
+   * 골로 안 내려갔으면(y>-0.05) 거터 골 중앙에 결정적으로 안착시켜 표시 위치를 정리한다.
+   * 이미 정산 끝난 죽은 공이라 점수·물리 부작용 없음.
+   */
+  private settleGutterPerch() {
+    if (this.gutterSettled) return;
+    const b = this.ballObj.body;
+    const t = b.translation();
+    // 공 중심이 레인 끝(±LANE_WIDTH/2)을 넘었는데 아직 골(y≈-0.02)에 안 떨어졌으면, 공이 거터 홈으로
+    // 빠지지 못하고 레인 끝 날카로운 모서리에 얹혀 그 위를 타고 가는 상태다(거터 홈이 공 반지름보다 얕아
+    // 생기는 perch). 이때 거터 골로 떨궈 넣고, 현실 볼링처럼 핀 쪽 끝까지 굴러가 '빠지도록' 전진 속도를
+    // 부여한다(골 마찰 0.08 기준 뒤끝 도달 속도, 정산은 z>핀덱에서 자연히 일어남).
+    if (Math.abs(t.x) < LANE_WIDTH / 2 || t.y <= -0.01 || t.z > PIN_DECK_END) return;
+    this.gutterSettled = true;
+    const side = Math.sign(t.x);
+    const roll = Math.min(8, Math.sqrt(2 * 0.785 * (PIN_DECK_END + 1 - t.z + 0.5)));
+    b.setTranslation({ x: side * (LANE_WIDTH / 2 + GUTTER_WIDTH / 2), y: -0.13 + BALL_RADIUS, z: t.z }, true);
+    b.setLinvel({ x: 0, y: 0, z: roll }, true);
+    b.setAngvel({ x: roll / BALL_RADIUS, y: 0, z: 0 }, true);
   }
 
   private emit(e: GameEvent) {

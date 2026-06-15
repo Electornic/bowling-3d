@@ -11,6 +11,7 @@ import {
   FRICTION_K,
   REF_MASS,
   SPIN_RATE,
+  effectiveSpin,
   ROLL_RATIO,
   BALL_FRICTION,
   hookFactor,
@@ -112,7 +113,7 @@ export class Ball {
       {
         x: (vz / BALL_RADIUS) * ROLL_RATIO,
         y: 0,
-        z: -(vx / BALL_RADIUS) * ROLL_RATIO + spin * SPIN_RATE,
+        z: -(vx / BALL_RADIUS) * ROLL_RATIO + effectiveSpin(spin) * SPIN_RATE,
       },
       true,
     );

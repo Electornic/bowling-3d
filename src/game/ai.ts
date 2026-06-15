@@ -14,6 +14,8 @@ export interface AiProfile {
   key: string;
   name: string;
   tagline: string;
+  /** 메뉴 칩 난이도 라벨 (매치 sim 확정 점수대) */
+  difficulty: string;
   style: 'straight' | 'hook';
   /** 1구(풀랙) 파워 평균 */
   power: number;
@@ -31,23 +33,25 @@ export const AI_PROFILES: AiProfile[] = [
   {
     key: 'kim',
     name: '김부장',
-    tagline: '안정 직구형 — 꾸준히 포켓을 노린다',
+    tagline: '안정 직구형 — 꾸준하지만 포켓을 자주 흘린다',
+    difficulty: '쉬움',
     style: 'straight',
     power: 1.0,
     powerJitter: 0.05,
-    aimJitterCm: 6,
-    spareAimJitterCm: 3.5,
+    aimJitterCm: 10, // 매치 sim 확정: mean ~130 (쉬움). SPIN_FEEL_AND_AI_LADDER.md §3
+    spareAimJitterCm: 7,
     spin: 0,
     ballLb: 10,
   },
   {
     key: 'han',
     name: '한프로',
-    tagline: '스페어 장인 — 1구는 평범, 뒷처리가 무섭다',
+    tagline: '직구 정밀 머신 — 포켓도 스페어도 빈틈이 없다',
+    difficulty: '어려움',
     style: 'straight',
     power: 0.95,
     powerJitter: 0.05,
-    aimJitterCm: 7,
+    aimJitterCm: 1, // 매치 sim 확정: mean ~228 (정밀). 좁은 3cm 포켓 밴드라 정타율 필수
     spareAimJitterCm: 1.2,
     spin: 0,
     ballLb: 10,
@@ -56,11 +60,12 @@ export const AI_PROFILES: AiProfile[] = [
     key: 'yoon',
     name: '도박사 윤',
     tagline: '풀스핀 도박형 — 터지면 스트라이크, 망하면 스플릿',
+    difficulty: '고변동',
     style: 'hook',
     power: 1.0,
     powerJitter: 0.04,
-    aimJitterCm: 4.5,
-    spareAimJitterCm: 5,
+    aimJitterCm: 4, // 매치 sim 확정: mean ~169, sd ~28(최대) 와일드카드 — 중간 정타율에서 boom/bust 변동 피크
+    spareAimJitterCm: 7,
     spin: 1,
     ballLb: 10,
   },
@@ -68,8 +73,8 @@ export const AI_PROFILES: AiProfile[] = [
 
 const ENTRY_DIST = HEADPIN_Z - BALL_START_Z; // ≈19.29 (aim → 진입 x 변환 거리)
 const HOOK_DRIFT_FULL = 0.33; // 풀스핀 풀파워 훅 드리프트 (m, 실측)
-const POCKET_X_STRAIGHT = 0.0;
-const POCKET_X_HOOK = 0.067; // +x = 볼러 왼쪽 — 훅(−x로 휨)의 미러 포켓
+const POCKET_X_STRAIGHT = -0.07; // 진입 x 포켓 — 매치 sim 미세스윕: 스트라이크 밴드 −8~−6cm 중심(power 1.0/0.95). 0(헤드핀 정면)은 노즈히트=스플릿이라 직구가 안 터졌다
+const POCKET_X_HOOK = 0.05; // 매치 sim 훅 스윕: 발사오프셋 T≈0.38(=0.05+HOOK_DRIFT_FULL) 중심이 스트라이크 밴드 중앙
 
 /** 표준정규 난수 (Box-Muller) */
 function gauss(): number {

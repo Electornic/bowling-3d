@@ -151,6 +151,24 @@ export class SoundManager {
     osc.start(now);
     osc.stop(now + 0.24);
 
+    // 2b) 서브베이스 — 큰 스트라이크일수록 바닥을 치는 묵직한 흉부 thump. intensity 게이트(count≳3부터
+    //     점증, 작은 히트엔 0)로 가벼운 정리 투구는 그대로 두고 풀랙만 무게를 얹는다. 저역 쿵(2)보다
+    //     한 옥타브 아래(70→34Hz)·긴 감쇠 → 헤드폰/우퍼에서 '쿵' 잔향. 랩탑 스피커엔 거의 안 들림(의도).
+    const subVol = Math.max(0, intensity - 0.3) * 0.5; // count 3 이하=0, 풀랙(10)≈0.35
+    if (subVol > 0.01) {
+      const sub = ctx.createOscillator();
+      const sg = ctx.createGain();
+      sub.type = 'sine';
+      sub.frequency.setValueAtTime(70, now);
+      sub.frequency.exponentialRampToValueAtTime(34, now + 0.18);
+      sg.gain.setValueAtTime(0.0001, now);
+      sg.gain.exponentialRampToValueAtTime(subVol, now + 0.012);
+      sg.gain.exponentialRampToValueAtTime(0.001, now + 0.34);
+      sub.connect(sg).connect(ctx.destination);
+      sub.start(now);
+      sub.stop(now + 0.36);
+    }
+
     // 3) 나무 핀 클래터 — 이산 우드 클랙 다발. 노이즈 워시만으론 '쉭'에 가까워, 핀끼리 부딪는
     //    피치 있는 '딱딱딱'을 여러 발 스태거해 실제 나무 클래터 질감을 더한다.
     //    한 번의 playRackCrash 안에서 스케줄되는 '한 이벤트'라 슬로모 '탭탭탭' 아티팩트 없음.

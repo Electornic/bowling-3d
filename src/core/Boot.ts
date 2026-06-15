@@ -175,7 +175,7 @@ function buildScene(engine: Engine): {
     if (ball.body.translation().z > PIN_CONTACT_Z) {
       // 핀 구역 개별 충돌은 무음 — 임팩트 사운드는 notifyImpact가 투구당 1회 명령(game.onPinImpact)
       cameraRig.addShake(mag); // 셰이크 토글 OFF(SHAKE_ENABLED) — 현재 no-op
-      cameraRig.pushIn(); // push-in 토글 OFF(PUSHIN_ENABLED) — 현재 no-op
+      cameraRig.pushIn(); // 임팩트 push-in (PUSHIN_ENABLED, DIST 0.6 — ac0ef80 재활성)
       game.notifyImpact();
     } else if (game.state === 'ROLLING') {
       sound.playHit(mag); // 굴림음 — ROLLING 중에만 (정지/조준 중 접촉력 이벤트 잡음 방지)

@@ -100,7 +100,7 @@ export class MenuUI {
     rivalBtns.set(null, solo);
     rivalRow.appendChild(solo);
     for (const p of AI_PROFILES) {
-      const b = this.chipButton(p.name, p.tagline);
+      const b = this.chipButton(`${p.name} · ${p.difficulty}`, p.tagline);
       b.onclick = () => {
         if (this.mode === 'spare') return;
         this.rivalKey = p.key;

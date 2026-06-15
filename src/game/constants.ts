@@ -25,11 +25,13 @@ export const PIN_ROWS: readonly (readonly number[])[] = [
 ];
 
 // --- 핀 캐리 밸런스 (P0.5, sim-carry.mjs 그리드 스캔으로 확정) ---
-// 선형 감쇠 0.8: 날아가는 핀을 감속시켜 "운 좋은 체인 스트라이크"를 억제 →
-// 직구 풀파워 윈도우 8/31→4/31, 훅 풀파워 7/31 유지 (직구의 1.75배, 최적해 역전).
-// 반발 0.2→0.3: 감쇠로 죽은 미드파워 캐리를 핀-핀 에너지 전달로 일부 복원.
+// 선형 감쇠: 날아가는 핀을 감속시켜 "운 좋은 체인 스트라이크"를 억제. 0.8이면 직구 풀파워
+// 윈도우 8/31→4/31, 훅 7/31 유지(1.75배). ⓓ 손맛 재튜닝(8차): 0.8은 핀이 날다 눈에 띄게
+// 브레이크 걸려 "묵직/둔함"으로 읽혀 0.8→0.7로 완화(흩어짐 ~+20%, 역동성↑). 0.7은 윈도우 노이즈
+// 안이라 캐리 영향 미미 — sim-carry는 --pinDamp/--flyout로 검증, AI 사다리는 ai-match-sim으로 재확인.
+// 0.35 밑은 직구가 훅 추월(훅-최적 붕괴)이라 마지노선. 반발 0.3: 미드 캐리 핀-핀 전달 복원(올리면 훅 우위 깨짐 — 손대지 말 것).
 export const PIN_RESTITUTION = 0.3;
-export const PIN_LINEAR_DAMPING = 0.8;
+export const PIN_LINEAR_DAMPING = 0.7;
 
 // --- 물리 (도안 §4.4 튜닝 시작값) ---
 export const GRAVITY = -9.81;
@@ -54,6 +56,14 @@ export function hookFactor(z: number): number {
 }
 export const SLIP_EPS = 0.05; // 이하면 롤링으로 간주
 export const SPIN_RATE = 14; // 발사 스핀 ωz = spin·SPIN_RATE (rad/s) — 훅 연료. 풀스핀 미드파워 총휨 ~61cm
+// 약스핀 저역 부스트 (SPIN_FEEL_AND_AI_LADDER.md ①): 발사 각속도에 |spin|^SPIN_POW.
+// 1.0이 고정점이라 풀스핀·전 가드(−30cm·윈도우 4/31·7/31·65cm) 불변, 저/미드 스핀만 훅↑.
+// sim-carry --spinPow 0.7 검증: 저스핀 막판스냅 −2.8→−4.1cm(+40%), 풀스핀·윈도우 베이스라인 동일.
+export const SPIN_POW = 0.7;
+/** 스핀 슬라이더 입력(−1..1)을 발사 곡선으로 리매핑 — Ball 발사·Controls 예측선 공용. */
+export function effectiveSpin(spin: number): number {
+  return Math.sign(spin) * Math.pow(Math.abs(spin), SPIN_POW);
+}
 export const ROLL_RATIO = 0.75; // 발사 시 진행방향 굴림 비율 (1=노슬립, 낮을수록 스키드↑=훅 연료↑)
 export const MIN_SPEED = 5;
 export const MAX_SPEED = 12;

@@ -10,9 +10,12 @@ import { isCoarsePointer } from './device';
  * 런타임 토글 불가 → 여기서 한 번 결정. pixelRatio·shadowMap도 이 판정으로 낮춘다.
  */
 function isLowEnd(): boolean {
+  // 실제 저메모리 신호(Chrome/Android의 deviceMemory ≤4GB)일 때만 저사양 처리. 화면폭만으로는
+  // 판정하지 않는다 — iOS Safari엔 deviceMemory API가 없어, 작은화면 기준이면 플래그십(iPhone 등)이
+  // 저사양으로 오판돼 antialias가 꺼지고 저해상도로 렌더되어 고대비 모서리(거터 벽 등)가 카메라
+  // 이동 시 떨리는(edge crawl) 점멸이 생겼다.
   const mem = (navigator as Navigator & { deviceMemory?: number }).deviceMemory;
-  const smallScreen = Math.min(window.innerWidth, window.innerHeight) < 420;
-  return isCoarsePointer() && ((mem !== undefined && mem <= 4) || smallScreen);
+  return isCoarsePointer() && mem !== undefined && mem <= 4;
 }
 
 /** three 메시 ↔ rapier 강체 페어 */
@@ -46,15 +49,15 @@ export class Engine {
   constructor() {
     const RAPIER = getRapier();
 
-    // --- 렌더러 --- (저사양은 antialias off + pixelRatio 1.5 상한, MOBILE_SUPPORT.md §6)
+    // --- 렌더러 --- (antialias 항상 ON으로 엣지 크롤 방지; 저사양만 pixelRatio 1.5 상한, MOBILE_SUPPORT.md §6)
     const lowEnd = isLowEnd();
-    this.renderer = new THREE.WebGLRenderer({ antialias: !lowEnd });
+    this.renderer = new THREE.WebGLRenderer({ antialias: true });
     this.renderer.setSize(window.innerWidth, window.innerHeight);
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, lowEnd ? 1.5 : 2));
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, lowEnd ? 1.5 : 3));
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.shadowMap.enabled = true;
-    this.renderer.shadowMap.type = THREE.PCFShadowMap;
+    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap; // soft = 그림자 가장자리 부드럽게 (셰도우 시밍↓)
     document.body.appendChild(this.renderer.domElement);
 
     // 캔버스 위 브라우저 제스처 차단: 롱프레스 메뉴(contextmenu) + 멀티터치 핀치줌(touchstart>1)
@@ -101,6 +104,8 @@ export class Engine {
     dir.shadow.camera.right = r;
     dir.shadow.camera.top = r;
     dir.shadow.camera.bottom = -r;
+    dir.shadow.normalBias = 0.03; // 표면 노멀 오프셋 — 수직 벽 등 빗각 면의 셰도우 에크니(줄무늬 점멸) 제거
+    dir.shadow.bias = -0.0003;
     this.scene.add(dir);
 
     // --- 물리 월드 ---

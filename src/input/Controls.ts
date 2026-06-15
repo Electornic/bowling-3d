@@ -12,6 +12,7 @@ import {
   REF_MASS,
   SLIP_EPS,
   SPIN_RATE,
+  effectiveSpin,
   ROLL_RATIO,
   HEADPIN_Z,
   AIM_RANGE,
@@ -392,7 +393,7 @@ export class Controls {
     const n = Math.hypot(this.aim, 1);
     let vx = (this.aim / n) * speed;
     let vz = (1 / n) * speed;
-    let wzR = -vx * ROLL_RATIO + this.spin * SPIN_RATE * BALL_RADIUS; // ωz·R (마찰로 감쇠)
+    let wzR = -vx * ROLL_RATIO + effectiveSpin(this.spin) * SPIN_RATE * BALL_RADIUS; // ωz·R (마찰로 감쇠)
     const wxR = vz * ROLL_RATIO; // ωx·R
     const inject = (FRICTION_K * REF_MASS * 9.81) / this.ball.massKg;
 
