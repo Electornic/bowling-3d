@@ -1,4 +1,7 @@
 import * as THREE from 'three';
+import { Line2 } from 'three/addons/lines/Line2.js';
+import { LineMaterial } from 'three/addons/lines/LineMaterial.js';
+import { LineGeometry } from 'three/addons/lines/LineGeometry.js';
 import type { Engine } from '../core/Engine';
 import type { GameState } from '../game/GameState';
 import type { Ball } from '../scene/Ball';
@@ -22,14 +25,9 @@ import {
   LANE_FRICTION_DRY,
   hookFactor,
 } from '../game/constants';
-import { css, NEON, FONT_UI, rgba, ensureNeonStyles } from '../ui/theme';
+import { css, NEON, FONT_UI, rgba, ensureNeonStyles, applyPanel } from '../ui/theme';
 
-const PREVIEW_N = 32; // 조준선 예측 시뮬 점 개수 (전체 경로 계산용)
-const PREVIEW_DRAW_N = 8; // 실제로 그리는 앞부분 점 수 — 짧은 방향 가이드만 (훅 결과는 숨김)
-const PREVIEW_DT = 0.08; // 예측 시뮬 스텝 (s)
-// 예측 모델 = 주입 측면력(∝1/mass) + Rapier 접촉 마찰(질량 무관, μ=min 결합) 2성분.
-// 실제 물리 대비 잔차 보정 계수 (시뮬 5케이스 평균오차 ~1cm)
-const PREVIEW_HOOK_GAIN = 1.0;
+const PREVIEW_DT = 0.08; // 예측 경로 적분 스텝 (s)
 // 파워 차징 속도(단위 /초). 기존엔 프레임당 +0.018(프레임레이트 의존 — 고주사율/저FPS에서 속도가
 // 달라지는 버그)이었다. ×60fps = 1.08/s로 환산해 dt를 곱하면 어떤 FPS에서도 0→1 약 0.93초로 일정.
 const CHARGE_RATE = 1.08;
@@ -58,7 +56,11 @@ export class Controls {
   private anchorX = 0;
   private anchorAim = 0;
 
-  private readonly aimLine: THREE.Line;
+  private readonly aimGroup: THREE.Group;
+  private readonly aimCoreGeo: LineGeometry;
+  private readonly aimCaseGeo: LineGeometry;
+  private readonly aimCoreMat: LineMaterial;
+  private readonly aimCaseMat: LineMaterial;
   private readonly powerWrap: HTMLDivElement;
   private readonly gaugeFill: HTMLDivElement;
   private readonly spinWrap: HTMLDivElement;
@@ -74,41 +76,70 @@ export class Controls {
   ) {
     ensureNeonStyles();
 
-    // 곡선 조준선 (스핀 훅 예측 경로)
-    const pts = Array.from({ length: PREVIEW_N }, () => new THREE.Vector3(0, 0.02, BALL_START_Z));
-    const geo = new THREE.BufferGeometry().setFromPoints(pts);
-    this.aimLine = new THREE.Line(
-      geo,
-      new THREE.LineBasicMaterial({ color: 0xff8800, transparent: true, opacity: 0.95 }),
-    );
-    this.aimLine.geometry.setDrawRange(0, PREVIEW_DRAW_N); // 앞부분만 짧게 그림 (전체 경로는 계산만)
-    engine.scene.add(this.aimLine);
+    // 조준 곡선 라인 — Line2(굵기 지원)로 실제 예측 경로를 그린다. THREE.Line은 브라우저가 linewidth를
+    // 무시해 1px로만 나와 밝은 레인에서 안 보였음. 어두운 외곽선(case) + 밝은 코어(core) 2겹이라
+    // 중립(흰색)도 또렷하고, 끝으로 갈수록 레인색으로 페이드(updateAimArrow). 두 겹은 좌표는 같고 색만 다름.
+    const seed = [0, 0.02, BALL_START_Z, 0, 0.02, BALL_START_Z + 0.5];
+    this.aimCoreGeo = new LineGeometry();
+    this.aimCoreGeo.setPositions(seed);
+    this.aimCoreGeo.setColors([1, 1, 1, 1, 1, 1]);
+    this.aimCaseGeo = new LineGeometry();
+    this.aimCaseGeo.setPositions(seed);
+    this.aimCaseGeo.setColors([0, 0, 0, 0, 0, 0]);
+    this.aimCaseMat = new LineMaterial({
+      color: 0xffffff,
+      vertexColors: true,
+      linewidth: 8,
+      transparent: true,
+      opacity: 0.7,
+      depthWrite: false,
+    });
+    this.aimCoreMat = new LineMaterial({
+      color: 0xffffff,
+      vertexColors: true,
+      linewidth: 4,
+      transparent: true,
+      opacity: 1,
+      depthWrite: false,
+    });
+    this.aimCaseMat.resolution.set(window.innerWidth, window.innerHeight);
+    this.aimCoreMat.resolution.set(window.innerWidth, window.innerHeight);
+    const caseLine = new Line2(this.aimCaseGeo, this.aimCaseMat);
+    const coreLine = new Line2(this.aimCoreGeo, this.aimCoreMat);
+    caseLine.renderOrder = 5;
+    coreLine.renderOrder = 6;
+    caseLine.frustumCulled = false;
+    coreLine.frustumCulled = false;
+    this.aimGroup = new THREE.Group();
+    this.aimGroup.add(caseLine, coreLine);
+    this.aimGroup.visible = false;
+    engine.scene.add(this.aimGroup);
+
+    // 스핀=좌하단 · 파워=우하단으로 분리 — 각자 글래스 패널. 가운데 레인을 비워 조준 화살표(바나나
+    // 곡선)가 그 위로 펼쳐져 보이게 한다. (단일 하단 도크는 공·화살표 밑동을 가려서 폐기.)
 
     // === 파워 게이지 (우측 하단 — 중앙은 공과 겹침) ===
     const powerWrap = (this.powerWrap = document.createElement('div'));
-    // 터치: 전체폭 하단 도크(맨 아래). 데스크톱: 우하단 240px (불변).
+    applyPanel(powerWrap, NEON.cyan);
     css(powerWrap, {
-      position: 'fixed',
-      bottom: this.coarse ? 'calc(10px + env(safe-area-inset-bottom))' : 'calc(24px + env(safe-area-inset-bottom))',
-      left: this.coarse ? 'calc(12px + env(safe-area-inset-left))' : '',
-      right: this.coarse ? 'calc(12px + env(safe-area-inset-right))' : 'calc(24px + env(safe-area-inset-right))',
-      width: this.coarse ? 'auto' : '240px',
+      position: 'fixed', // 우측 세로 파워바 (가운데 레인을 비움)
+      bottom: this.coarse ? 'calc(96px + env(safe-area-inset-bottom))' : 'calc(20px + env(safe-area-inset-bottom))',
+      right: this.coarse ? 'calc(10px + env(safe-area-inset-right))' : 'calc(24px + env(safe-area-inset-right))',
       zIndex: '20',
       pointerEvents: 'none',
+      padding: '10px 8px',
+      display: 'flex',
+      flexDirection: 'column',
+      alignItems: 'center',
+      gap: '6px',
     });
-    const powerLabel = document.createElement('div');
-    powerLabel.textContent = 'POWER';
-    css(powerLabel, {
-      font: FONT_UI,
-      fontSize: '10px',
-      letterSpacing: '0.16em',
-      color: NEON.dim,
-      margin: '0 2px 4px',
-    });
+    // POWER 텍스트 라벨 제거 — 글자가 바(14px)보다 넓어 게이지가 한쪽으로 치우쳐 보였음.
+    // 세로 게이지는 차오르면 의미가 자명하므로 라벨 없이 바만 둔다(중앙 정렬).
     const gaugeTrack = document.createElement('div');
     css(gaugeTrack, {
-      width: '100%',
-      height: '14px',
+      position: 'relative',
+      width: '14px',
+      height: this.coarse ? '26vh' : '180px',
       background: 'rgba(255,255,255,0.1)',
       border: `1px solid ${rgba(NEON.cyan, 0.25)}`,
       borderRadius: '8px',
@@ -116,50 +147,54 @@ export class Controls {
     });
     this.gaugeFill = document.createElement('div');
     css(this.gaugeFill, {
-      width: '0%',
-      height: '100%',
-      background: 'linear-gradient(90deg,#4ade80,#facc15,#ef4444)',
+      position: 'absolute',
+      left: '0',
+      bottom: '0', // 아래에서 위로 차오름
+      width: '100%',
+      height: '0%',
+      background: 'linear-gradient(0deg,#4ade80,#facc15,#ef4444)', // 아래=초록 위=빨강
       boxShadow: '0 0 12px rgba(250,204,21,0.5)',
     });
     gaugeTrack.appendChild(this.gaugeFill);
-    powerWrap.appendChild(powerLabel);
     powerWrap.appendChild(gaugeTrack);
-    document.body.appendChild(powerWrap);
 
     // === 스핀 게이지 (파워 위) — Q/E 또는 드래그로 좌/우 훅 설정 ===
     const spinWrap = (this.spinWrap = document.createElement('div'));
-    // 터치: 파워 도크 바로 위 전체폭. 데스크톱: 우하단 240px (불변).
+    applyPanel(spinWrap, NEON.purple);
     css(spinWrap, {
-      position: 'fixed',
-      bottom: this.coarse ? 'calc(48px + env(safe-area-inset-bottom))' : 'calc(72px + env(safe-area-inset-bottom))',
-      left: this.coarse ? 'calc(12px + env(safe-area-inset-left))' : '',
-      right: this.coarse ? 'calc(12px + env(safe-area-inset-right))' : 'calc(24px + env(safe-area-inset-right))',
-      width: this.coarse ? 'auto' : '240px',
+      position: 'fixed', // 하단 풀폭 스핀바 — 단일 줄로 얇게(공이 위로 보이게)
+      bottom: 'calc(10px + env(safe-area-inset-bottom))',
+      left: this.coarse ? 'calc(12px + env(safe-area-inset-left))' : '50%',
+      right: this.coarse ? 'calc(12px + env(safe-area-inset-right))' : '',
+      transform: this.coarse ? '' : 'translateX(-50%)',
+      width: this.coarse ? 'auto' : '440px',
       zIndex: '20',
       pointerEvents: 'none',
+      padding: '6px 14px',
+      display: 'flex',
+      alignItems: 'center',
+      gap: '12px',
     });
 
     // 헤더: "스핀" 라벨 + 현재 수치
-    const spinHead = document.createElement('div');
-    css(spinHead, {
-      display: 'flex',
-      justifyContent: 'space-between',
-      alignItems: 'baseline',
-      margin: '0 2px 4px',
-    });
     const spinLabel = document.createElement('span');
     spinLabel.textContent = '스핀';
     css(spinLabel, {
       font: FONT_UI,
       fontSize: '10px',
-      letterSpacing: '0.16em',
+      letterSpacing: '0.12em',
       color: NEON.dim,
       textTransform: 'uppercase',
+      flex: '0 0 auto',
     });
     this.spinValue = document.createElement('span');
-    css(this.spinValue, { font: "700 12px/1 ui-monospace, 'SF Mono', monospace", color: NEON.dim });
-    spinHead.appendChild(spinLabel);
-    spinHead.appendChild(this.spinValue);
+    css(this.spinValue, {
+      font: "700 12px/1 ui-monospace, 'SF Mono', monospace",
+      color: NEON.dim,
+      flex: '0 0 auto',
+      minWidth: '66px',
+      textAlign: 'right',
+    });
 
     // 드래그 가능한 트랙 (중앙=0, 좌/우로 차오름).
     // 터치(coarse): 히트영역 44px(투명) + 내부 얇은 시각 바 + 큰 썸 (§3.1). 데스크톱: 10px 바 자체가 시각.
@@ -168,7 +203,8 @@ export class Controls {
     const spinTrack = (this.spinTrack = document.createElement('div'));
     css(spinTrack, {
       position: 'relative',
-      width: '100%',
+      flex: '1',
+      minWidth: '0',
       height: `${TRACK_HIT}px`,
       background: this.coarse ? 'transparent' : 'rgba(255,255,255,0.1)',
       border: this.coarse ? 'none' : `1px solid ${rgba(NEON.purple, 0.25)}`,
@@ -238,15 +274,17 @@ export class Controls {
       font: FONT_UI,
       fontSize: '9px',
       letterSpacing: '0.04em',
-      color: rgba(NEON.ice, 0.4),
+      color: rgba(NEON.ice, 0.62),
       textAlign: 'center',
       margin: '4px 0 0',
     });
 
-    spinWrap.appendChild(spinHead);
+    spinWrap.appendChild(spinLabel);
     spinWrap.appendChild(spinTrack);
-    spinWrap.appendChild(spinHint);
-    document.body.appendChild(spinWrap);
+    spinWrap.appendChild(this.spinValue);
+
+    document.body.appendChild(spinWrap); // 하단 풀폭 스핀바
+    document.body.appendChild(powerWrap); // 우측 세로 파워바
 
     this.bindEvents();
   }
@@ -349,7 +387,7 @@ export class Controls {
         this.chargeDir = 1;
       }
     }
-    this.gaugeFill.style.width = `${this.power * 100}%`;
+    this.gaugeFill.style.height = `${this.power * 100}%`;
 
     // 스핀 게이지: 중앙에서 좌(Q/드래그, 시안)/우(E/드래그, 앰버)로 차오름 + 썸 + 수치
     const s = this.spin;
@@ -370,55 +408,78 @@ export class Controls {
 
     // 메뉴/AI 턴엔 입력 UI 전체 숨김 (로드맵 P1/P1.5)
     const inGame = this.game.state !== 'MENU' && this.game.isHumanTurn();
-    this.powerWrap.style.display = inGame ? '' : 'none';
     this.spinWrap.style.display = inGame ? '' : 'none';
+    this.powerWrap.style.display = inGame ? '' : 'none';
 
     const aiming = this.game.state === 'AIMING' && this.game.isHumanTurn();
     // 터치는 hover가 없어 aim이 갱신되지 않으므로, 새 조준 턴 진입 시 정중앙에서 시작 (드리프트 방지)
     if (this.coarse && aiming && !this.wasAiming) this.aim = 0;
     this.wasAiming = aiming;
-    this.aimLine.visible = aiming;
-    if (aiming) this.updateAimLine();
+    this.aimGroup.visible = aiming;
+    if (aiming) this.updateAimArrow();
   }
 
   /**
-   * 예측 조준선: Ball.launch + applySpinForce와 같은 수식으로 짧게 전방 시뮬.
-   * 주입 측면력(hookFactor 게이트, ∝1/mass)에 Rapier 자체 접촉 마찰 성분
-   * (질량 무관, 오일/드라이 μ 따라 변함)을 더해 실제 궤적을 근사한다.
-   * 차징 중에는 현재 파워 기준, 평소엔 중간 파워 기준 경로.
+   * 조준 곡선 라인 갱신 — 실제 발사 물리와 같은 수식으로 예측 경로를 적분(검증 오차 ~1cm)해
+   * Line2(외곽선+코어 2겹)로 그린다. 오일 존 직진 → 드라이 존 레이트 훅. Z_CAP까지만, 끝은 페이드.
    */
-  private updateAimLine() {
+  private updateAimArrow() {
+    const Z_CAP = 10; // 그리는 끝 z — 짧게(끝까지 안 감). 핀 z=18.29. 늘리면 훅이 더 보이나 길어짐.
     const p = this.charging ? this.power : 0.55;
     const speed = (MIN_SPEED + p * (MAX_SPEED - MIN_SPEED)) * this.ball.speedScale;
-    const n = Math.hypot(this.aim, 1);
-    let vx = (this.aim / n) * speed;
-    let vz = (1 / n) * speed;
-    let wzR = -vx * ROLL_RATIO + effectiveSpin(this.spin) * SPIN_RATE * BALL_RADIUS; // ωz·R (마찰로 감쇠)
+    const nrm = Math.hypot(this.aim, 1);
+    let vx = (this.aim / nrm) * speed;
+    let vz = (1 / nrm) * speed;
+    let wzR = -vx * ROLL_RATIO + effectiveSpin(this.spin) * SPIN_RATE * BALL_RADIUS; // ωz·R
     const wxR = vz * ROLL_RATIO; // ωx·R
     const inject = (FRICTION_K * REF_MASS * 9.81) / this.ball.massKg;
 
+    // 경로 적분 (발사 물리와 동일 게이트). z가 Z_CAP/핀에 닿으면 종료.
+    const path: number[][] = [[0, BALL_START_Z]];
     let x = 0;
     let z = BALL_START_Z;
-    const pos = this.aimLine.geometry.attributes.position as THREE.BufferAttribute;
-    for (let i = 0; i < PREVIEW_N; i++) {
-      pos.setXYZ(i, x, 0.02, z);
-      if (z >= HEADPIN_Z) continue; // 핀에 닿으면 나머지 점은 끝점에 고정
+    for (let i = 0; i < 80 && z < Z_CAP && z < HEADPIN_Z; i++) {
       const slipX = vx + wzR;
       const slipZ = vz - wxR;
       const mag = Math.hypot(slipX, slipZ);
-      const hook = hookFactor(z); // 오일 존 직진 → 드라이 존 레이트 훅 (발사 물리와 동일 게이트)
+      const hook = hookFactor(z); // 오일 직진 → 드라이 레이트 훅
       if (mag > SLIP_EPS) {
         const laneFric = LANE_FRICTION_OIL + (LANE_FRICTION_DRY - LANE_FRICTION_OIL) * hook;
-        const rapier = Math.min(BALL_FRICTION, laneFric) * 9.81; // 접촉 마찰 (레인 combine=Min)
-        const a = (inject * hook + rapier) * PREVIEW_HOOK_GAIN;
+        const rapier = Math.min(BALL_FRICTION, laneFric) * 9.81;
+        const a = inject * hook + rapier;
         vx -= (slipX / mag) * a * PREVIEW_DT;
         vz -= (slipZ / mag) * a * PREVIEW_DT;
-        // 마찰은 회전도 진행에 정렬시킴 → 스핀 감쇠 (균일 구: 슬립 닫힘의 2.5배율)
-        wzR -= (slipX / mag) * rapier * PREVIEW_HOOK_GAIN * 2.5 * PREVIEW_DT;
+        wzR -= (slipX / mag) * rapier * 2.5 * PREVIEW_DT; // 마찰이 회전도 정렬 → 스핀 감쇠
       }
       x += vx * PREVIEW_DT;
       z += vz * PREVIEW_DT;
+      path.push([x, z]);
     }
-    pos.needsUpdate = true;
+    if (path.length < 2) return;
+
+    const positions: number[] = [];
+    for (let i = 0; i < path.length; i++) positions.push(path[i][0], 0.02, path[i][1]);
+
+    // 색: L=시안 / R=앰버 / 0=흰색. 끝으로 갈수록 레인색(tan)으로 페이드 → 레인에 자연스럽게 녹아듦.
+    const spinCol = new THREE.Color(this.spin < 0 ? NEON.cyan : this.spin > 0 ? NEON.amber : 0xffffff);
+    const tan = new THREE.Color(0xcdb892);
+    const dark = new THREE.Color(0x0a0e16);
+    const tmp = new THREE.Color();
+    const coreColors: number[] = [];
+    const caseColors: number[] = [];
+    const last = path.length - 1;
+    for (let i = 0; i <= last; i++) {
+      const fade = Math.min(1, Math.pow(i / last, 1.1) * 1.15); // 중반쯤 레인색에 완전히 녹아 사라짐
+      tmp.copy(spinCol).lerp(tan, fade);
+      coreColors.push(tmp.r, tmp.g, tmp.b);
+      tmp.copy(dark).lerp(tan, fade);
+      caseColors.push(tmp.r, tmp.g, tmp.b);
+    }
+    this.aimCoreGeo.setPositions(positions);
+    this.aimCoreGeo.setColors(coreColors);
+    this.aimCaseGeo.setPositions(positions);
+    this.aimCaseGeo.setColors(caseColors);
+    this.aimCoreMat.resolution.set(window.innerWidth, window.innerHeight);
+    this.aimCaseMat.resolution.set(window.innerWidth, window.innerHeight);
   }
 }

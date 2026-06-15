@@ -96,8 +96,9 @@ export class Lane {
       const wx = side * (half + gw + 0.025);
       const wall = new THREE.Mesh(
         new THREE.BoxGeometry(0.05, 0.3, len),
-        // 무광(roughness 1 + envMapIntensity 0) — 빗각에서 환경맵 반사가 카메라 이동 시 미끄러지며
-        // 번뜩이던(점멸) 것을 제거. 어두운 경계 벽이라 반사 없어도 외형 영향 없음.
+        // 무광(roughness 1 + envMapIntensity 0) — 어두운 경계 벽이라 반사 불필요.
+        // ⚠️ 카메라 이동 시 '거터 벽 점멸'의 실제 원인은 무광/반사가 아니라 Environment 레일(k=0)과
+        //    이 벽이 같은 평면(x=±0.755 안쪽 면)에 겹친 z-fighting이었다 → Environment.ts에서 k=0 생략으로 해소.
         new THREE.MeshStandardMaterial({ color: 0x222831, roughness: 1, metalness: 0, envMapIntensity: 0 }),
       );
       wall.position.set(wx, 0.1, midZ);

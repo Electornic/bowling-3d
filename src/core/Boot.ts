@@ -7,7 +7,6 @@ import { Ball } from '../scene/Ball';
 import { PinSet } from '../scene/PinSet';
 import { GameState } from '../game/GameState';
 import { Hud } from '../ui/Hud';
-import { BallPicker } from '../ui/BallPicker';
 import { MenuUI } from '../ui/Menu';
 import { Controls } from '../input/Controls';
 import { CameraRig } from '../camera/CameraRig';
@@ -127,13 +126,13 @@ function buildScene(engine: Engine): {
   const hud = new Hud();
   const game = new GameState(ball, pins, hud, lane);
   const controls = new Controls(engine, game, ball);
-  new BallPicker(game);
   const cameraRig = new CameraRig(engine, game, ball);
 
   // 메뉴/결과 화면 (로드맵 P1) — 시작 시 메뉴부터
   const menu = new MenuUI(
     (cfg) => game.startMatch(cfg),
     () => game.toMenu(),
+    (lb) => game.setHumanBallSpec(makeBallSpec(lb)), // 볼 무게 (인게임 HUD 대신 메뉴에서 선택)
   );
   menu.showMenu();
 

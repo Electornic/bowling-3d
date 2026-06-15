@@ -23,10 +23,12 @@ export class MenuUI {
   private readonly panel: HTMLDivElement;
   private mode: GameMode = 'full';
   private rivalKey: string | null = null;
+  private weight = 10; // 볼 무게(lb) — 시작 메뉴에서 선택 (인게임 BallPicker 대체)
 
   constructor(
     private readonly onStart: (cfg: MatchConfig) => void,
     private readonly onMenu: () => void,
+    private readonly onWeight: (lb: number) => void,
   ) {
     this.backdrop = document.createElement('div');
     css(this.backdrop, {
@@ -113,6 +115,29 @@ export class MenuUI {
 
     this.refreshChips(modeBtns, this.mode);
     this.refreshRivalChips(rivalBtns);
+
+    // 볼 무게 (인게임 HUD 대신 여기서 — 한 번 정하면 끝인 설정이라 매 투구 컨트롤과 분리)
+    this.panel.appendChild(this.sectionLabel('볼 무게'));
+    const wRow = document.createElement('div');
+    css(wRow, { display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '16px' });
+    const wInput = document.createElement('input');
+    wInput.type = 'range';
+    wInput.min = '6';
+    wInput.max = '16';
+    wInput.step = '0.5';
+    wInput.value = String(this.weight);
+    css(wInput, { flex: '1', accentColor: '#22d3ee', minHeight: COARSE ? '44px' : '' });
+    const wVal = document.createElement('span');
+    wVal.textContent = `${this.weight} lb`;
+    css(wVal, { font: "700 14px/1 ui-monospace, 'SF Mono', monospace", color: '#22d3ee', minWidth: '54px', textAlign: 'right' });
+    wInput.addEventListener('input', () => {
+      this.weight = parseFloat(wInput.value);
+      wVal.textContent = `${this.weight} lb`;
+      this.onWeight(this.weight);
+    });
+    wRow.appendChild(wInput);
+    wRow.appendChild(wVal);
+    this.panel.appendChild(wRow);
 
     // 시작
     const start = document.createElement('button');
