@@ -31,6 +31,11 @@ const PREVIEW_DT = 0.08; // 예측 경로 적분 스텝 (s)
 // 파워 차징 속도(단위 /초). 기존엔 프레임당 +0.018(프레임레이트 의존 — 고주사율/저FPS에서 속도가
 // 달라지는 버그)이었다. ×60fps = 1.08/s로 환산해 dt를 곱하면 어떤 FPS에서도 0→1 약 0.93초로 일정.
 const CHARGE_RATE = 1.08;
+// 스트라이크 최적 파워 존(흐리게 암시 — UI_REVAMP.md 결정②). carry sim상 윈도우는 "풀파워 근방"이나
+// 풀스핀은 미드파워가 더 휘어 *정확한* 최적은 플레이별로 갈림 → 넓고 은은한 상단~중상 띠로만 힌트.
+// 꼭대기(=최대)는 직진 과속이라 살짝 못 미치게 둔다. 정밀 조준은 실력에 맡김(난이도 보존).
+const POWER_SWEET_LO = 0.6;
+const POWER_SWEET_HI = 0.9;
 
 /**
  * 포인터(마우스+터치) + 키보드 입력 추상화 (도안 §8 / MOBILE_SUPPORT.md §2).
@@ -61,6 +66,8 @@ export class Controls {
   private readonly aimCaseGeo: LineGeometry;
   private readonly aimCoreMat: LineMaterial;
   private readonly aimCaseMat: LineMaterial;
+  private readonly aimEndMarker: THREE.Mesh;
+  private readonly aimEndMat: THREE.MeshBasicMaterial;
   private readonly powerWrap: HTMLDivElement;
   private readonly gaugeFill: HTMLDivElement;
   private readonly spinWrap: HTMLDivElement;
@@ -112,18 +119,32 @@ export class Controls {
     coreLine.frustumCulled = false;
     this.aimGroup = new THREE.Group();
     this.aimGroup.add(caseLine, coreLine);
+    // 끝점 타깃 링 (UI_REVAMP 결정③: 짧은 끝점만 — z=Z_CAP 도달점 방향만, 훅 최종 포켓은 숨김).
+    // 라인이 끝에서 페이드돼도 스핀색 링이 "여기로 간다"를 또렷이 앵커한다.
+    this.aimEndMat = new THREE.MeshBasicMaterial({
+      color: 0xffffff,
+      transparent: true,
+      opacity: 0.9,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+    });
+    this.aimEndMarker = new THREE.Mesh(new THREE.RingGeometry(0.05, 0.09, 28), this.aimEndMat);
+    this.aimEndMarker.rotation.x = -Math.PI / 2; // 레인 바닥에 눕힘
+    this.aimEndMarker.renderOrder = 7;
+    this.aimEndMarker.frustumCulled = false;
+    this.aimGroup.add(this.aimEndMarker);
     this.aimGroup.visible = false;
     engine.scene.add(this.aimGroup);
 
-    // 스핀=좌하단 · 파워=우하단으로 분리 — 각자 글래스 패널. 가운데 레인을 비워 조준 화살표(바나나
-    // 곡선)가 그 위로 펼쳐져 보이게 한다. (단일 하단 도크는 공·화살표 밑동을 가려서 폐기.)
+    // 하단 도크 통합(UI_REVAMP P2): 스핀=좌하단 컴팩트 · 파워=우하단 세로, 같은 글래스+시안 액센트로 한 쌍.
+    // 가운데를 비워 공·조준 화살표(바나나 곡선) 밑동이 그대로 보이게 한다(공 가림 해소, 진단④).
 
     // === 파워 게이지 (우측 하단 — 중앙은 공과 겹침) ===
     const powerWrap = (this.powerWrap = document.createElement('div'));
     applyPanel(powerWrap, NEON.cyan);
     css(powerWrap, {
       position: 'fixed', // 우측 세로 파워바 (가운데 레인을 비움)
-      bottom: this.coarse ? 'calc(96px + env(safe-area-inset-bottom))' : 'calc(20px + env(safe-area-inset-bottom))',
+      bottom: 'calc(10px + env(safe-area-inset-bottom))', // 스핀과 같은 베이스라인 (스핀이 더는 풀폭이 아님)
       right: this.coarse ? 'calc(10px + env(safe-area-inset-right))' : 'calc(24px + env(safe-area-inset-right))',
       zIndex: '20',
       pointerEvents: 'none',
@@ -133,8 +154,18 @@ export class Controls {
       alignItems: 'center',
       gap: '6px',
     });
-    // POWER 텍스트 라벨 제거 — 글자가 바(14px)보다 넓어 게이지가 한쪽으로 치우쳐 보였음.
-    // 세로 게이지는 차오르면 의미가 자명하므로 라벨 없이 바만 둔다(중앙 정렬).
+    // ⚡ 아이콘 — 세로 게이지 위. 이전엔 "POWER" 텍스트가 바(14px)보다 넓어 패널이 불균형해 뺐는데,
+    // 아이콘 1자는 바 폭과 비슷해 균형 유지 + "이게 파워"임을 한눈에 (빈 캡슐 문제 해소, UI_REVAMP 진단①).
+    const powerIcon = document.createElement('div');
+    powerIcon.textContent = '⚡';
+    css(powerIcon, {
+      fontSize: '13px',
+      lineHeight: '1',
+      opacity: '0.9',
+      filter: `drop-shadow(0 0 4px ${rgba(NEON.cyan, 0.6)})`,
+    });
+    powerWrap.appendChild(powerIcon);
+
     const gaugeTrack = document.createElement('div');
     css(gaugeTrack, {
       position: 'relative',
@@ -144,6 +175,26 @@ export class Controls {
       border: `1px solid ${rgba(NEON.cyan, 0.25)}`,
       borderRadius: '8px',
       overflow: 'hidden',
+    });
+    // 최적 파워 존(흐리게 암시) — 은은한 골드 띠 + 진입 하단 경계선만. 정확 눈금은 의도적으로 없음.
+    const zoneBand = document.createElement('div');
+    css(zoneBand, {
+      position: 'absolute',
+      left: '0',
+      bottom: `${POWER_SWEET_LO * 100}%`,
+      width: '100%',
+      height: `${(POWER_SWEET_HI - POWER_SWEET_LO) * 100}%`,
+      background: rgba(NEON.gold, 0.13),
+    });
+    const zoneLine = document.createElement('div'); // 존 진입 경계 (은은한 골드 글로우 라인)
+    css(zoneLine, {
+      position: 'absolute',
+      left: '-1px',
+      right: '-1px',
+      bottom: `${POWER_SWEET_LO * 100}%`,
+      height: '1.5px',
+      background: rgba(NEON.gold, 0.5),
+      boxShadow: `0 0 6px ${rgba(NEON.gold, 0.45)}`,
     });
     this.gaugeFill = document.createElement('div');
     css(this.gaugeFill, {
@@ -155,25 +206,25 @@ export class Controls {
       background: 'linear-gradient(0deg,#4ade80,#facc15,#ef4444)', // 아래=초록 위=빨강
       boxShadow: '0 0 12px rgba(250,204,21,0.5)',
     });
-    gaugeTrack.appendChild(this.gaugeFill);
+    gaugeTrack.appendChild(zoneBand); // 뒤: 존 띠
+    gaugeTrack.appendChild(this.gaugeFill); // 중간: 차오르는 채움
+    gaugeTrack.appendChild(zoneLine); // 앞: 경계선(채움 위로도 보이게)
     powerWrap.appendChild(gaugeTrack);
 
     // === 스핀 게이지 (파워 위) — Q/E 또는 드래그로 좌/우 훅 설정 ===
     const spinWrap = (this.spinWrap = document.createElement('div'));
-    applyPanel(spinWrap, NEON.purple);
+    applyPanel(spinWrap, NEON.cyan); // 파워와 동일 액센트로 통일 (입력 쌍)
     css(spinWrap, {
-      position: 'fixed', // 하단 풀폭 스핀바 — 단일 줄로 얇게(공이 위로 보이게)
+      position: 'fixed', // 좌하단 컴팩트 — 풀폭 폐기(공·조준선 밑동 가림). 2단: 헤더(라벨+값) / 트랙.
       bottom: 'calc(10px + env(safe-area-inset-bottom))',
-      left: this.coarse ? 'calc(12px + env(safe-area-inset-left))' : '50%',
-      right: this.coarse ? 'calc(12px + env(safe-area-inset-right))' : '',
-      transform: this.coarse ? '' : 'translateX(-50%)',
-      width: this.coarse ? 'auto' : '440px',
+      left: this.coarse ? 'calc(12px + env(safe-area-inset-left))' : 'calc(24px + env(safe-area-inset-left))',
+      width: this.coarse ? 'min(46vw, 280px)' : '300px',
       zIndex: '20',
       pointerEvents: 'none',
-      padding: '6px 14px',
+      padding: '8px 12px',
       display: 'flex',
-      alignItems: 'center',
-      gap: '12px',
+      flexDirection: 'column',
+      gap: '6px',
     });
 
     // 헤더: "스핀" 라벨 + 현재 수치
@@ -207,7 +258,7 @@ export class Controls {
       minWidth: '0',
       height: `${TRACK_HIT}px`,
       background: this.coarse ? 'transparent' : 'rgba(255,255,255,0.1)',
-      border: this.coarse ? 'none' : `1px solid ${rgba(NEON.purple, 0.25)}`,
+      border: this.coarse ? 'none' : `1px solid ${rgba(NEON.cyan, 0.25)}`,
       borderRadius: '999px',
       pointerEvents: 'auto',
       cursor: 'ew-resize',
@@ -224,7 +275,7 @@ export class Controls {
         width: '100%',
         height: '10px',
         background: 'rgba(255,255,255,0.1)',
-        border: `1px solid ${rgba(NEON.purple, 0.25)}`,
+        border: `1px solid ${rgba(NEON.cyan, 0.25)}`,
         borderRadius: '999px',
       });
       spinTrack.appendChild(line);
@@ -261,8 +312,8 @@ export class Controls {
       marginTop: `${-THUMB / 2}px`,
       borderRadius: '50%',
       background: '#fff',
-      border: `2px solid ${NEON.purple}`,
-      boxShadow: `0 0 8px ${rgba(NEON.purple, 0.8)}`,
+      border: `2px solid ${NEON.ice}`,
+      boxShadow: `0 0 8px ${rgba(NEON.ice, 0.8)}`,
     });
     spinTrack.appendChild(this.spinFill);
     spinTrack.appendChild(tick);
@@ -279,9 +330,13 @@ export class Controls {
       margin: '4px 0 0',
     });
 
-    spinWrap.appendChild(spinLabel);
+    const spinHeader = document.createElement('div'); // 2단 상단: 라벨 ↔ 현재 수치
+    css(spinHeader, { display: 'flex', justifyContent: 'space-between', alignItems: 'center' });
+    spinHeader.appendChild(spinLabel);
+    spinHeader.appendChild(this.spinValue);
+
+    spinWrap.appendChild(spinHeader);
     spinWrap.appendChild(spinTrack);
-    spinWrap.appendChild(this.spinValue);
 
     document.body.appendChild(spinWrap); // 하단 풀폭 스핀바
     document.body.appendChild(powerWrap); // 우측 세로 파워바
@@ -396,8 +451,8 @@ export class Controls {
     this.spinFill.style.left = s < 0 ? `${50 - Math.abs(s) * 50}%` : '50%';
     this.spinFill.style.background = dirColor;
     this.spinThumb.style.left = `${50 + s * 50}%`;
-    this.spinThumb.style.borderColor = s === 0 ? NEON.purple : dirColor;
-    this.spinThumb.style.boxShadow = `0 0 8px ${rgba(s === 0 ? NEON.purple : dirColor, 0.85)}`;
+    this.spinThumb.style.borderColor = s === 0 ? NEON.ice : dirColor;
+    this.spinThumb.style.boxShadow = `0 0 8px ${rgba(s === 0 ? NEON.ice : dirColor, 0.85)}`;
     if (s === 0) {
       this.spinValue.textContent = '0';
       this.spinValue.style.color = NEON.dim;
@@ -424,8 +479,14 @@ export class Controls {
    * Line2(외곽선+코어 2겹)로 그린다. 오일 존 직진 → 드라이 존 레이트 훅. Z_CAP까지만, 끝은 페이드.
    */
   private updateAimArrow() {
-    const Z_CAP = 10; // 그리는 끝 z — 짧게(끝까지 안 감). 핀 z=18.29. 늘리면 훅이 더 보이나 길어짐.
-    const p = this.charging ? this.power : 0.55;
+    // 곡률 보존 압축: REF_Z까지의 훅 곡선을 적분해 '모양'을 확보한 뒤, 시작점 기준 k배로 비례 축소해
+    // DRAW_Z 길이에 욱여넣는다. 짧게 그려도(DRAW_Z) 긴 거리(REF_Z)의 곡률이 그대로 보임(축소판 바나나).
+    // 그냥 DRAW_Z까지만 적분하면 그 구간이 오일존(직진)이라 곡률이 거의 안 보였음. 균일 스케일이라 초기
+    // 조준 방향(각도)은 불변. 조준선은 차징(파워 핑퐁)에 안 흔들리게 대표 파워로 고정(파워 체감은 게이지).
+    const REF_Z = 14; // 곡률 기준 길이 — 드라이존(오일 끝 뒤) 훅까지 포함해 더 휜 모양을 5에 압축
+    const DRAW_Z = 5; // 실제 그리는 길이 (짧게)
+    const p = 0.6;
+    const endZ = REF_Z; // 적분은 REF_Z까지 (곡선 모양 확보 후 축소)
     const speed = (MIN_SPEED + p * (MAX_SPEED - MIN_SPEED)) * this.ball.speedScale;
     const nrm = Math.hypot(this.aim, 1);
     let vx = (this.aim / nrm) * speed;
@@ -438,7 +499,7 @@ export class Controls {
     const path: number[][] = [[0, BALL_START_Z]];
     let x = 0;
     let z = BALL_START_Z;
-    for (let i = 0; i < 80 && z < Z_CAP && z < HEADPIN_Z; i++) {
+    for (let i = 0; i < 80 && z < endZ && z < HEADPIN_Z; i++) {
       const slipX = vx + wzR;
       const slipZ = vz - wxR;
       const mag = Math.hypot(slipX, slipZ);
@@ -455,10 +516,24 @@ export class Controls {
       z += vz * PREVIEW_DT;
       path.push([x, z]);
     }
+    // 마지막 점을 정확히 endZ(파워 비례 길이)에 트림 — 적분 스텝(풀파워 ~0.96m) 단위로 끝점이 튀던 "버벅"
+    // 제거. endZ가 파워의 연속 함수라 끝점이 매끄럽게 전진/후퇴한다(스텝 스냅 없음).
+    if (path.length >= 2) {
+      const a = path[path.length - 2];
+      const b = path[path.length - 1];
+      if (b[1] > endZ && b[1] !== a[1]) {
+        const t = (endZ - a[1]) / (b[1] - a[1]);
+        b[0] = a[0] + (b[0] - a[0]) * t;
+        b[1] = endZ;
+      }
+    }
     if (path.length < 2) return;
 
+    // REF_Z 곡선을 DRAW_Z로 비례 축소 (시작점 기준 균일 스케일 k)
+    const k = (DRAW_Z - BALL_START_Z) / (REF_Z - BALL_START_Z);
+    const sz = (z0: number) => BALL_START_Z + (z0 - BALL_START_Z) * k;
     const positions: number[] = [];
-    for (let i = 0; i < path.length; i++) positions.push(path[i][0], 0.02, path[i][1]);
+    for (let i = 0; i < path.length; i++) positions.push(path[i][0] * k, 0.02, sz(path[i][1]));
 
     // 색: L=시안 / R=앰버 / 0=흰색. 끝으로 갈수록 레인색(tan)으로 페이드 → 레인에 자연스럽게 녹아듦.
     const spinCol = new THREE.Color(this.spin < 0 ? NEON.cyan : this.spin > 0 ? NEON.amber : 0xffffff);
@@ -469,7 +544,7 @@ export class Controls {
     const caseColors: number[] = [];
     const last = path.length - 1;
     for (let i = 0; i <= last; i++) {
-      const fade = Math.min(1, Math.pow(i / last, 1.1) * 1.15); // 중반쯤 레인색에 완전히 녹아 사라짐
+      const fade = Math.min(0.82, Math.pow(i / last, 2.0)); // 대부분 또렷, 끝만 살짝 페이드(중립 흰색 가독성↑)
       tmp.copy(spinCol).lerp(tan, fade);
       coreColors.push(tmp.r, tmp.g, tmp.b);
       tmp.copy(dark).lerp(tan, fade);
@@ -481,5 +556,10 @@ export class Controls {
     this.aimCaseGeo.setColors(caseColors);
     this.aimCoreMat.resolution.set(window.innerWidth, window.innerHeight);
     this.aimCaseMat.resolution.set(window.innerWidth, window.innerHeight);
+
+    // 끝점 링: 경로 끝(방향 도달점)에 스핀색으로 또렷하게 — 페이드된 라인 끝을 재앵커
+    const end = path[last];
+    this.aimEndMarker.position.set(end[0] * k, 0.021, sz(end[1]));
+    this.aimEndMat.color.copy(spinCol);
   }
 }

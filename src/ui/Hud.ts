@@ -3,11 +3,14 @@ import { SPARE_LEAVES, type GameStateName, type GameMode } from '../game/GameSta
 import { isCoarsePointer } from '../core/device';
 import { css, NEON, FONT_UI, FONT_DIGITS, rgba, applyPanel, ensureNeonStyles } from './theme';
 
-// 터치(coarse): 좁은 폰에서 10프레임 점수판이 넘치지 않게 셀 축소 + 가로 스크롤 (MOBILE_SUPPORT.md §3)
+// 점수판은 항상 한 줄(스크롤 0). 행에 정해진 폭(min(96vw, 자연폭))을 주고 프레임·셀을 flex-basis:0으로
+// 비례 분배 → 칸이 비어도(초반 빈 칸) 안 찌그러지고, 좁으면 균일 축소. (UI_REVAMP.md "A — 한 줄 꽉 채우기")
 const COARSE = isCoarsePointer();
-const CELL = COARSE ? 13 : 17; // 마크 칸 한 변(px)
+const CELL = COARSE ? 13 : 17; // 칸 높이(px) 겸 자연폭 산정 기준 — 실제 칸 폭은 flex로 분배
+const NAT_SHEET = 21 * CELL + 39; // 풀 시트 자연폭: 21칸 + 9갭(27px) + 패딩(12px). 데스크톱은 이 폭, 폰은 96vw로 축소
+const NAME_W = 102; // 멀티 이름 패널 폭(여유 포함) — 풀 시트 행 폭에 가산
 const SCORE_H = COARSE ? 17 : 20; // 누적점수 줄 높이(px)
-const SCORE_FS = COARSE ? 12 : 14; // 누적점수 폰트(px)
+const SCORE_FS = COARSE ? 12 : 14; // 누적점수 폰트(px) — 좁은 셀(~26px 프레임)에 3자리(176/300) 여유(폭 84%)
 
 export interface HudPlayerView {
   name: string;
@@ -97,7 +100,7 @@ export class Hud {
     });
 
     this.sheets = document.createElement('div');
-    css(this.sheets, { display: 'flex', flexDirection: 'column', gap: '5px' });
+    css(this.sheets, { display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '5px' });
 
     this.status = document.createElement('div');
     applyPanel(this.status, NEON.cyan);
@@ -139,12 +142,19 @@ export class Hud {
 
   private renderSheet(d: HudView, p: HudPlayerView, active: boolean): HTMLDivElement {
     const accent = active ? NEON.gold : NEON.cyan;
-    const row = document.createElement('div');
-    css(row, { display: 'flex', alignItems: 'center', gap: '6px' });
-    // 터치: 셀 축소로도 넘치는 폭(멀티/마지막 프레임)은 가로 스크롤로 흡수. wrap이 pointerEvents:none이라 행에 auto 부여.
-    if (COARSE) css(row, { maxWidth: '96vw', overflowX: 'auto', pointerEvents: 'auto', touchAction: 'pan-x' });
+    const multi = d.players.length > 1;
 
-    if (d.players.length > 1) {
+    const row = document.createElement('div');
+    // 풀 시트는 정해진 폭(min(96vw, 자연폭))을 줘야 flex-basis:0 셀이 빈 칸도 안 찌그러뜨림.
+    // 스페어는 내용이 비지 않으니 내용폭(fit-content)으로 충분.
+    // 멀티는 두 플레이어 모두 풀 시트로 쌓아 직관적 비교(active 행이 이미 폭을 정하므로 풀로 깔아도 폭 추가 0).
+    const rowWidth =
+      d.mode === 'spare'
+        ? 'fit-content'
+        : `min(96vw, ${NAT_SHEET + (multi ? NAME_W : 0)}px)`;
+    css(row, { display: 'flex', alignItems: 'center', gap: '6px', width: rowWidth, maxWidth: '96vw' });
+
+    if (multi) {
       const name = document.createElement('div');
       name.textContent = (p.ai ? '🤖 ' : '') + p.name;
       applyPanel(name, accent);
@@ -163,6 +173,8 @@ export class Hud {
     applyPanel(sheet, accent);
     css(sheet, {
       display: 'flex',
+      flex: '1 1 0', // 행 폭(정해진 값)을 채움 — 멀티는 이름 패널 제외분
+      minWidth: '0',
       gap: '3px',
       padding: '6px',
       font: FONT_DIGITS,
@@ -212,6 +224,8 @@ export class Hud {
 
       const box = document.createElement('div');
       css(box, {
+        flex: `${f === d.frames - 1 ? 3 : 2} 1 0`, // 칸 수(일반2/마지막3) 비례 분배 → 모든 셀 폭 균일
+        minWidth: '0',
         borderRadius: '7px',
         overflow: 'hidden',
         background: isCurrent ? rgba(NEON.gold, 0.1) : 'rgba(255,255,255,0.04)',
@@ -220,11 +234,12 @@ export class Hud {
       });
 
       const marks = document.createElement('div');
-      css(marks, { display: 'flex', justifyContent: 'flex-end' });
+      css(marks, { display: 'flex' });
       for (const m of f === d.frames - 1 ? marksLast(fr) : marksNormal(fr)) {
         const cell = document.createElement('div');
         css(cell, {
-          width: `${CELL}px`,
+          flex: '1 1 0', // basis:0 비례 분배 — 빈 칸도 내용과 무관하게 폭 유지(찌그러짐 방지)
+          minWidth: '0',
           height: `${CELL}px`,
           display: 'flex',
           alignItems: 'center',
@@ -254,4 +269,5 @@ export class Hud {
     row.appendChild(sheet);
     return row;
   }
+
 }
