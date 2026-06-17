@@ -18,6 +18,7 @@ import { computeAiThrow, type AiProfile } from './ai';
 import { detectSplit } from './splits';
 import { recordGame } from './Stats';
 import { resetOil, advanceOilDrying, type OilPattern } from './oil';
+import { CLASSIC_SKIN, type BallSkin } from './rewards';
 
 export type GameStateName = 'MENU' | 'AIMING' | 'ROLLING' | 'SETTLING' | 'GAME_OVER';
 export type GameMode = 'full' | 'blitz' | 'spare';
@@ -51,6 +52,10 @@ export interface PlayerSummary {
   name: string;
   ai: boolean;
   score: number;
+  /** AI 라이벌 식별 key (사람은 undefined) — 보상 격파 판정용 */
+  aiKey?: string;
+  /** 프레임별 투구 — 보상 turkey 판정용 */
+  rolls: number[][];
 }
 
 export interface GameSummary {
@@ -121,6 +126,7 @@ export class GameState {
   private aiWait = 0;
   private pendingSplit: string | null = null;
   private humanSpec: BallSpec = makeBallSpec(10);
+  private humanSkin: BallSkin = CLASSIC_SKIN; // 장착 볼 스킨 (보상) — 외형만
   private slowmoTimer = 0; // 남은 슬로모 시간 (sim s) — Loop.timeScale로 환산 적용
   private slowmoUsed = false; // 투구당 1회 (매 throwBall 리셋)
 
@@ -202,6 +208,12 @@ export class GameState {
   setHumanBallSpec(spec: BallSpec) {
     this.humanSpec = spec;
     if (this.state === 'AIMING' && this.isHumanTurn()) this.ballObj.setSpec(spec);
+  }
+
+  /** 메뉴 스킨 시트 → 사람 볼 스킨 (외형만, 물리 무영향). AI 턴엔 저장만. */
+  setBallSkin(skin: BallSkin) {
+    this.humanSkin = skin;
+    if (this.state === 'AIMING' && this.isHumanTurn()) this.ballObj.setSkin(skin);
   }
 
   /** 입력에서 호출: 공 발사 (spin ∈ [-1,1] 좌/우 훅) */
@@ -507,7 +519,7 @@ export class GameState {
       summary: {
         mode: this.mode,
         frames: this.frames,
-        players: this.players.map((p, i) => ({ name: p.name, ai: !!p.ai, score: scores[i] })),
+        players: this.players.map((p, i) => ({ name: p.name, ai: !!p.ai, score: scores[i], aiKey: p.ai?.key, rolls: p.rolls })),
         winner,
         newBest,
         best,
@@ -517,7 +529,13 @@ export class GameState {
 
   private applyBallSpecForTurn() {
     const p = this.currentPlayer;
-    this.ballObj.setSpec(p?.ai ? makeBallSpec(p.ai.ballLb) : this.humanSpec);
+    if (p?.ai) {
+      this.ballObj.setSpec(makeBallSpec(p.ai.ballLb));
+      this.ballObj.setSkin(CLASSIC_SKIN); // AI는 항상 기본 스킨
+    } else {
+      this.ballObj.setSpec(this.humanSpec);
+      this.ballObj.setSkin(this.humanSkin);
+    }
   }
 
   private refreshHud() {

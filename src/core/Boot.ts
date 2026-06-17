@@ -13,6 +13,7 @@ import { CameraRig } from '../camera/CameraRig';
 import { SoundManager } from '../audio/SoundManager';
 import { makeBallSpec } from '../game/BallSpec';
 import { PIN_CONTACT_Z } from '../game/constants';
+import { ACHIEVEMENTS, evaluateAchievements, loadRewards, recordRewards, resetRewards, resolveSkin } from '../game/rewards';
 import { isCoarsePointer } from './device';
 
 let _rapier: typeof RAPIER | null = null;
@@ -32,7 +33,7 @@ export async function boot() {
   _rapier = RAPIER;
 
   const engine = new Engine();
-  const { game, controls, cameraRig, environment, sound } = buildScene(engine);
+  const { game, controls, cameraRig, environment, sound, exitBtn } = buildScene(engine);
   let shadowMoving = true; // 그림자 정적화 상태 추적 (§6)
   const loop = new Loop(
     engine,
@@ -49,6 +50,9 @@ export async function boot() {
         engine.renderer.shadowMap.autoUpdate = moving;
         if (!moving) engine.renderer.shadowMap.needsUpdate = true; // 정지 직전 1회 갱신
       }
+      // 인게임 '메뉴로' 버튼: 매치 중(MENU/GAME_OVER 외)에만 노출
+      const inMatch = game.state !== 'MENU' && game.state !== 'GAME_OVER';
+      exitBtn.style.display = inMatch ? 'block' : 'none';
     },
   );
   game.setTimeScale = (s) => {
@@ -118,6 +122,7 @@ function buildScene(engine: Engine): {
   cameraRig: CameraRig;
   environment: Environment;
   sound: SoundManager;
+  exitBtn: HTMLButtonElement;
 } {
   const lane = new Lane(engine);
   const environment = new Environment(engine); // 볼링장 배경 (옆 레인·벽·천장·네온·전광판)
@@ -133,7 +138,9 @@ function buildScene(engine: Engine): {
     (cfg) => game.startMatch(cfg),
     () => game.toMenu(),
     (lb) => game.setHumanBallSpec(makeBallSpec(lb)), // 볼 무게 (인게임 HUD 대신 메뉴에서 선택)
+    (id) => game.setBallSkin(resolveSkin(id)), // 볼 스킨 (보상, 외형 전용)
   );
+  game.setBallSkin(resolveSkin(loadRewards().selectedSkin)); // 저장된 장착 스킨 초기 적용
   menu.showMenu();
 
   // 게임 이벤트 → 연출. 모든 이벤트 텍스트는 전광판(diegetic)에만 표시 — HUD 중앙 배너 중복 제거.
@@ -160,9 +167,26 @@ function buildScene(engine: Engine): {
       case 'turn':
         if (e.ai) environment.announce(`${e.playerName} 차례`, '#aab3c2');
         break;
-      case 'gameOver':
-        menu.showResult(e.summary);
+      case 'gameOver': {
+        const sm = e.summary;
+        const fresh = evaluateAchievements(
+          {
+            mode: sm.mode,
+            humanScore: sm.players[0].score,
+            winner: sm.winner,
+            rivalKeys: sm.players.slice(1).map((p) => p.aiKey).filter((k): k is string => !!k),
+            rolls: sm.players[0].rolls,
+            frames: sm.frames,
+          },
+          loadRewards().earned,
+        );
+        if (fresh.length) {
+          recordRewards(fresh);
+          sound.playUnlock();
+        }
+        menu.showResult(sm, fresh);
         break;
+      }
     }
   };
 
@@ -187,6 +211,40 @@ function buildScene(engine: Engine): {
     if (typeof navigator.vibrate === 'function') navigator.vibrate(standing > 2 ? 30 : 12);
   };
 
+  // 인게임 '메뉴로' 버튼 — 게임 중 포기하고 메뉴 복귀 (가시성은 Loop onFrame에서 상태별 토글).
+  // 좌상단 safe-area, 점수판(상단)과 안 겹치게 작게. Esc(데스크톱)도 동일 동작.
+  const exitBtn = document.createElement('button');
+  exitBtn.textContent = '☰ 메뉴';
+  exitBtn.style.cssText = [
+    'position:fixed',
+    'top:calc(8px + env(safe-area-inset-top))',
+    'left:calc(8px + env(safe-area-inset-left))',
+    'z-index:30',
+    'display:none',
+    'padding:8px 12px',
+    'min-height:40px',
+    'border-radius:10px',
+    'border:1px solid rgba(255,255,255,0.2)',
+    'background:rgba(14,17,27,0.82)',
+    'color:#e8edf5',
+    'font:700 13px/1 system-ui, sans-serif',
+    'cursor:pointer',
+    'backdrop-filter:blur(4px)',
+  ].join(';');
+  const forfeit = () => {
+    if (game.state === 'MENU' || game.state === 'GAME_OVER') return;
+    // 네이티브 confirm() 대신 앱 내부 오버레이 — iOS 웹뷰/시뮬레이터에서 confirm()이 안 떠 포기가 먹통이던 문제 해결.
+    menu.showForfeitConfirm(() => {
+      game.toMenu();
+      menu.showMenu();
+    });
+  };
+  exitBtn.onclick = forfeit;
+  document.body.appendChild(exitBtn);
+  window.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') forfeit();
+  });
+
   // 초기 카메라 (이후 CameraRig가 상태별로 보간) — AIMING 뷰와 동일
   engine.camera.position.set(0, 1.12, -2.7);
   engine.camera.lookAt(0, -0.05, 7.5);
@@ -198,12 +256,23 @@ function buildScene(engine: Engine): {
     __engine?: Engine;
     __game?: GameState;
     __cameraRig?: CameraRig;
+    __unlockAllRewards?: () => void;
+    __resetRewards?: () => void;
   };
   w.__ball = ball;
   w.__pins = pins;
   w.__engine = engine;
   w.__game = game;
   w.__cameraRig = cameraRig;
+  // [DEV] 보상 디버그 — 콘솔에서 호출 후 새로고침
+  w.__unlockAllRewards = () => {
+    recordRewards(ACHIEVEMENTS.map((a) => a.id));
+    console.log('[rewards] 전체 해금 완료 — 새로고침하세요');
+  };
+  w.__resetRewards = () => {
+    resetRewards();
+    console.log('[rewards] 초기화 완료 — 새로고침하세요');
+  };
 
-  return { game, controls, cameraRig, environment, sound };
+  return { game, controls, cameraRig, environment, sound, exitBtn };
 }

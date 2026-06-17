@@ -3,10 +3,55 @@ import type { OilPattern } from '../game/oil';
 import { AI_PROFILES } from '../game/ai';
 import { statsSummary } from '../game/Stats';
 import { isCoarsePointer } from '../core/device';
+import { SKINS, ACHIEVEMENTS, loadRewards, saveSelectedSkin, unlockedSkinIds, resolveSkin, achievementForSkin } from '../game/rewards';
+import type { BallSkin, SkinFinish } from '../game/rewards';
 
 const css = (el: HTMLElement, style: Partial<CSSStyleDeclaration>) => Object.assign(el.style, style);
 
 const COARSE = isCoarsePointer(); // 터치 환경: 버튼/칩 히트영역 ≥44px (MOBILE_SUPPORT.md §3.1)
+
+const hex6 = (n: number) => `#${n.toString(16).padStart(6, '0')}`;
+
+/**
+ * 스킨 마감을 CSS 그라데이션 스와치로 근사 — 시트는 3D 미사용·DOM 전용이라 실제 머티리얼을 흉내만 낸다.
+ * 글로우는 인게임 bloom 도입 전이라(REWARDS.md §11) 시트에서는 헤일로를 살짝 더 줘 마감 구분을 돕는다.
+ */
+function skinPreviewStyle(skin: BallSkin): { background: string; shadow: string } {
+  if (skin.finish === 'chrome') {
+    return {
+      background: 'linear-gradient(145deg,#f5f8ff 0%,#aeb6c4 30%,#2a3140 50%,#c9d2e0 70%,#6b7686 100%)',
+      shadow: 'inset -3px -4px 7px rgba(0,0,0,0.4)',
+    };
+  }
+  if (skin.finish === 'glow' && skin.emissive != null) {
+    const e = hex6(skin.emissive);
+    const base = hex6(skin.color ?? 0x111111);
+    return {
+      background: `radial-gradient(circle at 36% 30%,#ffffff,${e} 42%,${base})`,
+      shadow: `0 0 12px ${e}cc,inset -4px -5px 8px rgba(0,0,0,0.45)`,
+    };
+  }
+  if (skin.useWeightColor) {
+    // classic — 무게 기반 색은 런타임에 바뀌지만 미리보기는 대표 블루로 고정
+    return {
+      background: 'radial-gradient(circle at 35% 30%,#9fcfff,#4aa3ff 42%,#1c5fa0)',
+      shadow: 'inset -3px -4px 7px rgba(0,0,0,0.45)',
+    };
+  }
+  const c = hex6(skin.color ?? 0x888888);
+  return {
+    background: `radial-gradient(circle at 35% 30%,#ffffff,${c} 46%,#6b7280)`,
+    shadow: 'inset -3px -4px 7px rgba(0,0,0,0.3)',
+  };
+}
+
+const FINISH_LABEL: Record<SkinFinish, string> = {
+  matte: '무광',
+  satin: '새틴',
+  metallic: '메탈릭',
+  chrome: '크롬',
+  glow: '글로우',
+};
 
 const MODES: { key: GameMode; label: string; desc: string }[] = [
   { key: 'full', label: '풀게임', desc: '10프레임 정식 룰' },
@@ -51,19 +96,27 @@ export class MenuUI {
   private difficulty: Difficulty = 'beginner'; // 난이도 프리셋 (P3 §2.7) — 오일+예측선 큐레이션
   private oilPattern: OilPattern = 'house'; // 오일 패턴 (P3) — 초급 프리셋과 일치
   private aimAid: AimAid = 'easy'; // 예측선 난이도 (P3, UI 전용) — 기본 easy(§2.7)
+  private selectedSkin: string = loadRewards().selectedSkin; // 장착 볼 스킨 (보상)
 
   constructor(
     private readonly onStart: (cfg: MatchConfig) => void,
     private readonly onMenu: () => void,
     private readonly onWeight: (lb: number) => void,
+    private readonly onSkinChange: (id: string) => void,
   ) {
     this.backdrop = document.createElement('div');
     css(this.backdrop, {
       position: 'fixed',
       inset: '0',
+      height: '100dvh', // 동적 툴바(iOS) 대응 — vh 대신 dvh
       display: 'none',
       alignItems: 'center',
       justifyContent: 'center',
+      // safe-area를 패딩으로 비켜 중앙정렬된 패널이 노치/Dynamic Island/홈바 밑으로 파고들지 않게.
+      // max(inset, 12~16px): 인셋 없는 데스크톱에서도 최소 여백 보장.
+      boxSizing: 'border-box',
+      padding:
+        'max(env(safe-area-inset-top), 16px) max(env(safe-area-inset-right), 12px) max(env(safe-area-inset-bottom), 16px) max(env(safe-area-inset-left), 12px)',
       background: 'rgba(6,8,14,0.72)',
       backdropFilter: 'blur(4px)',
       zIndex: '40',
@@ -76,11 +129,15 @@ export class MenuUI {
       padding: '28px 32px',
       color: '#e8edf5',
       font: '500 14px/1.5 system-ui, sans-serif',
-      minWidth: COARSE ? 'auto' : '340px', // 좁은 폰에서 340px 강제 → 가로 오버플로 방지
+      // 모바일은 뷰 무관 고정 폭으로 통일 — 안 그러면 패널이 내용 너비에 맞춰져, 내용이 좁은
+      // 컬렉션 시트가 메뉴보다 홀쭉해진다. border-box+92vw 상한으로 좁은 폰 가로 오버플로도 방지.
+      width: COARSE ? 'min(360px, 92vw)' : '',
+      minWidth: COARSE ? '' : '340px',
+      boxSizing: COARSE ? 'border-box' : '',
       maxWidth: '92vw',
       // 짧은 가로(landscape) 화면에서 내용이 넘치면 잘림 → 패널 내부 세로 스크롤 허용.
-      // dvh: iOS 동적 주소창이 vh에 포함돼 밀리는 문제 회피. pan-y: 세로 스크롤만(핀치/더블탭 줌 차단). (§3·§4)
-      maxHeight: '90dvh',
+      // 100%: 백드롭의 safe-area 패딩 안쪽으로만 차게(노치/홈바 비침). pan-y: 세로 스크롤만(핀치/더블탭 줌 차단). (§3·§4)
+      maxHeight: '100%',
       overflowY: 'auto',
       touchAction: 'pan-y',
       boxShadow: '0 18px 60px rgba(0,0,0,0.5)',
@@ -129,7 +186,7 @@ export class MenuUI {
     rivalBtns.set(null, solo);
     rivalRow.appendChild(solo);
     for (const p of AI_PROFILES) {
-      const b = this.chipButton(`${p.name} · ${p.difficulty}`, p.tagline);
+      const b = this.chipButton(p.name, p.tagline);
       b.onclick = () => {
         if (this.mode === 'spare') return;
         this.rivalKey = p.key;
@@ -231,6 +288,24 @@ export class MenuUI {
     wRow.appendChild(wVal);
     this.panel.appendChild(wRow);
 
+    // 볼 스킨 진입 (외형 전용 — 시작 버튼 안 밀게 무게 슬라이더 아래 한 줄, REWARDS.md §10.1)
+    const skinBtn = document.createElement('button');
+    skinBtn.textContent = `🎨 컬렉션 · ${resolveSkin(this.selectedSkin).label} ▸`;
+    css(skinBtn, {
+      width: '100%',
+      padding: COARSE ? '12px' : '10px',
+      minHeight: COARSE ? '44px' : '',
+      borderRadius: '10px',
+      border: '1px solid rgba(255,255,255,0.18)',
+      background: 'rgba(255,255,255,0.05)',
+      color: '#e8edf5',
+      font: '700 13px/1 system-ui, sans-serif',
+      cursor: 'pointer',
+      marginBottom: '14px',
+    });
+    skinBtn.onclick = () => this.showSkins();
+    this.panel.appendChild(skinBtn);
+
     // 시작
     const start = document.createElement('button');
     start.textContent = '게임 시작';
@@ -282,7 +357,7 @@ export class MenuUI {
   }
 
   // --- 결과 화면 ---
-  showResult(summary: GameSummary) {
+  showResult(summary: GameSummary, fresh: string[] = []) {
     this.panel.replaceChildren();
     const solo = summary.players.length === 1;
     const me = summary.players[0];
@@ -320,6 +395,52 @@ export class MenuUI {
         marginBottom: '14px',
       });
       this.panel.appendChild(badge);
+    }
+
+    // 업적 해금 토스트 (보상, REWARDS.md §10.3) — 결과 화면 일괄 + 즉시 장착 버튼
+    if (fresh.length) {
+      const box = document.createElement('div');
+      css(box, {
+        borderRadius: '10px',
+        border: '1px solid rgba(255,213,74,0.4)',
+        background: 'rgba(255,213,74,0.08)',
+        padding: '10px 12px',
+        marginBottom: '14px',
+      });
+      for (const id of fresh) {
+        const ach = ACHIEVEMENTS.find((a) => a.id === id);
+        if (!ach) continue;
+        const row = document.createElement('div');
+        css(row, { font: '700 13px/1.6 system-ui, sans-serif', color: '#ffd54a' });
+        row.textContent = `${ach.icon} NEW · ${ach.badge} → ${resolveSkin(ach.reward).label}`;
+        box.appendChild(row);
+      }
+      const lastAch = ACHIEVEMENTS.find((a) => a.id === fresh[fresh.length - 1]);
+      if (lastAch) {
+        const skin = resolveSkin(lastAch.reward);
+        const equip = document.createElement('button');
+        equip.textContent = `${skin.label} 장착하기`;
+        css(equip, {
+          marginTop: '8px',
+          width: '100%',
+          padding: '9px',
+          borderRadius: '8px',
+          border: 'none',
+          background: 'linear-gradient(90deg,#fbbf24,#f59e0b)',
+          color: '#1a1205',
+          font: '800 13px/1 system-ui, sans-serif',
+          cursor: 'pointer',
+        });
+        equip.onclick = () => {
+          this.equipSkin(skin.id);
+          equip.textContent = `✓ ${skin.label} 장착됨`;
+          equip.disabled = true;
+          equip.style.opacity = '0.7';
+          equip.style.cursor = 'default';
+        };
+        box.appendChild(equip);
+      }
+      this.panel.appendChild(box);
     }
 
     const note = document.createElement('div');
@@ -361,6 +482,55 @@ export class MenuUI {
     btnRow.appendChild(again);
     btnRow.appendChild(menu);
     this.panel.appendChild(btnRow);
+
+    this.backdrop.style.display = 'flex';
+  }
+
+  // --- 인게임 포기 확인 ---
+  // 네이티브 confirm()은 iOS 웹뷰/시뮬레이터/PWA에서 안 뜨고 falsy를 반환해 포기가 먹통이 됨.
+  // 그래서 앱 내부 DOM 오버레이(메뉴/결과와 같은 패널 패턴)로 처리 — 전 플랫폼 동작.
+  showForfeitConfirm(onConfirm: () => void) {
+    this.panel.replaceChildren();
+    this.panel.appendChild(this.title('게임을 포기할까요?'));
+
+    const note = document.createElement('div');
+    note.textContent = '현재 게임 기록은 저장되지 않습니다.';
+    css(note, { font: '500 13px/1.5 system-ui, sans-serif', color: '#aab3c2', textAlign: 'center', marginBottom: '18px' });
+    this.panel.appendChild(note);
+
+    const row = document.createElement('div');
+    css(row, { display: 'flex', gap: '8px' });
+    const cancel = document.createElement('button');
+    cancel.textContent = '계속하기';
+    css(cancel, {
+      flex: '1',
+      padding: '12px',
+      minHeight: COARSE ? '44px' : '',
+      borderRadius: '10px',
+      border: '1px solid rgba(255,255,255,0.25)',
+      background: 'transparent',
+      color: '#e8edf5',
+      font: '700 14px/1 system-ui, sans-serif',
+      cursor: 'pointer',
+    });
+    cancel.onclick = () => this.hide();
+    const yes = document.createElement('button');
+    yes.textContent = '포기';
+    css(yes, {
+      flex: '1',
+      padding: '12px',
+      minHeight: COARSE ? '44px' : '',
+      borderRadius: '10px',
+      border: 'none',
+      background: 'linear-gradient(90deg,#f59e0b,#ef4444)',
+      color: '#fff',
+      font: '800 14px/1 system-ui, sans-serif',
+      cursor: 'pointer',
+    });
+    yes.onclick = () => onConfirm();
+    row.appendChild(cancel);
+    row.appendChild(yes);
+    this.panel.appendChild(row);
 
     this.backdrop.style.display = 'flex';
   }
@@ -421,5 +591,169 @@ export class MenuUI {
         b.style.cursor = spareMode ? 'not-allowed' : 'pointer';
       }
     }
+  }
+
+  // --- 컬렉션 시트 (REWARDS.md §10.2 — 같은 패널 세 번째 뷰. 스킨 미리보기 + 업적 진행 겸용) ---
+  private showSkins() {
+    this.panel.replaceChildren();
+    this.panel.appendChild(this.title('🎨 컬렉션'));
+
+    const earned = loadRewards().earned;
+    const unlocked = unlockedSkinIds(earned);
+    const skinList = Object.values(SKINS);
+
+    // 스킨 섹션 — 마감을 보여주는 미리보기 볼 + 잠금 조건(다음 목표 후크)
+    this.panel.appendChild(this.collectionHeader('볼 스킨', `${unlocked.size} / ${skinList.length} 해금`));
+    const grid = document.createElement('div');
+    css(grid, { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginBottom: '20px' });
+    for (const skin of skinList) {
+      const isUnlocked = unlocked.has(skin.id);
+      const isEquipped = this.selectedSkin === skin.id;
+
+      const ball = document.createElement('span');
+      if (isUnlocked) {
+        const p = skinPreviewStyle(skin);
+        css(ball, { width: '42px', height: '42px', borderRadius: '50%', flex: '0 0 auto', background: p.background, boxShadow: p.shadow });
+      } else {
+        css(ball, {
+          width: '42px',
+          height: '42px',
+          borderRadius: '50%',
+          flex: '0 0 auto',
+          background: '#2b3140',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          font: '17px/1 system-ui, sans-serif',
+          opacity: '0.85',
+        });
+        ball.textContent = '🔒';
+      }
+
+      const labelEl = document.createElement('div');
+      labelEl.textContent = skin.label;
+      css(labelEl, { font: '700 13px/1.2 system-ui, sans-serif', color: isEquipped ? '#ffd54a' : isUnlocked ? '#e8edf5' : '#6b7686' });
+      const subEl = document.createElement('div');
+      subEl.textContent = isUnlocked ? FINISH_LABEL[skin.finish] : achievementForSkin(skin.id)?.desc ?? '잠김';
+      css(subEl, { font: '500 10px/1.3 system-ui, sans-serif', color: isUnlocked ? (isEquipped ? '#caa86a' : '#8a93a3') : '#7d8696', marginTop: '2px' });
+      const textWrap = document.createElement('div');
+      css(textWrap, { textAlign: 'center' });
+      textWrap.appendChild(labelEl);
+      textWrap.appendChild(subEl);
+
+      const cell = document.createElement('button');
+      cell.disabled = !isUnlocked;
+      css(cell, {
+        position: 'relative',
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        gap: '7px',
+        padding: '11px 11px 9px',
+        minHeight: COARSE ? '52px' : '',
+        borderRadius: '11px',
+        border: isEquipped ? '1px solid #ffd54a' : isUnlocked ? '1px solid rgba(255,255,255,0.16)' : '1px solid rgba(255,255,255,0.1)',
+        background: isEquipped ? 'rgba(255,213,74,0.14)' : isUnlocked ? 'rgba(255,255,255,0.04)' : 'rgba(255,255,255,0.02)',
+        cursor: isUnlocked ? 'pointer' : 'not-allowed',
+      });
+      cell.appendChild(ball);
+      cell.appendChild(textWrap);
+
+      if (isEquipped) {
+        const pill = document.createElement('span');
+        pill.textContent = '장착';
+        css(pill, { position: 'absolute', top: '7px', right: '8px', font: '800 9px/1 system-ui, sans-serif', color: '#1a1205', background: '#ffd54a', borderRadius: '5px', padding: '2px 5px' });
+        cell.appendChild(pill);
+      }
+
+      if (isUnlocked) {
+        cell.onclick = () => {
+          this.equipSkin(skin.id);
+          this.showSkins();
+        };
+      }
+      grid.appendChild(cell);
+    }
+    this.panel.appendChild(grid);
+
+    // 업적 섹션 — 6개 뱃지를 한자리에(딴 것 ✓ / 잠긴 것 조건+해금 스킨). 솔로 게임의 동기 엔진(§1).
+    const earnedCount = ACHIEVEMENTS.filter((a) => earned.includes(a.id)).length;
+    this.panel.appendChild(this.collectionHeader('업적', `${earnedCount} / ${ACHIEVEMENTS.length} 달성`));
+    const achWrap = document.createElement('div');
+    css(achWrap, { display: 'flex', flexDirection: 'column', gap: '6px', marginBottom: '20px' });
+    for (const a of ACHIEVEMENTS) {
+      const got = earned.includes(a.id);
+      const row = document.createElement('div');
+      css(row, {
+        display: 'flex',
+        alignItems: 'center',
+        gap: '11px',
+        padding: '9px 11px',
+        borderRadius: '9px',
+        background: got ? 'rgba(255,213,74,0.08)' : 'rgba(255,255,255,0.02)',
+        border: got ? '1px solid rgba(255,213,74,0.22)' : '1px solid rgba(255,255,255,0.08)',
+        opacity: got ? '1' : '0.75',
+      });
+      const icon = document.createElement('span');
+      icon.textContent = a.icon;
+      css(icon, { font: '18px/1 system-ui, sans-serif', flex: '0 0 auto', filter: got ? '' : 'grayscale(1)' });
+      const badge = document.createElement('div');
+      badge.textContent = a.badge;
+      css(badge, { font: '700 12px/1.3 system-ui, sans-serif', color: got ? '#ffd54a' : '#9aa3b2' });
+      const desc = document.createElement('div');
+      desc.textContent = `${a.desc} · ${resolveSkin(a.reward).label} 해금`;
+      css(desc, { font: '500 10px/1.3 system-ui, sans-serif', color: got ? '#8a93a3' : '#6b7686' });
+      const body = document.createElement('div');
+      css(body, { flex: '1' });
+      body.appendChild(badge);
+      body.appendChild(desc);
+      const status = document.createElement('span');
+      status.textContent = got ? '✓' : '🔒';
+      css(status, { flex: '0 0 auto', font: got ? '800 13px/1 system-ui, sans-serif' : '600 11px/1 system-ui, sans-serif', color: got ? '#5dca8f' : '#6b7686' });
+      row.appendChild(icon);
+      row.appendChild(body);
+      row.appendChild(status);
+      achWrap.appendChild(row);
+    }
+    this.panel.appendChild(achWrap);
+
+    const back = document.createElement('button');
+    back.textContent = '← 메뉴로';
+    css(back, {
+      width: '100%',
+      padding: '11px',
+      minHeight: COARSE ? '44px' : '',
+      borderRadius: '10px',
+      border: '1px solid rgba(255,255,255,0.25)',
+      background: 'transparent',
+      color: '#e8edf5',
+      font: '700 14px/1 system-ui, sans-serif',
+      cursor: 'pointer',
+    });
+    back.onclick = () => this.showMenu();
+    this.panel.appendChild(back);
+
+    this.backdrop.style.display = 'flex';
+  }
+
+  // 컬렉션 섹션 헤더 — 라벨 + 진행도 카운트(예: "3 / 7 해금")
+  private collectionHeader(label: string, count: string): HTMLDivElement {
+    const h = document.createElement('div');
+    css(h, { display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '10px' });
+    const l = document.createElement('span');
+    l.textContent = label;
+    css(l, { font: '700 12px/1 system-ui, sans-serif', color: '#aab3c2' });
+    const c = document.createElement('span');
+    c.textContent = count;
+    css(c, { font: "600 11px/1 ui-monospace, 'SF Mono', monospace", color: '#6b7686' });
+    h.appendChild(l);
+    h.appendChild(c);
+    return h;
+  }
+
+  private equipSkin(id: string) {
+    this.selectedSkin = id;
+    saveSelectedSkin(id);
+    this.onSkinChange(id);
   }
 }

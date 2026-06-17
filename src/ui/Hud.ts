@@ -87,7 +87,9 @@ export class Hud {
     css(this.wrap, {
       position: 'fixed',
       // 상단 점수판: 노치/Dynamic Island/상태바 침범 방지 (iOS WKWebView는 viewport-fit=cover로 인셋 제공)
-      top: 'calc(10px + env(safe-area-inset-top))',
+      // ☰ 메뉴 버튼(좌상단, 높이 40px)과 안 겹치게 그 아래로 — 점수판은 풀폭(≈96vw)이라 좌우 코너 모두
+      // 버튼과 충돌하므로 가로로 피할 수 없어 세로로 비킨다(프레임 폭=가독성은 유지).
+      top: 'calc(56px + env(safe-area-inset-top))',
       left: '50%',
       transform: 'translateX(-50%)',
       display: 'none',

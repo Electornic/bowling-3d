@@ -187,4 +187,24 @@ export class SoundManager {
       o.stop(t + 0.12);
     }
   }
+
+  /** 업적/스킨 해금 '딩' — 합성 2음 차임(에셋 0). 결과 화면 토스트와 함께. */
+  playUnlock() {
+    if (!this.ctx || !this.enabled) return;
+    const ctx = this.ctx;
+    const now = ctx.currentTime;
+    [880, 1318.5].forEach((freq, i) => {
+      const t = now + i * 0.11; // A5 → E6 상승
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'sine';
+      osc.frequency.value = freq;
+      gain.gain.setValueAtTime(0.0001, t);
+      gain.gain.exponentialRampToValueAtTime(0.22, t + 0.012);
+      gain.gain.exponentialRampToValueAtTime(0.001, t + 0.3);
+      osc.connect(gain).connect(ctx.destination);
+      osc.start(t);
+      osc.stop(t + 0.32);
+    });
+  }
 }

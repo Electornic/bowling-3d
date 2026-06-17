@@ -15,8 +15,6 @@ export interface AiProfile {
   key: string;
   name: string;
   tagline: string;
-  /** 메뉴 칩 난이도 라벨 (매치 sim 확정 점수대) */
-  difficulty: string;
   style: 'straight' | 'hook';
   /** 1구(풀랙) 파워 평균 */
   power: number;
@@ -33,9 +31,8 @@ export interface AiProfile {
 export const AI_PROFILES: AiProfile[] = [
   {
     key: 'kim',
-    name: '김부장',
-    tagline: '안정 직구형 — 꾸준하지만 포켓을 자주 흘린다',
-    difficulty: '쉬움',
+    name: '흥부',
+    tagline: '착실한 직구 — 욕심 없이 꾸준하나 포켓을 종종 놓친다',
     style: 'straight',
     power: 1.0,
     powerJitter: 0.05,
@@ -46,9 +43,8 @@ export const AI_PROFILES: AiProfile[] = [
   },
   {
     key: 'han',
-    name: '한프로',
-    tagline: '직구 정밀 머신 — 포켓도 스페어도 빈틈이 없다',
-    difficulty: '어려움',
+    name: '홍길동',
+    tagline: '도술 같은 정밀 직구 — 포켓도 스페어도 빈틈이 없다',
     style: 'straight',
     power: 0.95,
     powerJitter: 0.05,
@@ -59,9 +55,8 @@ export const AI_PROFILES: AiProfile[] = [
   },
   {
     key: 'yoon',
-    name: '도박사 윤',
-    tagline: '풀스핀 도박형 — 터지면 스트라이크, 망하면 스플릿',
-    difficulty: '고변동',
+    name: '놀부',
+    tagline: '풀스핀 한 방 도박 — 박 타듯, 대박 아니면 쪽박',
     style: 'hook',
     power: 1.0,
     powerJitter: 0.04,

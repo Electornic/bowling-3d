@@ -1,7 +1,7 @@
 # 보상 시스템 설계 — 업적(뱃지) + 코스메틱 볼 스킨
 
-> 작성: 2026-06-16 (11차 세션, ③ 승리 보상). **상태: 설계 v2.1 — 미구현.**
-> v2.1 = 코드 대조(렌더 파이프라인 검증) + 레퍼런스 검토 + **UI 결정 A(전용 스킨 시트, §10)** 반영. 관련: [PROGRESS.md](./PROGRESS.md) · [GAMEPLAY_ROADMAP.md](./GAMEPLAY_ROADMAP.md) · [SPIN_FEEL_AND_AI_LADDER.md](./SPIN_FEEL_AND_AI_LADDER.md)(AI 사다리 = 불가침) · [MOBILE_SUPPORT.md](./MOBILE_SUPPORT.md).
+> 작성: 2026-06-16 (11차 세션, ③ 승리 보상). **상태: 구현됨 — 13차 v1(업적 core 6 + 스킨 7종 + localStorage + 순수함수 평가), 14차 UI를 "컬렉션 시트"로 리디자인(미리보기 볼 + 업적 섹션, §10). 브라우저 검증 완료·미커밋·iPhone 실기 미검증.** P5(stretch 업적·obsidian/holo/pulse·애니 스킨·bloom)는 미착수.
+> v2.1 = 코드 대조(렌더 파이프라인 검증) + 레퍼런스 검토 + **UI 결정 A(전용 스킨 시트, §10 — 14차에 컬렉션 시트로 확장)** 반영. 관련: [PROGRESS.md](./PROGRESS.md) · [GAMEPLAY_ROADMAP.md](./GAMEPLAY_ROADMAP.md) · [SPIN_FEEL_AND_AI_LADDER.md](./SPIN_FEEL_AND_AI_LADDER.md)(AI 사다리 = 불가침) · [MOBILE_SUPPORT.md](./MOBILE_SUPPORT.md).
 
 ---
 
@@ -248,7 +248,7 @@ v1의 잘못된 가정을 코드로 정정:
 
 > **⚠️ 권장 — bloom을 보상 시스템과 분리(decouple).** bloom은 *렌더러 재작성*(EffectComposer 전환 + 위 A/B/C + 실기 AA·발열 재검증)이라 보상 로직과 결합도 0인데 리스크는 제일 큼. → **보상 P1~P4를 마감 스킨(`classic`/`satin`/`chrome`/`obsidian`)만으로 먼저 출시**(glow는 일단 "밝은 색"으로 동작), **bloom은 별도 비주얼 폴리시 태스크(자체 브랜치)** 로 떼서 천천히. 보상 출시가 렌더러 수술에 안 묶임.
 >
-> **⚠️ 단 트레이드오프**: 그러면 core 6개 중 glow 보상 4개(`ember`/`galaxy`/`volt`/`sunset`)가 출시 시점엔 밋밋 = 6개 중 4개가 약발 안 받음. → bloom을 v1에 같이 넣든지, **core 보상의 finish/glow 비중을 재조정**(예: 한두 개를 마감 계열 보상으로 교체)할지 결정 필요. **(미결 — §16 #6)**
+> **⚠️ 단 트레이드오프 (수용 — §16 #6 확정)**: core 6개 중 glow 보상 4개(`ember`/`galaxy`/`volt`/`sunset`)가 출시 시점(bloom 전)엔 "밝은 색" 강등이라 약발이 약하다. §16 #6에서 **"분리 출시 + 카탈로그 재조정 안 함"**으로 닫음 — glow 4개는 bloom 완료 시 자동 승격되는 비용으로 수용한다. (대안 "core를 마감축(chrome/satin + 메탈릭 변형)으로 재배치"는 **보류**: bloom 일정이 길어지면 재고. 현 구현은 문서 카탈로그 그대로 간다.) **별개 리스크인 크롬 가독성(↓§14 P2·§16 ⚠️ dim IBL)은 간판 보상 `beat_han`이라 P2에서 `envMapIntensity` 실측을 완료 게이트로 둔다.**
 
 ---
 
@@ -284,7 +284,7 @@ v1의 잘못된 가정을 코드로 정정:
 ## 14. 구현 단계
 
 - **P1 — 데이터·평가·저장**(DOM 무관, 테스트 우선): `game/rewards.ts`(Achievement/Skin 상수 + `evaluateAchievements` 순수함수 + `loadRewards`/`recordRewards`). vitest.
-- **P2 — 볼 적용 (bloom 없이)**: `Ball.setSkin()`(정적만, `Ball.update` 불요) + `decorColor` 그립 재색. 마감 스킨(classic/satin/chrome/obsidian)은 파이프라인 네이티브로 완성. glow 스킨(sunset/ember/volt/galaxy)은 일단 emissive "밝은 색"으로 동작(bloom 전 강등 상태). **렌더러 무수술 — P1~P4가 여기 안 묶임.**
+- **P2 — 볼 적용 (bloom 없이)**: `Ball.setSkin()`(정적만, `Ball.update` 불요) + `decorColor` 그립 재색. 마감 스킨(classic/satin/chrome)은 파이프라인 네이티브로 완성(obsidian은 stretch라 P5). glow 스킨(sunset/ember/volt/galaxy)은 일단 emissive "밝은 색"으로 동작(bloom 전 강등 상태). **렌더러 무수술 — P1~P4가 여기 안 묶임.** ⚠️ **크롬 가독성 게이트**: 간판 보상 `beat_han`의 크롬이 dim IBL(`environmentIntensity 0.4`)+RoomEnvironment에서 브러시드 스틸로 보일 수 있음(§16 ⚠️) → per-material `envMapIntensity`를 1.4에서 시작해 실측 후 상향(2~3). 거울 같지 않으면 간판 약속이 무너지므로 P2 완료 기준에 포함.
 - **P3 — 스킨 시트**: 메뉴 진입 버튼(`🎨 스킨 · {장착} ▸`) + `Menu.showSkins()` 뷰(잠금+조건 표시) + `selectedSkin` 저장/적용.
 - **P4 — 토스트**: `showResult` 해금 토스트 + 해금 사운드.
 - **P5(선택)** — `Ball.update` 훅 + 애니 스킨(`pulse`/`holo`) + stretch 업적(perfect/spare_master/clean) + 인게임 즉시 토스트.
@@ -302,7 +302,7 @@ v1의 잘못된 가정을 코드로 정정:
 
 | # | 항목 | 결정 |
 |---|---|---|
-| 1 | 스킨 범위 | ✅ **마감 축 + bloom 도입.** v1 = classic/satin/chrome/obsidian(네이티브) + sunset/ember/volt/galaxy(정적 글로우). **애니 스킨(pulse/holo)·`Ball.update`는 P5.** |
+| 1 | 스킨 범위 | ✅ **마감 축 + bloom 도입.** v1 = classic/satin/chrome(네이티브) + sunset/ember/volt/galaxy(정적 글로우) = **7종**(classic + core 6 보상). **obsidian(=spare_master 보상)·애니 스킨(pulse/holo)·`Ball.update`는 P5.** |
 | 2 | 업적 범위 | ✅ **core 6**(first_game/beat_kim/beat_han/beat_yoon/score_200/turkey). stretch 3은 P5. 그라인드형 컷. |
 | 3 | 인게임 즉시 토스트 | ✅ v1은 **결과 화면 일괄**, 즉시 토스트는 P5. |
 | 4 | 컬렉션 진입점 | ✅ **전용 스킨 시트(결정 A)** — 같은 패널 3번째 뷰 `Menu.showSkins()`, 메뉴엔 한 줄 진입 버튼. 별도 *화면* X. 결과 토스트에 `장착하기`. (인라인 스트립 기각 — 조건 가독성, §10.2.) |
