@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import type RAPIER from '@dimforge/rapier3d-compat';
 import { getRapier } from './Boot';
-import { isCoarsePointer, stageWidth } from './device';
+import { isCoarsePointer } from './device';
 
 /**
  * 저사양(주로 모바일) 판정 — 부팅 1회 (MOBILE_SUPPORT.md §6).
@@ -52,7 +52,7 @@ export class Engine {
 
     // --- 렌더러 --- (antialias 항상 ON으로 엣지 크롤 방지; 저사양만 pixelRatio 1.5 상한, MOBILE_SUPPORT.md §6)
     this.renderer = new THREE.WebGLRenderer({ antialias: true });
-    this.renderer.setSize(stageWidth(), window.innerHeight); // 데스크탑은 가운데 칼럼 폭으로 제약(폰은 풀폭)
+    this.renderer.setSize(window.innerWidth, window.innerHeight);
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, this.lowEnd ? 1.5 : 2));
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
@@ -84,7 +84,7 @@ export class Engine {
     // --- 카메라 ---
     this.camera = new THREE.PerspectiveCamera(
       52, // 60은 광각이라 레인이 얇고 멀어 보임 — 살짝 조여 레인 비중↑
-      stageWidth() / window.innerHeight, // 칼럼 폭 기준 aspect (데스크탑 세로 비율 유지)
+      window.innerWidth / window.innerHeight,
       0.1,
       200,
     );
@@ -117,9 +117,9 @@ export class Engine {
   }
 
   private onResize = () => {
-    this.camera.aspect = stageWidth() / window.innerHeight;
+    this.camera.aspect = window.innerWidth / window.innerHeight;
     this.camera.updateProjectionMatrix();
-    this.renderer.setSize(stageWidth(), window.innerHeight);
+    this.renderer.setSize(window.innerWidth, window.innerHeight);
   };
 
   /**
@@ -131,7 +131,7 @@ export class Engine {
   setQuality(high: boolean) {
     const cap = high ? (this.lowEnd ? 1.5 : 2) : 1;
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, cap));
-    this.renderer.setSize(stageWidth(), window.innerHeight); // pixelRatio 변경 반영(칼럼 폭 유지)
+    this.renderer.setSize(window.innerWidth, window.innerHeight); // pixelRatio 변경 반영
   }
 
   /** 물리 강체 + 시각 메시 등록 (보간 상태 초기화) */

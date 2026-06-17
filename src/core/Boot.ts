@@ -15,7 +15,7 @@ import { makeBallSpec } from '../game/BallSpec';
 import { PIN_CONTACT_Z } from '../game/constants';
 import { ACHIEVEMENTS, evaluateAchievements, loadRewards, recordRewards, resetRewards, resolveSkin } from '../game/rewards';
 import { loadSettings, saveSettings } from '../game/settings';
-import { isCoarsePointer, STAGE_MAX_W } from './device';
+import { isCoarsePointer } from './device';
 
 let _rapier: typeof RAPIER | null = null;
 
@@ -76,25 +76,6 @@ export async function boot() {
 
   // 세로 화면이면 가로 권장 1회 안내 (비차단, §5)
   maybeShowOrientationHint();
-
-  // 데스크탑 센터링: 세로 게임을 가운데 칼럼(STAGE_MAX_W)으로 모은다. transform이 걸린 부모는
-  // position:fixed 자식의 컨테이닝 블록이 되므로(CSS), 기존 fixed UI(캔버스·HUD·도크)를 좌표 변경
-  // 없이 스테이지 기준으로 재배치할 수 있다. body 자식을 일괄 이동(동적 append 없음). 폰은 100vw라 무변경.
-  const stage = document.createElement('div');
-  stage.id = 'stage';
-  stage.style.cssText = [
-    'position:fixed',
-    'top:0',
-    'left:50%',
-    'transform:translateX(-50%)', // ← fixed 자식의 기준이 되는 핵심
-    `width:min(100vw, ${STAGE_MAX_W}px)`,
-    'height:100dvh',
-    'overflow:hidden',
-  ].join(';');
-  document.body.style.background = '#000'; // 칼럼 양옆(데스크탑) 레터박스
-  const bodyKids = Array.from(document.body.children);
-  document.body.appendChild(stage);
-  for (const k of bodyKids) stage.appendChild(k);
 
   document.getElementById('loading')?.remove();
 }
