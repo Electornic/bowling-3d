@@ -112,7 +112,7 @@ export class Hud {
     css(this.status, {
       position: 'fixed',
       top: 'calc(8px + env(safe-area-inset-top))',
-      right: 'calc(8px + env(safe-area-inset-right))',
+      right: 'calc(var(--col-edge, 0px) + 8px + env(safe-area-inset-right))',
       maxWidth: 'calc(50vw - 52px)', // 우측 절반만 — 중앙 업적 아일랜드·좌상단 메뉴와 충돌 방지
       zIndex: '21',
       display: 'none',

@@ -145,7 +145,9 @@ export class Controls {
     css(powerWrap, {
       position: 'fixed', // 우측 세로 파워바 (가운데 레인을 비움)
       bottom: 'calc(10px + env(safe-area-inset-bottom))', // 스핀과 같은 베이스라인 (스핀이 더는 풀폭이 아님)
-      right: this.coarse ? 'calc(10px + env(safe-area-inset-right))' : 'calc(24px + env(safe-area-inset-right))',
+      right: this.coarse
+        ? 'calc(var(--col-edge, 0px) + 10px + env(safe-area-inset-right))'
+        : 'calc(var(--col-edge, 0px) + 24px + env(safe-area-inset-right))',
       zIndex: '20',
       pointerEvents: 'none',
       padding: '10px 8px',
@@ -217,7 +219,9 @@ export class Controls {
     css(spinWrap, {
       position: 'fixed', // 좌하단 컴팩트 — 풀폭 폐기(공·조준선 밑동 가림). 2단: 헤더(라벨+값) / 트랙.
       bottom: 'calc(10px + env(safe-area-inset-bottom))',
-      left: this.coarse ? 'calc(12px + env(safe-area-inset-left))' : 'calc(24px + env(safe-area-inset-left))',
+      left: this.coarse
+        ? 'calc(var(--col-edge, 0px) + 12px + env(safe-area-inset-left))'
+        : 'calc(var(--col-edge, 0px) + 24px + env(safe-area-inset-left))',
       width: this.coarse ? 'min(46vw, 280px)' : '300px',
       zIndex: '20',
       pointerEvents: 'none',

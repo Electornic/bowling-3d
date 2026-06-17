@@ -33,6 +33,11 @@ export async function boot() {
   await RAPIER.init();
   _rapier = RAPIER;
 
+  // UI 전용 센터링: 데스크탑 와이드 화면에서 HUD·하단 도크가 좌우로 퍼지지 않게 가운데 칼럼(480px)
+  // 가장자리로 모은다. 3D 캔버스는 풀화면 그대로(레인 원근 유지). 가장자리에 붙는 UI(메뉴·상태·스핀·
+  // 파워)의 left/right에 var(--col-edge)를 더하면 칼럼 안으로 당겨진다. 폰은 0이라 무영향(중앙 요소는 무변경).
+  document.documentElement.style.setProperty('--col-edge', 'max(0px, calc((100vw - 480px) / 2))');
+
   const engine = new Engine();
   const { game, controls, cameraRig, environment, sound, exitBtn, island, refreshIsland } = buildScene(engine);
   let shadowMoving = true; // 그림자 정적화 상태 추적 (§6)
@@ -227,7 +232,7 @@ function buildScene(engine: Engine): {
   exitBtn.style.cssText = [
     'position:fixed',
     'top:calc(8px + env(safe-area-inset-top))',
-    'left:calc(8px + env(safe-area-inset-left))',
+    'left:calc(var(--col-edge, 0px) + 8px + env(safe-area-inset-left))',
     'z-index:30',
     'display:none',
     'padding:8px 12px',
