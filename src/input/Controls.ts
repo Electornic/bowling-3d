@@ -5,7 +5,7 @@ import { LineGeometry } from 'three/addons/lines/LineGeometry.js';
 import type { Engine } from '../core/Engine';
 import type { GameState } from '../game/GameState';
 import type { Ball } from '../scene/Ball';
-import { isCoarsePointer } from '../core/device';
+import { isCoarsePointer, stageWidth } from '../core/device';
 import {
   BALL_START_Z,
   BALL_RADIUS,
@@ -109,8 +109,8 @@ export class Controls {
       opacity: 1,
       depthWrite: false,
     });
-    this.aimCaseMat.resolution.set(window.innerWidth, window.innerHeight);
-    this.aimCoreMat.resolution.set(window.innerWidth, window.innerHeight);
+    this.aimCaseMat.resolution.set(stageWidth(), window.innerHeight); // Line2 두께 기준 = 캔버스(칼럼) 해상도
+    this.aimCoreMat.resolution.set(stageWidth(), window.innerHeight);
     const caseLine = new Line2(this.aimCaseGeo, this.aimCaseMat);
     const coreLine = new Line2(this.aimCoreGeo, this.aimCoreMat);
     caseLine.renderOrder = 5;
@@ -344,6 +344,10 @@ export class Controls {
     this.bindEvents();
   }
 
+  private get canvas(): HTMLCanvasElement {
+    return this.engine.renderer.domElement;
+  }
+
   private onCanvas(e: PointerEvent): boolean {
     return (e.target as HTMLElement)?.tagName === 'CANVAS';
   }
@@ -367,14 +371,18 @@ export class Controls {
         // 화면폭 절반 드래그 = ±AIM_RANGE (AIM_GAIN=1.0). 부호는 데스크톱 매핑과 동일 방향.
         if (this.charging && e.pointerId === this.activePointerId) {
           const dx = e.clientX - this.anchorX;
-          const delta = ((2 * AIM_RANGE) / window.innerWidth) * dx * AIM_GAIN;
+          // 드래그 스케일은 캔버스(칼럼) 폭 기준 — 데스크탑 좁은 칼럼에서도 감도 일관(폰은 풀폭).
+          const delta = ((2 * AIM_RANGE) / this.canvas.getBoundingClientRect().width) * dx * AIM_GAIN;
           this.aim = Math.max(-AIM_RANGE, Math.min(AIM_RANGE, this.anchorAim - delta));
         }
         return;
       }
       // 마우스: world +x가 화면 왼쪽 → 부호 반전(마우스 방향 = 공 방향). hover로 상시 갱신.
       if (!this.onCanvas(e)) return;
-      this.aim = (1 - (e.clientX / window.innerWidth) * 2) * AIM_RANGE;
+      // 캔버스 rect 기준 [0,1] — 가운데로 좁힌 칼럼에서도 조준 중심·감도가 캔버스에 정확히 매핑.
+      const r = this.canvas.getBoundingClientRect();
+      const ratio = Math.max(0, Math.min(1, (e.clientX - r.left) / r.width));
+      this.aim = (1 - ratio * 2) * AIM_RANGE;
     });
 
     window.addEventListener('pointerdown', (e) => {
@@ -557,8 +565,8 @@ export class Controls {
     this.aimCoreGeo.setColors(coreColors);
     this.aimCaseGeo.setPositions(positions);
     this.aimCaseGeo.setColors(caseColors);
-    this.aimCoreMat.resolution.set(window.innerWidth, window.innerHeight);
-    this.aimCaseMat.resolution.set(window.innerWidth, window.innerHeight);
+    this.aimCoreMat.resolution.set(stageWidth(), window.innerHeight); // 캔버스(칼럼) 해상도 — 리사이즈 시 갱신
+    this.aimCaseMat.resolution.set(stageWidth(), window.innerHeight);
 
     // 끝점 링: 경로 끝(방향 도달점)에 스핀색으로 또렷하게 — 페이드된 라인 끝을 재앵커
     const end = path[last];
