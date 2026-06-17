@@ -14,6 +14,7 @@ import { SoundManager } from '../audio/SoundManager';
 import { makeBallSpec } from '../game/BallSpec';
 import { PIN_CONTACT_Z } from '../game/constants';
 import { ACHIEVEMENTS, evaluateAchievements, loadRewards, recordRewards, resetRewards, resolveSkin } from '../game/rewards';
+import { loadSettings, saveSettings } from '../game/settings';
 import { isCoarsePointer } from './device';
 
 let _rapier: typeof RAPIER | null = null;
@@ -33,7 +34,7 @@ export async function boot() {
   _rapier = RAPIER;
 
   const engine = new Engine();
-  const { game, controls, cameraRig, environment, sound, exitBtn } = buildScene(engine);
+  const { game, controls, cameraRig, environment, sound, exitBtn, island, refreshIsland } = buildScene(engine);
   let shadowMoving = true; // 그림자 정적화 상태 추적 (§6)
   const loop = new Loop(
     engine,
@@ -50,9 +51,11 @@ export async function boot() {
         engine.renderer.shadowMap.autoUpdate = moving;
         if (!moving) engine.renderer.shadowMap.needsUpdate = true; // 정지 직전 1회 갱신
       }
-      // 인게임 '메뉴로' 버튼: 매치 중(MENU/GAME_OVER 외)에만 노출
+      // 인게임 '메뉴로' 버튼 + 상단 업적 아일랜드: 매치 중(MENU/GAME_OVER 외)에만 노출.
       const inMatch = game.state !== 'MENU' && game.state !== 'GAME_OVER';
+      if (inMatch && exitBtn.style.display === 'none') refreshIsland(); // 매치 진입 시 진행도 1회 갱신
       exitBtn.style.display = inMatch ? 'block' : 'none';
+      island.style.display = inMatch ? 'block' : 'none';
     },
   );
   game.setTimeScale = (s) => {
@@ -123,7 +126,12 @@ function buildScene(engine: Engine): {
   environment: Environment;
   sound: SoundManager;
   exitBtn: HTMLButtonElement;
+  island: HTMLButtonElement;
+  refreshIsland: () => void;
 } {
+  const settings = loadSettings();
+  engine.setQuality(settings.quality === 'high'); // 저장된 그래픽 품질 적용 (기본 high)
+
   const lane = new Lane(engine);
   const environment = new Environment(engine); // 볼링장 배경 (옆 레인·벽·천장·네온·전광판)
   const pins = new PinSet(engine);
@@ -194,6 +202,7 @@ function buildScene(engine: Engine): {
   // '임팩트'로 취급: 크래시 사운드 구분 + 카메라 셰이크 + 슬로모. 그 전 굴림 접촉은
   // 기존 playHit 그대로 (굴림 거동 불변).
   const sound = new SoundManager();
+  sound.enabled = settings.sound; // 저장된 사운드 on/off 적용
   engine.onContact = (mag) => {
     if (ball.body.translation().z > PIN_CONTACT_Z) {
       // 핀 구역 개별 충돌은 무음 — 임팩트 사운드는 notifyImpact가 투구당 1회 명령(game.onPinImpact)
@@ -208,7 +217,7 @@ function buildScene(engine: Engine): {
   game.onPinImpact = (standing) => {
     sound.playRackCrash(standing);
     // 임팩트 햅틱 — Android Chrome만 지원(iOS Safari 미지원), feature-detect 후 호출 (§6)
-    if (typeof navigator.vibrate === 'function') navigator.vibrate(standing > 2 ? 30 : 12);
+    if (settings.haptics && typeof navigator.vibrate === 'function') navigator.vibrate(standing > 2 ? 30 : 12);
   };
 
   // 인게임 '메뉴로' 버튼 — 게임 중 포기하고 메뉴 복귀 (가시성은 Loop onFrame에서 상태별 토글).
@@ -233,10 +242,29 @@ function buildScene(engine: Engine): {
   ].join(';');
   const forfeit = () => {
     if (game.state === 'MENU' || game.state === 'GAME_OVER') return;
-    // 네이티브 confirm() 대신 앱 내부 오버레이 — iOS 웹뷰/시뮬레이터에서 confirm()이 안 떠 포기가 먹통이던 문제 해결.
-    menu.showForfeitConfirm(() => {
-      game.toMenu();
-      menu.showMenu();
+    // 인게임 일시정지 모달: 계속하기 + 안전 설정(사운드·햅틱·그래픽) + 포기. 토글은 즉시 적용 후 저장.
+    // (네이티브 confirm()은 iOS 웹뷰/시뮬레이터에서 안 떠 못 씀 — 앱 내부 오버레이로 처리.)
+    menu.showPause({
+      settings,
+      onSound: (v) => {
+        settings.sound = v;
+        sound.enabled = v;
+        saveSettings(settings);
+      },
+      onHaptics: (v) => {
+        settings.haptics = v;
+        saveSettings(settings);
+      },
+      onQuality: (q) => {
+        settings.quality = q;
+        engine.setQuality(q === 'high');
+        saveSettings(settings);
+      },
+      onResume: () => menu.hide(),
+      onForfeit: () => {
+        game.toMenu();
+        menu.showMenu();
+      },
     });
   };
   exitBtn.onclick = forfeit;
@@ -244,6 +272,40 @@ function buildScene(engine: Engine): {
   window.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') forfeit();
   });
+
+  // 인게임 상단 중앙 '업적 아일랜드' (Dynamic Island 느낌의 알약 pill) — 탭하면 컬렉션(업적+스킨) 모달.
+  // 좌(☰ 메뉴)·우(상태바) 사이 중앙. 진행도 🏆 N/총 표시, 매치 진입 시 onFrame에서 refreshIsland로 갱신.
+  const island = document.createElement('button');
+  const refreshIsland = () => {
+    const earned = loadRewards().earned;
+    const n = ACHIEVEMENTS.filter((a) => earned.includes(a.id)).length;
+    island.textContent = `🏆 ${n}/${ACHIEVEMENTS.length}`;
+  };
+  refreshIsland();
+  island.style.cssText = [
+    'position:fixed',
+    'top:calc(8px + env(safe-area-inset-top))',
+    'left:50%',
+    'transform:translateX(-50%)',
+    'z-index:30',
+    'display:none',
+    'padding:8px 14px',
+    'min-height:40px',
+    'border-radius:999px', // 알약형 = Dynamic Island
+    'border:1px solid rgba(255,213,74,0.4)',
+    'background:rgba(14,17,27,0.82)',
+    'color:#ffd54a',
+    'font:800 13px/1 system-ui, sans-serif',
+    'letter-spacing:0.02em',
+    'cursor:pointer',
+    'backdrop-filter:blur(4px)',
+    'box-shadow:0 0 16px rgba(255,213,74,0.18)',
+  ].join(';');
+  island.onclick = () => {
+    if (game.state === 'MENU' || game.state === 'GAME_OVER') return;
+    menu.showCollection(() => menu.hide()); // 닫으면 게임으로 복귀(메뉴 X)
+  };
+  document.body.appendChild(island);
 
   // 초기 카메라 (이후 CameraRig가 상태별로 보간) — AIMING 뷰와 동일
   engine.camera.position.set(0, 1.12, -2.7);
@@ -274,5 +336,5 @@ function buildScene(engine: Engine): {
     console.log('[rewards] 초기화 완료 — 새로고침하세요');
   };
 
-  return { game, controls, cameraRig, environment, sound, exitBtn };
+  return { game, controls, cameraRig, environment, sound, exitBtn, island, refreshIsland };
 }

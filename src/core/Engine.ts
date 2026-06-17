@@ -45,15 +45,15 @@ export class Engine {
   /** 충돌 이벤트 콜백 (contact force 크기) — 사운드 연결용 (도안 §10) */
   onContact?: (magnitude: number) => void;
   private readonly objects: Tracked[] = [];
+  private readonly lowEnd = isLowEnd(); // 저사양 판정 1회 — pixelRatio·shadow·품질 토글에서 공용
 
   constructor() {
     const RAPIER = getRapier();
 
     // --- 렌더러 --- (antialias 항상 ON으로 엣지 크롤 방지; 저사양만 pixelRatio 1.5 상한, MOBILE_SUPPORT.md §6)
-    const lowEnd = isLowEnd();
     this.renderer = new THREE.WebGLRenderer({ antialias: true });
     this.renderer.setSize(window.innerWidth, window.innerHeight);
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, lowEnd ? 1.5 : 2));
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, this.lowEnd ? 1.5 : 2));
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.shadowMap.enabled = true;
@@ -96,7 +96,7 @@ export class Engine {
     const dir = new THREE.DirectionalLight(0xffffff, 1.3);
     dir.position.set(6, 14, -2);
     dir.castShadow = true;
-    dir.shadow.mapSize.set(lowEnd ? 512 : 1024, lowEnd ? 512 : 1024);
+    dir.shadow.mapSize.set(this.lowEnd ? 512 : 1024, this.lowEnd ? 512 : 1024);
     dir.shadow.camera.near = 1;
     dir.shadow.camera.far = 50;
     const r = 14;
@@ -121,6 +121,18 @@ export class Engine {
     this.camera.updateProjectionMatrix();
     this.renderer.setSize(window.innerWidth, window.innerHeight);
   };
+
+  /**
+   * 그래픽 품질 토글 (일시정지 설정) — pixelRatio만 조절한다.
+   * high = 부팅 기본(저사양 1.5 / 그 외 2), perf = 1.0(픽셀 ~1/4 → fill-rate↓ → 발열·배터리↓).
+   * 셰도우 on/off는 머티리얼 셰이더 재컴파일(needsUpdate)이 필요해 런타임 토글에서 제외 — 모바일 부하의
+   * 지배 인자는 fill-rate라 pixelRatio만으로 충분.
+   */
+  setQuality(high: boolean) {
+    const cap = high ? (this.lowEnd ? 1.5 : 2) : 1;
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, cap));
+    this.renderer.setSize(window.innerWidth, window.innerHeight); // pixelRatio 변경 반영
+  }
 
   /** 물리 강체 + 시각 메시 등록 (보간 상태 초기화) */
   add(o: PhysicsObject) {

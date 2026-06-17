@@ -5,8 +5,19 @@ import { statsSummary } from '../game/Stats';
 import { isCoarsePointer } from '../core/device';
 import { SKINS, ACHIEVEMENTS, loadRewards, saveSelectedSkin, unlockedSkinIds, resolveSkin, achievementForSkin } from '../game/rewards';
 import type { BallSkin, SkinFinish } from '../game/rewards';
+import type { Settings, Quality } from '../game/settings';
 
 const css = (el: HTMLElement, style: Partial<CSSStyleDeclaration>) => Object.assign(el.style, style);
+
+/** 인게임 일시정지 모달 설정 (Boot이 주입) — 토글은 즉시 적용 + 저장, 모달은 재렌더로 상태 반영. */
+export interface PauseConfig {
+  settings: Settings;
+  onSound: (v: boolean) => void;
+  onHaptics: (v: boolean) => void;
+  onQuality: (q: Quality) => void;
+  onResume: () => void;
+  onForfeit: () => void;
+}
 
 const COARSE = isCoarsePointer(); // 터치 환경: 버튼/칩 히트영역 ≥44px (MOBILE_SUPPORT.md §3.1)
 
@@ -487,52 +498,128 @@ export class MenuUI {
   }
 
   // --- 인게임 포기 확인 ---
-  // 네이티브 confirm()은 iOS 웹뷰/시뮬레이터/PWA에서 안 뜨고 falsy를 반환해 포기가 먹통이 됨.
-  // 그래서 앱 내부 DOM 오버레이(메뉴/결과와 같은 패널 패턴)로 처리 — 전 플랫폼 동작.
-  showForfeitConfirm(onConfirm: () => void) {
+  // 인게임 일시정지 모달 — 계속하기 + 안전 설정(사운드·햅틱·그래픽) + 조작 안내 + 포기.
+  // 네이티브 confirm()은 iOS 웹뷰/시뮬레이터/PWA에서 falsy를 반환해 못 씀 → 앱 내부 DOM 오버레이.
+  showPause(cfg: PauseConfig) {
+    const s = cfg.settings;
     this.panel.replaceChildren();
-    this.panel.appendChild(this.title('게임을 포기할까요?'));
+    this.panel.appendChild(this.title('⏸ 일시정지'));
+
+    // 설정 (게임 중 변경해도 안전 — 물리·점수·기록 무영향. 토글 → 즉시 적용·저장 후 재렌더로 상태 반영)
+    const list = document.createElement('div');
+    css(list, { display: 'flex', flexDirection: 'column', gap: '7px', marginBottom: '14px' });
+    list.appendChild(
+      this.settingRow('🔊 사운드', s.sound ? '켜짐' : '꺼짐', s.sound, () => {
+        cfg.onSound(!s.sound);
+        this.showPause(cfg);
+      }),
+    );
+    list.appendChild(
+      this.settingRow('📳 햅틱', s.haptics ? '켜짐' : '꺼짐', s.haptics, () => {
+        cfg.onHaptics(!s.haptics);
+        this.showPause(cfg);
+      }),
+    );
+    list.appendChild(
+      this.settingRow('🖼️ 그래픽', s.quality === 'high' ? '고품질' : '성능', s.quality === 'high', () => {
+        cfg.onQuality(s.quality === 'high' ? 'perf' : 'high');
+        this.showPause(cfg);
+      }),
+    );
+    this.panel.appendChild(list);
+
+    // 조작 안내 (입력 환경별)
+    const help = document.createElement('div');
+    css(help, {
+      font: '500 12px/1.7 system-ui, sans-serif',
+      color: '#8a93a3',
+      padding: '10px 13px',
+      borderRadius: '10px',
+      background: 'rgba(255,255,255,0.03)',
+      border: '1px solid rgba(255,255,255,0.06)',
+      marginBottom: '16px',
+    });
+    help.innerHTML = COARSE
+      ? '🎯 <b>드래그</b> 조준 · <b>홀드</b> 파워 · <b>하단 바</b> 스핀'
+      : '🎯 <b>마우스</b> 조준 · <b>꾹 눌렀다 떼기</b> 파워 · <b>Q / E</b> 스핀';
+    this.panel.appendChild(help);
+
+    // 계속하기 (주 버튼)
+    const resume = document.createElement('button');
+    resume.textContent = '▶ 계속하기';
+    css(resume, {
+      width: '100%',
+      padding: '13px',
+      minHeight: COARSE ? '48px' : '',
+      borderRadius: '11px',
+      border: 'none',
+      background: 'linear-gradient(90deg,#22d3ee,#3b82f6)',
+      color: '#06121a',
+      font: '800 15px/1 system-ui, sans-serif',
+      cursor: 'pointer',
+      marginBottom: '8px',
+    });
+    resume.onclick = cfg.onResume;
+    this.panel.appendChild(resume);
+
+    // 포기 (파괴적, 하단)
+    const quit = document.createElement('button');
+    quit.textContent = '포기하고 나가기';
+    css(quit, {
+      width: '100%',
+      padding: '11px',
+      minHeight: COARSE ? '44px' : '',
+      borderRadius: '10px',
+      border: '1px solid rgba(239,68,68,0.5)',
+      background: 'transparent',
+      color: '#f87171',
+      font: '700 13px/1 system-ui, sans-serif',
+      cursor: 'pointer',
+    });
+    quit.onclick = cfg.onForfeit;
+    this.panel.appendChild(quit);
 
     const note = document.createElement('div');
-    note.textContent = '현재 게임 기록은 저장되지 않습니다.';
-    css(note, { font: '500 13px/1.5 system-ui, sans-serif', color: '#aab3c2', textAlign: 'center', marginBottom: '18px' });
+    note.textContent = '포기 시 현재 게임 기록은 저장되지 않아요.';
+    css(note, { font: '500 11px/1.4 system-ui, sans-serif', color: '#6b7686', textAlign: 'center', marginTop: '9px' });
     this.panel.appendChild(note);
 
-    const row = document.createElement('div');
-    css(row, { display: 'flex', gap: '8px' });
-    const cancel = document.createElement('button');
-    cancel.textContent = '계속하기';
-    css(cancel, {
-      flex: '1',
-      padding: '12px',
-      minHeight: COARSE ? '44px' : '',
-      borderRadius: '10px',
-      border: '1px solid rgba(255,255,255,0.25)',
-      background: 'transparent',
-      color: '#e8edf5',
-      font: '700 14px/1 system-ui, sans-serif',
-      cursor: 'pointer',
-    });
-    cancel.onclick = () => this.hide();
-    const yes = document.createElement('button');
-    yes.textContent = '포기';
-    css(yes, {
-      flex: '1',
-      padding: '12px',
-      minHeight: COARSE ? '44px' : '',
-      borderRadius: '10px',
-      border: 'none',
-      background: 'linear-gradient(90deg,#f59e0b,#ef4444)',
-      color: '#fff',
-      font: '800 14px/1 system-ui, sans-serif',
-      cursor: 'pointer',
-    });
-    yes.onclick = () => onConfirm();
-    row.appendChild(cancel);
-    row.appendChild(yes);
-    this.panel.appendChild(row);
-
     this.backdrop.style.display = 'flex';
+  }
+
+  // 일시정지 설정 행 — 라벨 + 현재값 알약 토글 버튼. active면 초록 강조.
+  private settingRow(label: string, valueText: string, active: boolean, onClick: () => void): HTMLDivElement {
+    const row = document.createElement('div');
+    css(row, {
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      gap: '12px',
+      padding: '10px 13px',
+      borderRadius: '10px',
+      background: 'rgba(255,255,255,0.04)',
+      border: '1px solid rgba(255,255,255,0.08)',
+    });
+    const l = document.createElement('span');
+    l.textContent = label;
+    css(l, { font: '600 14px/1 system-ui, sans-serif', color: '#e8edf5' });
+    const btn = document.createElement('button');
+    btn.textContent = valueText;
+    css(btn, {
+      minWidth: '64px',
+      minHeight: COARSE ? '36px' : '',
+      padding: '7px 13px',
+      borderRadius: '999px',
+      border: `1px solid ${active ? '#5dca8f' : 'rgba(255,255,255,0.2)'}`,
+      background: active ? 'rgba(93,202,143,0.16)' : 'rgba(255,255,255,0.04)',
+      color: active ? '#5dca8f' : '#9aa3b2',
+      font: '800 12px/1 system-ui, sans-serif',
+      cursor: 'pointer',
+    });
+    btn.onclick = onClick;
+    row.appendChild(l);
+    row.appendChild(btn);
+    return row;
   }
 
   // --- 헬퍼 ---
@@ -594,7 +681,12 @@ export class MenuUI {
   }
 
   // --- 컬렉션 시트 (REWARDS.md §10.2 — 같은 패널 세 번째 뷰. 스킨 미리보기 + 업적 진행 겸용) ---
-  private showSkins() {
+  // 인게임 상단 '업적 아일랜드' 탭으로 열 때: 닫으면 메뉴가 아니라 게임으로 복귀.
+  showCollection(onBack: () => void) {
+    this.showSkins(onBack, '← 게임으로');
+  }
+
+  private showSkins(onBack: () => void = () => this.showMenu(), backLabel = '← 메뉴로') {
     this.panel.replaceChildren();
     this.panel.appendChild(this.title('🎨 컬렉션'));
 
@@ -669,7 +761,7 @@ export class MenuUI {
       if (isUnlocked) {
         cell.onclick = () => {
           this.equipSkin(skin.id);
-          this.showSkins();
+          this.showSkins(onBack, backLabel);
         };
       }
       grid.appendChild(cell);
@@ -718,7 +810,7 @@ export class MenuUI {
     this.panel.appendChild(achWrap);
 
     const back = document.createElement('button');
-    back.textContent = '← 메뉴로';
+    back.textContent = backLabel;
     css(back, {
       width: '100%',
       padding: '11px',
@@ -730,7 +822,7 @@ export class MenuUI {
       font: '700 14px/1 system-ui, sans-serif',
       cursor: 'pointer',
     });
-    back.onclick = () => this.showMenu();
+    back.onclick = onBack;
     this.panel.appendChild(back);
 
     this.backdrop.style.display = 'flex';

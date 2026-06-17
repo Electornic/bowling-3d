@@ -1,16 +1,17 @@
 import { frameScores } from '../game/Scoreboard';
 import { SPARE_LEAVES, type GameStateName, type GameMode } from '../game/GameState';
-import { isCoarsePointer } from '../core/device';
 import { css, NEON, FONT_UI, FONT_DIGITS, rgba, applyPanel, ensureNeonStyles } from './theme';
 
-// 점수판은 항상 한 줄(스크롤 0). 행에 정해진 폭(min(96vw, 자연폭))을 주고 프레임·셀을 flex-basis:0으로
-// 비례 분배 → 칸이 비어도(초반 빈 칸) 안 찌그러지고, 좁으면 균일 축소. (UI_REVAMP.md "A — 한 줄 꽉 채우기")
-const COARSE = isCoarsePointer();
-const CELL = COARSE ? 13 : 17; // 칸 높이(px) 겸 자연폭 산정 기준 — 실제 칸 폭은 flex로 분배
-const NAT_SHEET = 21 * CELL + 39; // 풀 시트 자연폭: 21칸 + 9갭(27px) + 패딩(12px). 데스크톱은 이 폭, 폰은 96vw로 축소
+// 점수판은 항상 한 줄(스크롤 0). 행 폭 = min(96vw, SHEET_MAX), 프레임·셀은 flex-basis:0 비례 분배 →
+// 칸이 비어도(초반 빈 칸) 안 찌그러지고 좁으면 균일 축소. (UI_REVAMP.md "A — 한 줄 꽉 채우기")
+// 높이·폰트는 뷰포트 폭에 clamp로 자동 연동 — 폭만 줄던 고정 px 상수를 없애, 작은 폰(~320)에서 칸이
+// 홀쭉해지거나 3자리 점수가 넘치지 않게 비율째 축소하고, 큰 폰/데스크톱은 상한(과대 방지)에서 멈춘다.
+// 기준선: 320px(최소 지원 — 구형 iPhone SE)에서 floor, ~390px+에서 ceiling(현 데스크톱 크기).
+const SHEET_MAX = 420; // 한 줄 시트 최대 폭(데스크톱·대형폰 상한). 폰은 96vw가 이긴다.
 const NAME_W = 102; // 멀티 이름 패널 폭(여유 포함) — 풀 시트 행 폭에 가산
-const SCORE_H = COARSE ? 17 : 20; // 누적점수 줄 높이(px)
-const SCORE_FS = COARSE ? 12 : 14; // 누적점수 폰트(px) — 좁은 셀(~26px 프레임)에 3자리(176/300) 여유(폭 84%)
+const CELL_H = 'clamp(14px, 4.3vw, 17px)'; // 마크 박스 높이 (320→14 / 390+→17)
+const SCORE_H = 'clamp(16px, 5.1vw, 20px)'; // 누적 점수 줄 높이
+const DIGIT_FS = 'clamp(11px, 3.6vw, 14px)'; // 마크·누적 점수 글자 크기 (좁은 셀 3자리 넘침 방지)
 
 export interface HudPlayerView {
   name: string;
@@ -104,27 +105,44 @@ export class Hud {
     this.sheets = document.createElement('div');
     css(this.sheets, { display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '5px' });
 
+    // 상태 표시줄: 메뉴 버튼(좌상단)과 대칭으로 우상단 모서리에 — 점수판을 아래(top:56px)로 내리며
+    // 비어버린 상단 띠를 채워 좌/우 대칭 툴바를 만든다(점수판 폭·가독성은 그대로 유지). 길면 …로 자름.
     this.status = document.createElement('div');
     applyPanel(this.status, NEON.cyan);
     css(this.status, {
+      position: 'fixed',
+      top: 'calc(8px + env(safe-area-inset-top))',
+      right: 'calc(8px + env(safe-area-inset-right))',
+      maxWidth: 'calc(50vw - 52px)', // 우측 절반만 — 중앙 업적 아일랜드·좌상단 메뉴와 충돌 방지
+      zIndex: '21',
+      display: 'none',
+      pointerEvents: 'none',
       color: NEON.text,
       font: FONT_UI,
-      padding: '5px 14px',
+      // 좌상단 메뉴·중앙 아일랜드(둘 다 height 40)와 같은 가로선에 맞추려면 상태바도 40px여야 한다
+      // (top은 같으니 높이를 맞춰 세로 중심 일치). 세로 패딩 10px + 내용 ~20px = 40px. block 유지(ellipsis 동작).
+      minHeight: '40px',
+      boxSizing: 'border-box',
+      padding: '10px 14px',
       whiteSpace: 'nowrap',
+      overflow: 'hidden',
+      textOverflow: 'ellipsis',
       letterSpacing: '0.02em',
     });
 
     this.wrap.appendChild(this.sheets);
-    this.wrap.appendChild(this.status);
     document.body.appendChild(this.wrap);
+    document.body.appendChild(this.status);
   }
 
   update(d: HudView) {
     if (d.state === 'MENU' || !d.players.length) {
       this.wrap.style.display = 'none';
+      this.status.style.display = 'none';
       return;
     }
     this.wrap.style.display = 'flex';
+    this.status.style.display = 'block';
     this.sheets.replaceChildren();
 
     d.players.forEach((p, i) => {
@@ -135,10 +153,11 @@ export class Hud {
     if (d.state === 'GAME_OVER') {
       this.status.textContent = '🎳 게임 종료';
     } else if (d.mode === 'spare') {
-      this.status.textContent = `스페어 챌린지 ${cur.frame}/${d.frames} · 성공 ${cur.conversions} · ${STATE_LABEL[d.state] ?? d.state}`;
+      this.status.textContent = `스페어 ${cur.frame}/${d.frames} · 성공 ${cur.conversions}`;
     } else {
-      const who = d.players.length > 1 ? `${cur.name} · ` : '';
-      this.status.textContent = `${who}${cur.frame}프레임 ${cur.ball}구 · 선 핀 ${d.standing} · ${STATE_LABEL[d.state] ?? d.state}`;
+      // 중앙 업적 아일랜드와 공존하도록 컴팩트하게. 누구 차례인지는 점수판 골드 하이라이트 + 차례 배너로,
+      // 선 핀 수는 3D 장면으로 보이므로 상태바에서는 생략(프레임·구·상태만).
+      this.status.textContent = `${cur.frame}F · ${cur.ball}구 · ${STATE_LABEL[d.state] ?? d.state}`;
     }
   }
 
@@ -153,7 +172,7 @@ export class Hud {
     const rowWidth =
       d.mode === 'spare'
         ? 'fit-content'
-        : `min(96vw, ${NAT_SHEET + (multi ? NAME_W : 0)}px)`;
+        : `min(96vw, ${SHEET_MAX + (multi ? NAME_W : 0)}px)`;
     css(row, { display: 'flex', alignItems: 'center', gap: '6px', width: rowWidth, maxWidth: '96vw' });
 
     if (multi) {
@@ -191,8 +210,8 @@ export class Hud {
         const isCurrent = f === p.frame - 1 && d.state !== 'GAME_OVER';
         const box = document.createElement('div');
         css(box, {
-          width: '24px',
-          height: '26px',
+          width: 'clamp(20px, 6vw, 24px)',
+          height: 'clamp(22px, 6.7vw, 26px)',
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
@@ -200,7 +219,7 @@ export class Hud {
           border: isCurrent ? '0' : `1.5px solid ${rgba(NEON.ice, 0.16)}`,
           animation: isCurrent ? 'neonPulse 1.4s ease-in-out infinite' : '',
           color: done ? (cleared ? NEON.green : NEON.red) : '#dfe6f2',
-          fontSize: '14px',
+          fontSize: DIGIT_FS,
         });
         box.textContent = done ? (cleared ? '✓' : '✗') : '';
         sheet.appendChild(box);
@@ -211,7 +230,7 @@ export class Hud {
         alignItems: 'center',
         padding: '0 8px',
         color: '#fff',
-        fontSize: '15px',
+        fontSize: 'clamp(13px, 4vw, 15px)',
       });
       total.textContent = `${p.conversions}`;
       sheet.appendChild(total);
@@ -242,7 +261,8 @@ export class Hud {
         css(cell, {
           flex: '1 1 0', // basis:0 비례 분배 — 빈 칸도 내용과 무관하게 폭 유지(찌그러짐 방지)
           minWidth: '0',
-          height: `${CELL}px`,
+          height: CELL_H,
+          fontSize: DIGIT_FS, // FONT_DIGITS의 14px를 뷰포트 연동으로 덮어씀(좁은 폰 축소)
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
@@ -255,11 +275,11 @@ export class Hud {
 
       const score = document.createElement('div');
       css(score, {
-        height: `${SCORE_H}px`,
+        height: SCORE_H,
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
-        fontSize: `${SCORE_FS}px`,
+        fontSize: DIGIT_FS,
         color: '#fff',
       });
       score.textContent = cum[f] !== undefined ? String(cum[f]) : '';
