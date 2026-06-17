@@ -17,9 +17,12 @@ import { makeBallSpec, type BallSpec } from './BallSpec';
 import { computeAiThrow, type AiProfile } from './ai';
 import { detectSplit } from './splits';
 import { recordGame } from './Stats';
+import { resetOil, advanceOilDrying, type OilPattern } from './oil';
 
 export type GameStateName = 'MENU' | 'AIMING' | 'ROLLING' | 'SETTLING' | 'GAME_OVER';
 export type GameMode = 'full' | 'blitz' | 'spare';
+/** 예측선 난이도 (조준 보조) — P3. UI 전용, 점수·물리 무영향. */
+export type AimAid = 'easy' | 'normal' | 'pro';
 
 export interface MatchPlayerConfig {
   name: string;
@@ -29,6 +32,8 @@ export interface MatchPlayerConfig {
 export interface MatchConfig {
   mode: GameMode;
   players: MatchPlayerConfig[]; // [0] = 사람 (스페어 챌린지는 솔로만)
+  oilPattern?: OilPattern; // 오일 패턴 (기본 'house') — P3 라인 읽기 숙련
+  aimAid?: AimAid; // 예측선 난이도 (기본 'easy' — §2.7 스마트 기본값) — P3, UI 전용
 }
 
 interface PlayerState {
@@ -100,6 +105,7 @@ export class GameState {
   mode: GameMode = 'full';
   frames = 10;
   current = 0;
+  aimAid: AimAid = 'easy'; // 예측선 난이도 (Controls가 읽음) — P3, UI 전용. 기본 easy(§2.7 스마트 기본값)
 
   /** 게임 이벤트 (스트라이크/스페어/스플릿/게임오버) — 연출·사운드 연결점 */
   onEvent?: (e: GameEvent) => void;
@@ -166,6 +172,10 @@ export class GameState {
     this.pendingSplit = null;
     this.slowmoTimer = 0;
     this.slowmoUsed = false;
+    this.aimAid = config.aimAid ?? 'easy'; // 예측선 난이도 (P3, UI 전용) — 기본 easy(§2.7)
+    const oilPattern = config.oilPattern ?? 'house';
+    resetOil(oilPattern); // 오일 프리셋 적용 + 마름 초기화 (P3)
+    this.lane.applyOilVisual(oilPattern); // 광택 시트 길이를 프리셋에 맞춤 (읽기 단서)
     if (this.mode === 'spare') this.pins.setLayout(SPARE_LEAVES[0]);
     else this.pins.resetAll();
     this.standingAtThrow = this.pins.standingCount();
@@ -444,6 +454,10 @@ export class GameState {
     p.ball = 1;
     if (p.frame > this.frames) p.done = true;
     else p.rolls.push([]);
+
+    // 레인 마름 (P3): 프레임이 진행될수록 오일이 닳아 훅이 일찍 산다. full 모드만 체감.
+    // 공유 레인이라 방금 끝낸 플레이어의 완료 프레임 수를 근사로 사용(멀티는 약간 과소계상, v1 허용).
+    if (this.mode === 'full') advanceOilDrying(p.frame - 1);
 
     // 교대: 다음 미완료 플레이어. 전원 완료면 게임 종료.
     for (let i = 1; i <= this.players.length; i++) {

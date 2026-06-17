@@ -1,4 +1,5 @@
-import type { GameMode, MatchConfig, GameSummary } from '../game/GameState';
+import type { GameMode, MatchConfig, GameSummary, AimAid } from '../game/GameState';
+import type { OilPattern } from '../game/oil';
 import { AI_PROFILES } from '../game/ai';
 import { statsSummary } from '../game/Stats';
 import { isCoarsePointer } from '../core/device';
@@ -13,6 +14,29 @@ const MODES: { key: GameMode; label: string; desc: string }[] = [
   { key: 'spare', label: '스페어 챌린지', desc: '클래식 리브 10연속 픽업 (솔로)' },
 ];
 
+const OIL_PATTERNS: { key: OilPattern; label: string; desc: string }[] = [
+  { key: 'house', label: '하우스', desc: '표준 — 훅이 가장 잘 통하는 친화적 패턴' },
+  { key: 'short', label: '숏', desc: '일찍 깨짐 — 풀스핀은 과훅이라 라인을 다시 읽어야' },
+  { key: 'long', label: '롱', desc: '늦게 깨짐 — 스키드 길고 훅 약함, 직진 강요' },
+];
+
+const AIM_AIDS: { key: AimAid; label: string; desc: string }[] = [
+  { key: 'easy', label: '이지', desc: '훅 끝까지 그리는 풀 예측선' },
+  { key: 'normal', label: '노멀', desc: '오일 존(직진 구간)까지만 — 훅은 직접 읽기' },
+  { key: 'pro', label: '프로', desc: '조준 방향 표식만 — 라인은 온전히 실력' },
+];
+
+type Difficulty = 'beginner' | 'intermediate' | 'advanced' | 'custom';
+
+// 난이도 프리셋 (P3 §2.7 — 적응형 대신 큐레이션): 오일+예측선을 한 손잡이로 묶고, 커스텀은 두 축 따로.
+// 캐주얼은 '난이도' 하나만 보고, 고수는 커스텀에서 세밀 조정. 매핑은 P0 손맛 후 튜닝 여지.
+const DIFFICULTY_PRESETS: { key: Difficulty; label: string; desc: string; oil?: OilPattern; aim?: AimAid }[] = [
+  { key: 'beginner', label: '초급', desc: '하우스 + 풀 예측선 — 가장 쉬움', oil: 'house', aim: 'easy' },
+  { key: 'intermediate', label: '중급', desc: '하우스 + 훅 숨김 — 라인 직접 읽기', oil: 'house', aim: 'normal' },
+  { key: 'advanced', label: '고급', desc: '숏 패턴 + 방향 표식만 — 라인은 실력', oil: 'short', aim: 'pro' },
+  { key: 'custom', label: '커스텀', desc: '오일·예측선 직접 선택' },
+];
+
 /**
  * 시작 메뉴 + 결과 화면 오버레이 (로드맵 P1).
  * 모드 선택(풀게임/블리츠/스페어 챌린지) + 상대 선택(혼자/AI 라이벌 3인) + 통계 표시.
@@ -24,6 +48,9 @@ export class MenuUI {
   private mode: GameMode = 'full';
   private rivalKey: string | null = null;
   private weight = 10; // 볼 무게(lb) — 시작 메뉴에서 선택 (인게임 BallPicker 대체)
+  private difficulty: Difficulty = 'beginner'; // 난이도 프리셋 (P3 §2.7) — 오일+예측선 큐레이션
+  private oilPattern: OilPattern = 'house'; // 오일 패턴 (P3) — 초급 프리셋과 일치
+  private aimAid: AimAid = 'easy'; // 예측선 난이도 (P3, UI 전용) — 기본 easy(§2.7)
 
   constructor(
     private readonly onStart: (cfg: MatchConfig) => void,
@@ -116,6 +143,71 @@ export class MenuUI {
     this.refreshChips(modeBtns, this.mode);
     this.refreshRivalChips(rivalBtns);
 
+    // 난이도 프리셋 (P3 §2.7 — 오일+예측선을 한 손잡이로 큐레이션. '커스텀'에서만 두 축 따로)
+    this.panel.appendChild(this.sectionLabel('난이도'));
+    const diffRow = document.createElement('div');
+    css(diffRow, { display: 'flex', gap: '8px', marginBottom: '14px', flexWrap: 'wrap' });
+    const diffBtns = new Map<Difficulty, HTMLButtonElement>();
+
+    // 커스텀 전용 컨테이너 — 프리셋 선택 시 숨김, '커스텀'에서만 노출
+    const customWrap = document.createElement('div');
+    const oilBtns = new Map<OilPattern, HTMLButtonElement>();
+    const aimBtns = new Map<AimAid, HTMLButtonElement>();
+
+    for (const d of DIFFICULTY_PRESETS) {
+      const b = this.chipButton(d.label, d.desc);
+      b.onclick = () => {
+        this.difficulty = d.key;
+        if (d.oil && d.aim) {
+          this.oilPattern = d.oil;
+          this.aimAid = d.aim;
+          this.refreshChips(oilBtns, this.oilPattern);
+          this.refreshChips(aimBtns, this.aimAid);
+        }
+        customWrap.style.display = d.key === 'custom' ? 'block' : 'none';
+        this.refreshChips(diffBtns, this.difficulty);
+      };
+      diffBtns.set(d.key, b);
+      diffRow.appendChild(b);
+    }
+    this.panel.appendChild(diffRow);
+    this.refreshChips(diffBtns, this.difficulty);
+
+    // 커스텀 — 오일 패턴 (어디서 훅이 깨지는지가 달라져 라인 읽기를 강요)
+    customWrap.appendChild(this.sectionLabel('오일 패턴'));
+    const oilRow = document.createElement('div');
+    css(oilRow, { display: 'flex', gap: '8px', marginBottom: '14px' });
+    for (const o of OIL_PATTERNS) {
+      const b = this.chipButton(o.label, o.desc);
+      b.onclick = () => {
+        this.oilPattern = o.key;
+        this.refreshChips(oilBtns, this.oilPattern);
+      };
+      oilBtns.set(o.key, b);
+      oilRow.appendChild(b);
+    }
+    customWrap.appendChild(oilRow);
+
+    // 커스텀 — 조준 보조 (예측선 난이도, 점수·물리 무영향)
+    customWrap.appendChild(this.sectionLabel('조준 보조'));
+    const aimRow = document.createElement('div');
+    css(aimRow, { display: 'flex', gap: '8px', marginBottom: '14px' });
+    for (const a of AIM_AIDS) {
+      const b = this.chipButton(a.label, a.desc);
+      b.onclick = () => {
+        this.aimAid = a.key;
+        this.refreshChips(aimBtns, this.aimAid);
+      };
+      aimBtns.set(a.key, b);
+      aimRow.appendChild(b);
+    }
+    customWrap.appendChild(aimRow);
+
+    this.panel.appendChild(customWrap);
+    this.refreshChips(oilBtns, this.oilPattern);
+    this.refreshChips(aimBtns, this.aimAid);
+    customWrap.style.display = this.difficulty === 'custom' ? 'block' : 'none';
+
     // 볼 무게 (인게임 HUD 대신 여기서 — 한 번 정하면 끝인 설정이라 매 투구 컨트롤과 분리)
     this.panel.appendChild(this.sectionLabel('볼 무게'));
     const wRow = document.createElement('div');
@@ -186,7 +278,7 @@ export class MenuUI {
       if (profile) players.push({ name: profile.name, ai: profile });
     }
     this.hide();
-    this.onStart({ mode: this.mode, players });
+    this.onStart({ mode: this.mode, players, oilPattern: this.oilPattern, aimAid: this.aimAid });
   }
 
   // --- 결과 화면 ---
@@ -309,7 +401,7 @@ export class MenuUI {
     return b;
   }
 
-  private refreshChips(map: Map<GameMode, HTMLButtonElement>, active: GameMode) {
+  private refreshChips<T>(map: Map<T, HTMLButtonElement>, active: T) {
     for (const [k, b] of map) {
       b.style.borderColor = k === active ? '#ffd54a' : 'rgba(255,255,255,0.18)';
       b.style.background = k === active ? 'rgba(255,213,74,0.14)' : 'rgba(255,255,255,0.05)';

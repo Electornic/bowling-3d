@@ -14,8 +14,8 @@ import {
   effectiveSpin,
   ROLL_RATIO,
   BALL_FRICTION,
-  hookFactor,
 } from '../game/constants';
+import { hookFactor } from '../game/oil';
 import type { BallSpec } from '../game/BallSpec';
 
 /**

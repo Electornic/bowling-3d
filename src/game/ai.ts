@@ -1,4 +1,5 @@
 import { BALL_START_Z, HEADPIN_Z } from './constants';
+import { oilEndZ } from './oil';
 
 /**
  * AI 라이벌 (로드맵 P1.5). 같은 물리를 쓰되 (aim, power, spin)에
@@ -72,9 +73,17 @@ export const AI_PROFILES: AiProfile[] = [
 ];
 
 const ENTRY_DIST = HEADPIN_Z - BALL_START_Z; // ≈19.29 (aim → 진입 x 변환 거리)
-const HOOK_DRIFT_FULL = 0.33; // 풀스핀 풀파워 훅 드리프트 (m, 실측)
+// 풀스핀 풀파워 훅 드리프트 (m) — 오일 endZ의 함수 (P3). sim-carry 총휨 스캔(endZ 12.5→9.42, 선형 적합):
+//   endZ 10.5(하우스) 실측 0.30→캘리 0.33 / 9.5(숏)≈0.40 / 12.5(롱)≈0.19. 기울기 ≈0.070 m per endZ 1m.
+//   오일이 짧을수록(숏·레인 마름) 훅이 길게 살아 드리프트↑ → AI가 그만큼 더 바깥을 노려 보정.
+//   직구형(spin 0)은 훅이 없어 오일 무관 — 이 보정은 훅형(윤)만 받는다. 하우스에서 정확히 0.33(거동 보존).
+const HOOK_DRIFT_HOUSE = 0.33;
+const HOOK_DRIFT_SLOPE = 0.07;
+function hookDriftFor(oilEnd: number): number {
+  return Math.max(0.1, Math.min(0.55, HOOK_DRIFT_HOUSE - HOOK_DRIFT_SLOPE * (oilEnd - 10.5)));
+}
 const POCKET_X_STRAIGHT = -0.07; // 진입 x 포켓 — 매치 sim 미세스윕: 스트라이크 밴드 −8~−6cm 중심(power 1.0/0.95). 0(헤드핀 정면)은 노즈히트=스플릿이라 직구가 안 터졌다
-const POCKET_X_HOOK = 0.05; // 매치 sim 훅 스윕: 발사오프셋 T≈0.38(=0.05+HOOK_DRIFT_FULL) 중심이 스트라이크 밴드 중앙
+const POCKET_X_HOOK = 0.05; // 매치 sim 훅 스윕: 발사오프셋 T≈0.38(=0.05+HOOK_DRIFT_HOUSE) 중심이 스트라이크 밴드 중앙
 
 /** 표준정규 난수 (Box-Muller) */
 function gauss(): number {
@@ -100,7 +109,7 @@ export function computeAiThrow(
   if (fullRack) {
     const noise = (gauss() * profile.aimJitterCm) / 100;
     const target =
-      profile.style === 'hook' ? POCKET_X_HOOK + HOOK_DRIFT_FULL : POCKET_X_STRAIGHT;
+      profile.style === 'hook' ? POCKET_X_HOOK + hookDriftFor(oilEndZ()) : POCKET_X_STRAIGHT;
     return {
       aim: (target + noise) / ENTRY_DIST,
       power: clamp01(profile.power + gauss() * profile.powerJitter),

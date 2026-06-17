@@ -8,9 +8,8 @@ import {
   PIN_DECK_END,
   LANE_FRICTION_OIL,
   LANE_FRICTION_DRY,
-  OIL_END_Z,
-  hookFactor,
 } from '../game/constants';
+import { hookFactor, oilEndZ, OIL_PRESETS, type OilPattern } from '../game/oil';
 import { makeWoodTexture } from './Environment';
 
 /**
@@ -20,6 +19,7 @@ import { makeWoodTexture } from './Environment';
  */
 export class Lane {
   private readonly floor: RAPIER.Collider;
+  private readonly oilMesh: THREE.Mesh;
 
   constructor(engine: Engine) {
     const RAPIER = getRapier();
@@ -60,7 +60,7 @@ export class Lane {
 
     // 오일 존 시각 힌트: 미세한 광택 시트 (어디서부터 꺾이는지 읽힌다)
     const oil = new THREE.Mesh(
-      new THREE.PlaneGeometry(LANE_WIDTH, OIL_END_Z - startZ),
+      new THREE.PlaneGeometry(LANE_WIDTH, oilEndZ() - startZ),
       new THREE.MeshStandardMaterial({
         color: 0xffffff,
         transparent: true,
@@ -69,8 +69,9 @@ export class Lane {
       }),
     );
     oil.rotation.x = -Math.PI / 2;
-    oil.position.set(0, 0.0015, (startZ + OIL_END_Z) / 2);
+    oil.position.set(0, 0.0015, (startZ + oilEndZ()) / 2);
     engine.addVisual(oil);
+    this.oilMesh = oil;
 
     // --- 양옆 거터(낮은 홈, 윗면 y=-0.13) + 바깥 벽 ---
     for (const side of [-1, 1]) {
@@ -121,5 +122,14 @@ export class Lane {
     this.floor.setFriction(
       LANE_FRICTION_OIL + (LANE_FRICTION_DRY - LANE_FRICTION_OIL) * hookFactor(ballZ),
     );
+  }
+
+  /** 오일 광택 시트를 프리셋 endZ에 맞춤 — "어디서 꺾이는지"의 시각 단서 (P3). startMatch에서 호출. */
+  applyOilVisual(pattern: OilPattern) {
+    const startZ = -2; // 생성자와 동일 (공 시작 뒤 여유)
+    const ez = OIL_PRESETS[pattern].endZ;
+    this.oilMesh.geometry.dispose();
+    this.oilMesh.geometry = new THREE.PlaneGeometry(LANE_WIDTH, ez - startZ);
+    this.oilMesh.position.set(0, 0.0015, (startZ + ez) / 2);
   }
 }

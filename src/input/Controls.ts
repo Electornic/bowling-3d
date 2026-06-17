@@ -23,8 +23,8 @@ import {
   BALL_FRICTION,
   LANE_FRICTION_OIL,
   LANE_FRICTION_DRY,
-  hookFactor,
 } from '../game/constants';
+import { hookFactor, oilEndZ } from '../game/oil';
 import { css, NEON, FONT_UI, rgba, ensureNeonStyles, applyPanel } from '../ui/theme';
 
 const PREVIEW_DT = 0.08; // 예측 경로 적분 스텝 (s)
@@ -486,7 +486,10 @@ export class Controls {
     const REF_Z = 14; // 곡률 기준 길이 — 드라이존(오일 끝 뒤) 훅까지 포함해 더 휜 모양을 5에 압축
     const DRAW_Z = 5; // 실제 그리는 길이 (짧게)
     const p = 0.6;
-    const endZ = REF_Z; // 적분은 REF_Z까지 (곡선 모양 확보 후 축소)
+    // 조준 보조(P3): easy=풀 곡선(REF_Z까지) / normal=오일 존 끝까지만(직진 구간만, 훅 숨김) / pro=짧은 방향 표식.
+    // normal/pro 종료점은 오일 존 안(hook=0)이라 곡선이 안 생겨 "스키드만 보여주고 훅은 직접 읽어라"가 된다.
+    const aid = this.game.aimAid;
+    const endZ = aid === 'easy' ? REF_Z : aid === 'normal' ? oilEndZ() : BALL_START_Z + 4;
     const speed = (MIN_SPEED + p * (MAX_SPEED - MIN_SPEED)) * this.ball.speedScale;
     const nrm = Math.hypot(this.aim, 1);
     let vx = (this.aim / nrm) * speed;

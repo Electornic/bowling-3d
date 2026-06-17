@@ -1,7 +1,7 @@
 # 진행 상황 & 다음 세션 핸드오프
 
-> 마지막 구현: 2026-06-16 (11차 세션 — 점수판(Hud) 개선 방향 A "한 줄 꽉 채우기" + 멀티 미니; **미커밋·실기기 미검증**. 10차 P1~P4+조준선은 iPhone 확인 완료, 미커밋)
-> 마지막 갱신: 2026-06-16 (11차 세션 — 점수판, 상세 [UI_REVAMP.md](./UI_REVAMP.md))
+> 마지막 구현: 2026-06-16 (12차 세션 — P3 숙련 깊이: 오일 메타(파라미터화+프리셋 3종+레인 마름) + 예측선 난이도 3단; **미커밋·실기기 미검증**. 10·11차 인게임 UI/점수판은 `9a46796` 커밋·iPhone 확인 완료)
+> 마지막 갱신: 2026-06-16 (12차 세션 — P3 오일 메타 + 예측선, 상세 ↓ "12차 세션에 한 일")
 > 설계 문서는 [GAME_DESIGN.md](./GAME_DESIGN.md), 게임성 로드맵은 [GAMEPLAY_ROADMAP.md](./GAMEPLAY_ROADMAP.md) 참고.
 
 ---
@@ -10,7 +10,19 @@
 
 **게임 루프 + 타격감 + 모바일 + 패키징까지 완성.** 메뉴 → (풀게임/블리츠/스페어 챌린지) × (혼자/AI 라이벌 3인) → 결과/하이스코어 → 재시작. 핀 캐리 튜닝으로 훅이 최적해. P2 연출 본편(슬로모·임팩트 사운드·접근 카메라·전광판)·모바일 터치·Tauri/Android APK까지 구현됨. **9차에 거터 벽 점멸 해결(z-fighting — Environment 레일 제거) + UI 전면 개편. 10차에 인게임 UI 개선(파워 게이지 실체화·하단 도크 통합·조준선 고대비/곡률압축/파워분리·공 가림 해소). 11차에 점수판(Hud) 개선(방향 A "한 줄 꽉 채우기" + 멀티 비활성 미니) — 미커밋·실기기 미검증, 상세 [UI_REVAMP.md](./UI_REVAMP.md).** 남은 건 P3 숙련 깊이 + ③승리보상·④에셋.
 
-## 11차 세션에 한 일 (점수판 Hud 개선 — 미커밋)
+## 12차 세션에 한 일 (P3 숙련 깊이 — 오일 메타 + 예측선, 미커밋)
+
+물리 상수였던 오일 상태를 가변 모듈로 분리하고(공통 선행), 그 위에 오일 프리셋·예측선 난이도·레인 마름을 올렸다. **기본값(하우스+이지)은 현 거동을 픽셀 단위로 보존** — sim-carry 기본 윈도우가 baseline과 완전 동일(직구 4/31·훅 7/31)임을 확인해 안전 증명.
+
+1. **오일 상태 파라미터화** — `src/game/oil.ts` 신설. `hookFactor`/`OIL_END_Z`/`HOOK_RAMP`를 constants에서 분리, 가변 `endZ`/`ramp`로. Lane·Ball·Controls 예측선이 모두 여기서 읽어 **물리와 예측선이 같은 오일 상태**를 본다(정합 공짜). 마찰값(LANE_FRICTION_*·FRICTION_K)은 constants 고정 → sim-carry `--oilEnd/--hookRamp`로 그대로 검증.
+2. **오일 프리셋 3종** (`OIL_PRESETS`, 메뉴 선택) — 하우스(10.5, =현 동작)/숏(9.5, 일찍 깨져 과훅→라인 재독)/롱(12.5, 늦게 깨져 직진 강요). geometry(endZ)만 이동, ramp 3.5 고정. sim-carry 윈도우: 하우스 직구4/훅7 → 숏 직구6/훅3 → 롱 직구4/훅3(진입각↓). 오일 광택 시트 길이도 프리셋에 맞춰 시각 단서화(`Lane.applyOilVisual`).
+3. **예측선 난이도 3단** (`aimAid`, 메뉴 선택, **점수·물리 무영향**) — 이지=풀 곡선(현 동작)/노멀=오일 존 끝까지만(직진 구간만, 훅 숨김→직접 읽기)/프로=짧은 방향 표식. `Controls.updateAimArrow` 적분 종료 z만 분기.
+4. **레인 마름** (`advanceOilDrying`, full 모드만) — 프레임 진행마다 오일 존이 0.12m/프레임 앞으로(상한 1.5m). 후반 frame9 ≈ oilEnd 9.42 → 훅 윈도우 7→3 완만 전환(`OIL_DRY_PER_FRAME`로 튜닝). 예측선도 공유 오일 읽어 자동 반영. (광택 시트는 시작 프리셋 기준 — 마름 시각 반영은 후속.)
+5. **AI 오일별 재캘리브레이션** (옵션 c) — 훅형(윤) 조준의 `HOOK_DRIFT`를 `oilEndZ()` 함수로(`0.33 − 0.070×(endZ−10.5)`, sim-carry 총휨 적합: 하우스0.33/숏0.40/롱0.19). 직구형(김/한)은 spin=0이라 오일 무관. 마름도 endZ를 줄여 자동 반영. **프리셋별 매치 sim(N=80) 검증**: house 133/233/174 · short 138/236/166 · long 132/225/163 — 사다리 순서(한>윤>김)·밴드 유지, **윤이 숏/롱에서 안 무너짐**(보정 없으면 숏 과훅→노즈히트→붕괴). 테스트에 `AI_SIM_OIL` 프리셋 루프 추가.
+
+검증: tsc 클린 + vitest 22/22(+1 skip) + **프로덕션 빌드 OK** + sim-carry(기본=baseline 동일, 프리셋 분기, 마름 전환) + **AI 매치 sim 프리셋 3종 정상**(`AI_SIM=1 AI_SIM_N=80`). **남은 것: dev/iPhone 실기 — 메뉴 신규 2행 레이아웃, 조준 보조 3단 선 형태, 숏/롱 손맛, 후반 마름 체감.** 릴리스 타이밍(P3 3축)은 다음 세션으로 격리(코어 손맛+AI 캘리브레이션 얽힘, aim 노이즈 측정 도구 선행 필요). **별건 미결: "캐주얼이 오일을 직접 고를까 / 오토 튜닝" — 구현분 + 자동의 기준 정의를 [OIL_META_AND_AUTO.md](./OIL_META_AND_AUTO.md)에 분리 정리(자동의 목표부터 확정 필요).**
+
+## 11차 세션에 한 일 (점수판 Hud 개선 — `9a46796` 커밋·iPhone 확인 완료)
 
 > 상세·결정·검증은 [UI_REVAMP.md](./UI_REVAMP.md) "점수판(Hud) 개선" 섹션. 전부 `src/ui/Hud.ts`, **미커밋·실기기 미검증**(인게임 HUD는 메뉴 오버레이로 프리뷰 직접 관측 불가 → 동일 CSS 격리 주입으로 측정).
 
@@ -61,7 +73,7 @@
 계획·검토 문서: [SPIN_FEEL_AND_AI_LADDER.md](./SPIN_FEEL_AND_AI_LADDER.md) (웹서치 물리 정합 재검토 포함).
 
 1. **① 스핀 손맛 — `spin^0.7` 입력 곡선** (`constants.ts` `SPIN_POW=0.7`/`effectiveSpin()`, [Ball.ts](../src/scene/Ball.ts) 발사·[Controls.ts](../src/input/Controls.ts) 예측선 공용). sim-carry 확장(스핀 레버 CLI + 파워×스핀 그리드 + 막판 곡률 출력)으로 **물리 레버 전수 스캔**: `ROLL_RATIO`/`SLIP_EPS`/`FRICTION_K`/`OIL_END_Z`/`HOOK_RAMP` 전부 **저/미드스핀 dead zone을 못 살림(가드만 붕괴) 확정**. 훅은 횡슬립 비율 ∝ 스핀이라 어떤 물리 레버도 풀스핀 가드를 안 깨고 약스핀을 못 살린다 → 스핀 *입력*을 `spin^0.7`로 리매핑(1.0 고정점 = 풀스핀·전 가드 −30cm·4/31·7/31·65cm **자동 불변**, 저/미드 막판스냅 **+40%**). 사용자 손맛 OK.
-2. **② AI 난이도 사다리** — 헤드리스 매치 sim 신규([tests/ai-match-sim.test.ts](../tests/ai-match-sim.test.ts): vitest `.ts`·`runIf(AI_SIM)` 가드·`constants`/`computeAiThrow`/`totalScore` import·투구별 Rapier 핀=드리프트 0). **캘리브레이션 버그 발견·수정**: AI 직구가 `POCKET_X_STRAIGHT=0`(헤드핀 정면=노즈히트=스플릿)을 노려 스트라이크가 안 났음(점수가 jitter 무관 ~120-156에 뭉친 진짜 원인) → 미세스윕으로 실제 포켓 −7cm 확인 → `POCKET_X_STRAIGHT` 0→**−0.07**, `POCKET_X_HOOK` 0.067→**0.05**. jitter 튜닝(N=200): **김부장 130(쉬움)·한프로 228(어려움)·도박사 윤 169±28(고변동·sd 최대)**, 김↔한 98점차. `HOOK_DRIFT_FULL=0.33`은 `effectiveSpin(1)=1`이라 ①과 무관히 유효(윤 재측정 불필요). 메뉴 칩에 `난이도` 표시([Menu.ts](../src/ui/Menu.ts), `AiProfile.difficulty` 신규).
+2. **② AI 난이도 사다리** — 헤드리스 매치 sim 신규([tests/ai-match-sim.test.ts](../tests/ai-match-sim.test.ts): vitest `.ts`·`runIf(AI_SIM)` 가드·`constants`/`computeAiThrow`/`totalScore` import·투구별 Rapier 핀=드리프트 0). **캘리브레이션 버그 발견·수정**: AI 직구가 `POCKET_X_STRAIGHT=0`(헤드핀 정면=노즈히트=스플릿)을 노려 스트라이크가 안 났음(점수가 jitter 무관 ~120-156에 뭉친 진짜 원인) → 미세스윕으로 실제 포켓 −7cm 확인 → `POCKET_X_STRAIGHT` 0→**−0.07**, `POCKET_X_HOOK` 0.067→**0.05**. jitter 튜닝(N=200): **김부장 130(쉬움)·한프로 228(어려움)·도박사 윤 169±28(고변동·sd 최대)**, 김↔한 98점차. `HOOK_DRIFT_HOUSE=0.33`(12차에 `HOOK_DRIFT_FULL`에서 리네임)은 `effectiveSpin(1)=1`이라 ①과 무관히 유효(윤 재측정 불필요). 메뉴 칩에 `난이도` 표시([Menu.ts](../src/ui/Menu.ts), `AiProfile.difficulty` 신규).
 
 검증: tsc 클린 + **vitest 22/22**(+ 매치 sim 1 skipped, `AI_SIM=1`로 실행) + 브라우저 메뉴 확인. 인사이트는 `knowledge-hub-private/game-dev/ai-difficulty-via-aim-variance.md`에 정리.
 
@@ -165,7 +177,7 @@ npm test           # Vitest (점수 로직, 7개 통과)
 - [x] **거터 벽 점멸** — **9차 해결** (z-fighting: Environment 레일 제거, `9fcc1de`)
 - [x] **인게임 UI 개선** — **10차** (P1~P4 + 조준선 수렴, 미커밋·iPhone 확인 완료) → [UI_REVAMP.md](./UI_REVAMP.md)
 - [x] **점수판(Hud) 개선** — **11차** (방향 A 한 줄 fit + 멀티 미니, 미커밋·실기 미검증) → [UI_REVAMP.md](./UI_REVAMP.md)
-- [ ] **(P3) 숙련 깊이** — 오일 상태 파라미터화 선행 후 예측선 난이도/오일 프리셋/레인 전환, 릴리스 타이밍(직구 천장 억제 레버)
+- [~] **(P3) 숙련 깊이** — **12차에 오일 메타(파라미터화+프리셋 3종+레인 마름) + 예측선 난이도 3단 구현**(미커밋·실기 미검증). 남은 축: **릴리스 타이밍**(직구 천장 억제 레버 — 코어 손맛+AI 캘리브레이션 얽혀 다음 세션, aim 노이즈 측정 도구 선행)
 - [ ] 실물 에셋 — GLTF 핀·공, HDRI, 실제 음원 (P4)
 
 **6차 완료분(이전 '남은 작업'에서 해소)**: ~~(P2) 타격감 본편~~ — 슬로모·임팩트 사운드·접근 카메라·전광판 구현(⑥ 시각효과만 잔여). ~~모바일 터치 검증 + 터치 스핀 입력~~ — 터치 발사·반응형 UI 구현(터치 전용 스핀은 바 드래그로 대체, Q/E 병행).

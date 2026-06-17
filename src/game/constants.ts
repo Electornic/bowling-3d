@@ -40,20 +40,14 @@ export const REF_MASS = 5.0; // 스핀 측면력 기준 질량 (≈11lb = 슬라
 export const FRICTION_K = 0.16; // 스핀 측면력 계수 — 드라이 존에서만 작용 (hookFactor 게이트)
 
 // --- 오일 패턴 → 레이트 훅 (스키드→훅) ---
-// 앞 구간은 오일로 미끄러져 직진, OIL_END_Z부터 마찰이 살아나며 훅이 "막판에" 꺾인다.
+// 앞 구간은 오일로 미끄러져 직진, 오일 존 끝부터 마찰이 살아나며 훅이 "막판에" 꺾인다.
 // ⚠️ 레인 콜라이더는 마찰 결합 Min 필수 (Lane.ts) — 기본 Average면 공 마찰(0.1)과
 //    평균돼 오일 존 슬립이 일찍 닫혀 훅의 절반이 오일 존에서 새어나간다.
+// 오일 존 geometry(endZ·ramp)와 hookFactor()는 매치(프리셋)·프레임(마름)마다 가변이라 oil.ts로 분리(P3).
+// 마찰값은 프리셋 불변이라 여기 유지 — sim-carry는 --oilEnd/--hookRamp만으로 프리셋을 재현.
 export const LANE_FRICTION_OIL = 0.015; // 오일 존 (직진 스키드 — 슬립 보존)
 export const LANE_FRICTION_DRY = 0.14; // 드라이 존 (Rapier 자체 마찰도 훅에 가세)
 export const BALL_FRICTION = 0.1;
-export const OIL_END_Z = 10.5; // 오일 존 끝 — 훅 램프 시작
-export const HOOK_RAMP = 3.5; // 풀 훅까지 램프 길이 (m)
-
-/** 주입 측면력 게이트: 오일 존 0 → 드라이 존 1 (smoothstep) */
-export function hookFactor(z: number): number {
-  const t = Math.min(1, Math.max(0, (z - OIL_END_Z) / HOOK_RAMP));
-  return t * t * (3 - 2 * t);
-}
 export const SLIP_EPS = 0.05; // 이하면 롤링으로 간주
 export const SPIN_RATE = 14; // 발사 스핀 ωz = spin·SPIN_RATE (rad/s) — 훅 연료. 풀스핀 미드파워 총휨 ~61cm
 // 약스핀 저역 부스트 (SPIN_FEEL_AND_AI_LADDER.md ①): 발사 각속도에 |spin|^SPIN_POW.

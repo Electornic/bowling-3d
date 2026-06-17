@@ -26,8 +26,6 @@ import {
   LANE_WIDTH,
   PIN_HEIGHT,
   BALL_RADIUS,
-  OIL_END_Z, // (간접) hookFactor가 사용
-  hookFactor,
   FRICTION_K,
   REF_MASS,
   SLIP_EPS,
@@ -41,8 +39,7 @@ import {
   PIN_MASS,
   effectiveSpin,
 } from '../src/game/constants';
-
-void OIL_END_Z; // 명시적 참조 (hookFactor 내부 사용 — 의존성 가시화)
+import { hookFactor, resetOil, type OilPattern } from '../src/game/oil';
 
 // @types/node 미설치 환경 — env 게이트용 최소 선언 (런타임은 node가 제공)
 declare const process: { env: Record<string, string | undefined> };
@@ -239,15 +236,22 @@ describe.runIf(process.env.AI_SIM)('② AI 사다리 매치 sim', () => {
         }
       }
       const N = Number(process.env.AI_SIM_N ?? 120);
-      console.log(`\n=== AI 매치 sim (N=${N} 게임/프로필) ===`);
-      for (const profile of AI_PROFILES) {
-        const scores = Array.from({ length: N }, () => playGame(profile));
-        const s = describeStats(scores);
-        console.log(
-          `  ${profile.name.padEnd(7)} aimJ=${String(profile.aimJitterCm).padStart(4)} spareJ=${String(profile.spareAimJitterCm).padStart(4)} spin=${profile.spin}` +
-            ` → mean=${s.mean.toFixed(1).padStart(6)}  sd=${s.sd.toFixed(1).padStart(5)}  min=${String(s.min).padStart(3)}  max=${String(s.max).padStart(3)}  p50=${String(s.p50).padStart(3)}`,
-        );
+      // 오일 프리셋별 사다리 (P3 옵션 c 검증) — resetOil로 물리·AI 조준이 함께 프리셋 반영.
+      // AI_SIM_OIL로 한정 가능(예: house만). 기본은 3종 전부.
+      const patterns = (process.env.AI_SIM_OIL ?? 'house,short,long').split(',') as OilPattern[];
+      for (const pattern of patterns) {
+        resetOil(pattern);
+        console.log(`\n=== AI 매치 sim — 오일 ${pattern} (N=${N} 게임/프로필) ===`);
+        for (const profile of AI_PROFILES) {
+          const scores = Array.from({ length: N }, () => playGame(profile));
+          const s = describeStats(scores);
+          console.log(
+            `  ${profile.name.padEnd(7)} aimJ=${String(profile.aimJitterCm).padStart(4)} spareJ=${String(profile.spareAimJitterCm).padStart(4)} spin=${profile.spin}` +
+              ` → mean=${s.mean.toFixed(1).padStart(6)}  sd=${s.sd.toFixed(1).padStart(5)}  min=${String(s.min).padStart(3)}  max=${String(s.max).padStart(3)}  p50=${String(s.p50).padStart(3)}`,
+          );
+        }
       }
+      resetOil('house'); // 전역 오일 상태 복원
     },
   );
 });
