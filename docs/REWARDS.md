@@ -1,6 +1,6 @@
 # 보상 시스템 설계 — 업적(뱃지) + 코스메틱 볼 스킨
 
-> 작성: 2026-06-16 (11차 세션, ③ 승리 보상). **상태: 구현됨 — 13차 v1(업적 core 6 + 스킨 7종 + localStorage + 순수함수 평가), 14차 UI를 "컬렉션 시트"로 리디자인(미리보기 볼 + 업적 섹션, §10). 브라우저 검증 완료·미커밋·iPhone 실기 미검증.** P5(stretch 업적·obsidian/holo/pulse·애니 스킨·bloom)는 미착수.
+> 작성: 2026-06-16 (11차 세션, ③ 승리 보상). **상태: 구현됨 — 13차 v1(업적 core 6 + 스킨 7종 + localStorage + 순수함수 평가), 14차 UI를 "컬렉션 시트"로 리디자인(미리보기 볼 + 업적 섹션, §10). 브라우저 검증 완료·`f46e7be` 커밋·iPhone 실기 미검증.** P5(stretch 업적·obsidian/holo/pulse·애니 스킨·bloom)는 미착수.
 > v2.1 = 코드 대조(렌더 파이프라인 검증) + 레퍼런스 검토 + **UI 결정 A(전용 스킨 시트, §10 — 14차에 컬렉션 시트로 확장)** 반영. 관련: [PROGRESS.md](./PROGRESS.md) · [GAMEPLAY_ROADMAP.md](./GAMEPLAY_ROADMAP.md) · [SPIN_FEEL_AND_AI_LADDER.md](./SPIN_FEEL_AND_AI_LADDER.md)(AI 사다리 = 불가침) · [MOBILE_SUPPORT.md](./MOBILE_SUPPORT.md).
 
 ---
