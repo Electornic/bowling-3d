@@ -15,8 +15,9 @@
 
 ```bash
 npm install
-npm run dev    # http://localhost:5173
-npm test       # 점수 계산 단위테스트
+npm run dev      # 개발 서버 http://localhost:5173
+npm test         # 점수 계산 단위테스트 (Vitest)
+npm run build    # 프로덕션 번들 (tsc 타입체크 + vite build → dist/)
 ```
 
 ## 데스크톱 · 모바일 앱
@@ -59,8 +60,13 @@ npm run android:dev  # Android (SDK/NDK 필요)
 ## 문서
 
 - [docs/GAME_DESIGN.md](docs/GAME_DESIGN.md) — 설계 도안 (좌표계·물리 상수·상태머신·Rapier API 검증 부록)
+- [docs/REWARDS.md](docs/REWARDS.md) — 보상 시스템 설계 (업적 뱃지 + 코스메틱 볼 스킨·컬렉션)
+- [docs/SPIN_FEEL_AND_AI_LADDER.md](docs/SPIN_FEEL_AND_AI_LADDER.md) — 스핀 손맛 + AI 난이도 사다리 튜닝
+- [docs/OIL_META_AND_AUTO.md](docs/OIL_META_AND_AUTO.md) — 오일 패턴 메타 & 오토 튜닝 설계 노트
 - [docs/MOBILE_SUPPORT.md](docs/MOBILE_SUPPORT.md) — 모바일/터치 대응 설계·구현 (발사 인터랙션·반응형 UI·뷰포트/제스처·성능 적응)
 - [docs/APP_PACKAGING.md](docs/APP_PACKAGING.md) — Tauri v2 데스크톱/모바일 앱 패키징 (Win·Mac·Android·iOS 빌드·스토어·함정)
+- [docs/UI_REVAMP.md](docs/UI_REVAMP.md) — 인게임 UI 개편 설계 (네온 글래스 토큰 통일)
+- [docs/GAMEPLAY_ROADMAP.md](docs/GAMEPLAY_ROADMAP.md) — 게임성 로드맵·브레인스토밍 기록
 - [docs/PROGRESS.md](docs/PROGRESS.md) — 세션별 진행 기록·튜닝 노트·다음 할 일
 
 ## 디버그
