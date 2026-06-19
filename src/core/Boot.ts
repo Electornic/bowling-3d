@@ -33,10 +33,10 @@ export async function boot() {
   await RAPIER.init();
   _rapier = RAPIER;
 
-  // UI 전용 센터링: 데스크탑 와이드 화면에서 HUD·하단 도크가 좌우로 퍼지지 않게 가운데 칼럼(480px)
+  // UI 전용 센터링: 데스크탑 와이드 화면에서 HUD·하단 도크가 좌우로 퍼지지 않게 가운데 칼럼(1440px)
   // 가장자리로 모은다. 3D 캔버스는 풀화면 그대로(레인 원근 유지). 가장자리에 붙는 UI(메뉴·상태·스핀·
   // 파워)의 left/right에 var(--col-edge)를 더하면 칼럼 안으로 당겨진다. 폰은 0이라 무영향(중앙 요소는 무변경).
-  document.documentElement.style.setProperty('--col-edge', 'max(0px, calc((100vw - 480px) / 2))');
+  document.documentElement.style.setProperty('--col-edge', 'max(0px, calc((100vw - 1440px) / 2))');
 
   const engine = new Engine();
   const { game, controls, cameraRig, environment, sound, exitBtn, island, refreshIsland } = buildScene(engine);
@@ -210,13 +210,13 @@ function buildScene(engine: Engine): {
   sound.enabled = settings.sound; // 저장된 사운드 on/off 적용
   engine.onContact = (mag) => {
     if (ball.body.translation().z > PIN_CONTACT_Z) {
-      // 핀 구역 개별 충돌은 무음 — 임팩트 사운드는 notifyImpact가 투구당 1회 명령(game.onPinImpact)
+      // 핀 구역 접촉 = 카메라 연출만. 임팩트 사운드·슬로모는 GameState.notifyImpact가
+      // 접촉 시간(ttc) 기반으로 매 스텝 구동(속도 무관 동기) — 여기서 호출하지 않는다.
       cameraRig.addShake(mag); // 셰이크 토글 OFF(SHAKE_ENABLED) — 현재 no-op
-      cameraRig.pushIn(); // 임팩트 push-in (PUSHIN_ENABLED, DIST 0.6 — ac0ef80 재활성)
-      game.notifyImpact();
-    } else if (game.state === 'ROLLING') {
-      sound.playHit(mag); // 굴림음 — ROLLING 중에만 (정지/조준 중 접촉력 이벤트 잡음 방지)
+      cameraRig.pushIn(); // 임팩트 push-in (PUSHIN_ENABLED, DIST 0.6)
     }
+    // (굴림 접촉음은 제거 — 실제 roll.wav 지속음이 굴림 사운드를 담당. 접촉마다 합성 '틱'을
+    //  리버브 경유로 쏘던 게 roll 샘플과 중복·거슬림이었음.)
   };
   // 투구당 1회 핀 크래시 — 던질 때 서 있던 핀 수로 세기 (개별 contact 폭주 → '여러 번' 해결)
   game.onPinImpact = (standing) => {
@@ -224,6 +224,8 @@ function buildScene(engine: Engine): {
     // 임팩트 햅틱 — Android Chrome만 지원(iOS Safari 미지원), feature-detect 후 호출 (§6)
     if (settings.haptics && typeof navigator.vibrate === 'function') navigator.vibrate(standing > 2 ? 30 : 12);
   };
+  // 공 굴림 럼블 — 매 스텝 공 속도로 지속 저역음 (임팩트 직전 긴장감)
+  game.onRoll = (v) => sound.setRoll(v);
 
   // 인게임 '메뉴로' 버튼 — 게임 중 포기하고 메뉴 복귀 (가시성은 Loop onFrame에서 상태별 토글).
   // 좌상단 safe-area, 점수판(상단)과 안 겹치게 작게. Esc(데스크톱)도 동일 동작.

@@ -74,11 +74,15 @@ export const PIN_FALL_ANGLE = Math.PI / 4; // 45° 쓰러짐 임계
 // --- P2 타격감 (juice) ---
 // 공이 이 z를 넘으면 '핀 임팩트'로 취급 (셰이크·크래시 사운드·슬로모 트리거).
 // 그 전(레인 굴림 중) 접촉은 기존 playHit 그대로 — 굴림 거동은 안 건드린다.
-export const PIN_CONTACT_Z = HEADPIN_Z - 0.18; // ≈18.11 — 공(R0.109)+핀(R0.06)이 헤드핀에 실제 닿는 z. 임팩트(사운드·슬로모) 트리거.
+// 공이 헤드핀에 실제 닿는 z (공R0.109+핀R0.06≈0.18). 임팩트 트리거의 '접촉 시점' 기준.
+export const PIN_CONTACT_Z = HEADPIN_Z - 0.18; // ≈18.11 (Boot 임팩트 push-in 카메라 트리거)
 // 스트라이크/포켓 슬로모: 임팩트 순간 timeScale를 떨궜다가 복원 (Loop.timeScale 인프라 공용).
 // ⚠️ 물리 dt는 불변 — accumulator 유입만 스케일 (Loop 주석 참고).
-export const SLOWMO_SCALE = 0.32; // 슬로모 배속 (낮을수록 더 느림)
-export const SLOWMO_REAL_SEC = 0.85; // 슬로모 지속 (실시간 s) — 복원 정책 필수
+export const SLOWMO_SCALE = 0.32; // 슬로모 진입 배속 (낮을수록 더 느림) — 충돌 순간 깊이
+// 슬로모 지속 (실시간 s). 0.85→0.45 단축: 히트스톱 표준(50~100ms)에 비해 인게임 슬로모는
+// 길어도 되지만, 0.85s는 매 투구마다 "렉 걸린 듯" 길게 읽혔다(사용자 피드백). realism 목표상
+// 시간왜곡은 최소화 — 짧게 떨궜다가 ease-out으로 복원(GameState.update, 하드컷 제거).
+export const SLOWMO_REAL_SEC = 0.45;
 // 카메라 셰이크: 임팩트 contact force 누적 → 진폭, 실시간 감쇠.
 // 토글 OFF — 볼링 손맛은 슬로모+사운드+핀물리가 들고 있고, 화면 셰이크(평행이동 화이트노이즈)는
 // 톤이 어긋나고 과하게 읽힘. 일단 끄고 실플레이 검증(P0). 허전하면 셰이크 복원이 아니라

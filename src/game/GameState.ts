@@ -8,7 +8,6 @@ import {
   GUTTER_WIDTH,
   PIN_DECK_END,
   SETTLE_TIMEOUT,
-  PIN_CONTACT_Z,
   SLOWMO_SCALE,
   SLOWMO_REAL_SEC,
 } from './constants';
@@ -118,6 +117,8 @@ export class GameState {
   setTimeScale?: (scale: number) => void;
   /** 투구당 1회 핀 임팩트 사운드 (Boot에서 SoundManager 연결). 인자 = 던질 때 서 있던 핀 수. */
   onPinImpact?: (standingCount: number) => void;
+  /** 공 굴림 지속음 세기 (Boot에서 SoundManager.setRoll 연결). 인자 = 공 속도(m/s). */
+  onRoll?: (speed: number) => void;
 
   private players: PlayerState[] = [];
   private settleTimer = 0;
@@ -128,6 +129,7 @@ export class GameState {
   private humanSpec: BallSpec = makeBallSpec(10);
   private humanSkin: BallSkin = CLASSIC_SKIN; // 장착 볼 스킨 (보상) — 외형만
   private slowmoTimer = 0; // 남은 슬로모 시간 (sim s) — Loop.timeScale로 환산 적용
+  private slowmoTotal = 1; // 발동 시점 timer 값 (진행도 0..1 산출 → 복원 이징)
   private slowmoUsed = false; // 투구당 1회 (매 throwBall 리셋)
 
   constructor(
@@ -236,11 +238,20 @@ export class GameState {
    */
   notifyImpact() {
     if (this.slowmoUsed || this.state !== 'ROLLING') return;
-    const t = this.ballObj.body.translation();
-    if (t.z > PIN_CONTACT_Z && Math.abs(t.x) < LANE_WIDTH / 2) {
+    // 실제로 핀이 맞아 움직이기 시작한 순간에만 발동. 거터·빗나감·핀 옆 통과(어떤 핀도
+    // 안 움직임)엔 사운드·슬로모 둘 다 없음. z평면 통과 기준은 핀이 이미 치워진 자리(2구)나
+    // 핀을 안 건드리고 지나가도 헛발동했다 → 핀 실제 움직임으로 판정(가장 견고).
+    const hit = this.pins.pins.some((p) => {
+      // 치워진 핀(stash y=-50, 중력으로 낙하 중) 제외 — 2구 시작 시 헛발동 방지.
+      if (p.body.translation().y < -1) return false;
+      const v = p.body.linvel();
+      return v.x * v.x + v.y * v.y + v.z * v.z > 0.25; // |v| > 0.5 m/s = 충돌로 움직임
+    });
+    if (hit) {
       this.slowmoUsed = true;
       this.slowmoTimer = SLOWMO_REAL_SEC * SLOWMO_SCALE; // 실시간 SLOWMO_REAL_SEC (배속 보정)
-      this.onPinImpact?.(this.standingAtThrow); // 투구당 1회 크래시 (개별 contact 사운드 대신)
+      this.slowmoTotal = this.slowmoTimer; // 진행도 기준값 (복원 이징)
+      this.onPinImpact?.(this.standingAtThrow); // 투구당 1회 크래시
     }
   }
 
@@ -252,6 +263,19 @@ export class GameState {
     // Loop가 아니라 여기 두는 이유: 수동 스텝 디버그(__engine.step + __game.update)에서도 동작해야 함
     this.lane.updateFriction(this.ballObj.body.translation().z);
 
+    // 공 굴림 럼블 — 레인 위 공 속도로 지속 저역음 구동 (SoundManager.setRoll). 굴림/안착 중만,
+    // 그 외엔 0으로 꺼짐. 공이 멈추면 속도→0이라 자연히 사라진다.
+    const rolling = this.state === 'ROLLING' || this.state === 'SETTLING';
+    if (this.onRoll) {
+      // 레인 위 굴림만 — 공이 핀덱 뒤로 넘어가면(핀 충돌·핏 진입) 굴림음 차단.
+      const onLane = this.ballObj.body.translation().z < PIN_DECK_END;
+      const rv = this.ballObj.body.linvel();
+      this.onRoll(rolling && onLane ? Math.hypot(rv.x, rv.y, rv.z) : 0);
+    }
+
+    // 임팩트(사운드·슬로모) — 접촉 시간 기반으로 매 스텝 평가 (고정 z 트리거 폐기, 속도 무관 동기).
+    this.notifyImpact();
+
     // 시간 배속 (물리 dt는 그대로, accumulator 유입만 스케일 — Loop.timeScale).
     // AI 턴 빨리감기(P1.5) vs 임팩트 슬로모(P2) — 슬로모가 활성일 땐 그게 우선.
     const ai = this.currentPlayer?.ai;
@@ -261,7 +285,12 @@ export class GameState {
       // dt는 sim 시간. 슬로모 중 scale배로 흐르므로, 실시간 T초 = sim (T·scale)초 소비.
       // 따라서 timer를 (REAL_SEC·SCALE) sim초로 잡으면 실시간 REAL_SEC 동안 지속된다.
       this.slowmoTimer -= dt;
-      scale = SLOWMO_SCALE;
+      // 충돌 순간 즉시 SLOWMO_SCALE로 떨궈 임팩트를 박고, 진행도 p(1→0)에 ease-out으로
+      // 1.0까지 부드럽게 복원 — 하드컷 복원이 "툭 끊김"으로 읽히던 것 제거. (1-p)^2라
+      // 전반부는 느리게 머물다 후반부에 빠르게 정상속도로 — 슬로모가 짧게 느껴진다.
+      const p = Math.max(0, Math.min(1, this.slowmoTimer / this.slowmoTotal));
+      const restore = (1 - p) * (1 - p);
+      scale = SLOWMO_SCALE + (1 - SLOWMO_SCALE) * restore;
     }
     this.setTimeScale?.(scale);
 

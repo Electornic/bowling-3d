@@ -5,6 +5,10 @@
  */
 /** 1~2핀(스페어 정리)은 가벼운 '톡', 그 이상은 풀 크래시로 분기 (playRackCrash). */
 const LIGHT_HIT_MAX = 2;
+// strike.wav 앞 리드인(공백~0.1s, 크랙 피크 @0.113s) 건너뛰고 크랙부터 재생 → 영상 충돌과 동기.
+// strike.wav는 0.105s에 날카로운 크랙(피크 0.113s) — 그 직전(0.10)부터 재생해 어택 보존 + 충돌 동기.
+// (strike2.wav였으면 0.60. 더 빠르게=값↑, 늦게=값↓.)
+const STRIKE_LEADIN = 0.10;
 
 export class SoundManager {
   private ctx: AudioContext | null = null;
@@ -15,9 +19,145 @@ export class SoundManager {
     const resume = () => {
       if (!this.ctx) this.ctx = new AudioContext();
       if (this.ctx.state === 'suspended') void this.ctx.resume();
+      void this.loadSamples();
     };
     window.addEventListener('pointerdown', resume);
     window.addEventListener('keydown', resume);
+  }
+
+  /**
+   * 리버브 버스 (드라이 + 합성 IR 컨볼루션 웨트). 실제 볼링장은 천장 높고 단단한 면뿐인
+   * 거대 공간이라 잔향이 길다(실측 RT≈2.5s) — 드라이 합성음이 "합성 같다"의 1순위 원인이라
+   * 한 '공간'에 앉혀 현실감을 얹는다. IR은 코드 합성(노이즈×지수감쇠)이라 에셋 0 유지.
+   * 충돌·굴림음이 같은 버스를 거쳐 같은 방에 있게. ctx는 첫 user gesture에 생기므로 지연 생성.
+   */
+  // 실제 녹음 샘플 (strike=충돌, roll=굴림). ctx 생성 후 지연 디코드, 그 전엔 합성 폴백.
+  private strikeBuf: AudioBuffer | null = null;
+  private rollBuf: AudioBuffer | null = null;
+  private samplesLoading = false;
+  private rollSrc: AudioBufferSourceNode | null = null;
+  private rollMax = 0.1; // 굴림 최대 게인 (합성=0.1, 샘플=0.7 — 생성 시 결정)
+
+  /** strike/roll wav 지연 디코드 — 첫 user gesture(ctx 생성) 후 1회. Vite가 에셋으로 emit. */
+  private async loadSamples() {
+    if (!this.ctx || this.samplesLoading || this.strikeBuf) return;
+    this.samplesLoading = true;
+    const ctx = this.ctx;
+    const load = async (url: string) => ctx.decodeAudioData(await (await fetch(url)).arrayBuffer());
+    try {
+      const [s, r] = await Promise.all([
+        load(new URL('./strike.wav', import.meta.url).href),
+        load(new URL('./roll.wav', import.meta.url).href),
+      ]);
+      this.strikeBuf = s;
+      this.rollBuf = this.makeSeamlessLoop(r); // 지속 구간만 추출+크로스페이드 → 끊김·뽁 없는 무한 루프
+    } catch {
+      /* 디코드 실패 — 합성 폴백 유지 */
+    }
+    this.samplesLoading = false;
+  }
+
+  private busIn: GainNode | null = null;
+  private out(): AudioNode {
+    const ctx = this.ctx!;
+    if (this.busIn) return this.busIn;
+    const busIn = ctx.createGain();
+    busIn.connect(ctx.destination); // 드라이 경로
+    // 웨트 경로: 저역은 빼고(잔향 머드 방지 — sub/thud는 드라이로만) 컨볼루션 잔향만 얹는다.
+    const hp = ctx.createBiquadFilter();
+    hp.type = 'highpass';
+    hp.frequency.value = 250;
+    const conv = ctx.createConvolver();
+    conv.buffer = this.makeIR(1.1, 2.4); // 꼬리 ~1.1s — '큰 방'이되 동굴처럼 번지지 않게
+    const wet = ctx.createGain();
+    wet.gain.value = 0.3; // 잔향 양 — 공간감, 과하면 스피치 불명료(실제 볼링장 문제)
+    busIn.connect(hp).connect(conv).connect(wet).connect(ctx.destination);
+    this.busIn = busIn;
+    return busIn;
+  }
+
+  // --- 공 굴림 럼블 (지속음) ---
+  // 레인 위 공의 저역 우르릉. 루프 노이즈 1개를 계속 돌리고 게인만 움직여(start/stop 클릭 방지)
+  // 속도에 음량·밝기를 종속 → 굴러갈 때 살아나고 멈추면 사라진다. 임팩트 직전 긴장감.
+  // 저역이라 리버브 기여가 미미해 드라이 직결(컨볼버 상시 가동 CPU 절약).
+  private rollGain: GainNode | null = null;
+  private rollLp: BiquadFilterNode | null = null;
+  /** 굴림 세기 갱신 (GameState가 매 스텝 공 속도로 호출). speed=공 속도(m/s), 0이면 무음. */
+  setRoll(speed: number) {
+    if (!this.ctx || !this.enabled) return;
+    const ctx = this.ctx;
+    if (!this.rollGain) {
+      const g = ctx.createGain();
+      g.gain.value = 0;
+      const src = ctx.createBufferSource();
+      src.loop = true;
+      if (this.rollBuf) {
+        src.buffer = this.rollBuf; // makeSeamlessLoop로 가공된 무한 루프 버퍼 (이음새 매끈)
+        src.connect(g).connect(ctx.destination); // 자체 스펙트럼이라 LP 없이 드라이
+        this.rollMax = 0.7;
+      } else {
+        const len = Math.ceil(ctx.sampleRate * 1.0); // 폴백: 합성 저역 노이즈
+        const buf = ctx.createBuffer(1, len, ctx.sampleRate);
+        const d = buf.getChannelData(0);
+        for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
+        src.buffer = buf;
+        const lp = ctx.createBiquadFilter();
+        lp.type = 'lowpass';
+        lp.frequency.value = 280;
+        src.connect(lp).connect(g).connect(ctx.destination);
+        this.rollLp = lp;
+        this.rollMax = 0.1;
+      }
+      src.start(); // 굴림 루프 시작 (통째 루프 — 이음새 클릭 없음)
+      this.rollSrc = src;
+      this.rollGain = g;
+    }
+    const now = ctx.currentTime;
+    const MAX = 12; // ≈ MAX_SPEED. 속도 1~12 → 게인·피치·밝기 종속.
+    const t = Math.max(0, Math.min(1, (speed - 1) / (MAX - 1)));
+    this.rollGain.gain.setTargetAtTime(t * t * this.rollMax, now, 0.02); // 빠른 추종 (지연감 줄임, 클릭은 방지)
+    this.rollSrc!.playbackRate.setTargetAtTime(0.85 + t * 0.4, now, 0.05); // 빠를수록 살짝 높게
+    if (this.rollLp) this.rollLp.frequency.setTargetAtTime(220 + t * 200, now, 0.05);
+  }
+
+  /**
+   * 굴림 녹음(페이드인+지속+페이드아웃 = 1회성)을 끊김 없는 루프로 가공: 지속 구간만 잘라
+   * 끝↔처음을 크로스페이드 → 루프 경계의 진폭 불연속('뽁') + 통째 루프 시 끝단 페이드 무음
+   * 구간을 지나며 생기던 '중간 끊김'을 둘 다 제거. (원본 길이/엔벨로프 분석 기반 구간.)
+   */
+  private makeSeamlessLoop(buf: AudioBuffer): AudioBuffer {
+    const ctx = this.ctx!;
+    const sr = buf.sampleRate;
+    const s0 = Math.min(buf.length - 1, Math.floor(0.45 * sr)); // 페이드인 이후
+    const s1 = Math.min(buf.length, Math.floor(1.6 * sr)); // 페이드아웃 이전
+    const cf = Math.floor(0.08 * sr); // 80ms 크로스페이드
+    const loopLen = Math.max(1, s1 - s0 - cf);
+    const out = ctx.createBuffer(buf.numberOfChannels, loopLen, sr);
+    for (let ch = 0; ch < buf.numberOfChannels; ch++) {
+      const src = buf.getChannelData(ch);
+      const dst = out.getChannelData(ch);
+      for (let i = 0; i < loopLen; i++) dst[i] = src[s0 + i];
+      // 경계 매끈: 처음(head, w↑)에 '그 다음에 올 꼬리'(1−w)를 섞어 out[끝]→out[0]이 원본상 연속이 되게.
+      for (let j = 0; j < cf && j < loopLen; j++) {
+        const w = j / cf;
+        dst[j] = dst[j] * w + src[s0 + loopLen + j] * (1 - w);
+      }
+    }
+    return out;
+  }
+
+  /** 합성 임펄스 응답: 스테레오 노이즈 × 지수감쇠. seconds=꼬리 길이, decay=감쇠 가파름. */
+  private makeIR(seconds: number, decay: number): AudioBuffer {
+    const ctx = this.ctx!;
+    const len = Math.max(1, Math.ceil(ctx.sampleRate * seconds));
+    const buf = ctx.createBuffer(2, len, ctx.sampleRate);
+    for (let ch = 0; ch < 2; ch++) {
+      const d = buf.getChannelData(ch);
+      for (let i = 0; i < len; i++) {
+        d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, decay);
+      }
+    }
+    return buf;
   }
 
   /** 백그라운드 진입 시 오디오 스레드 정지 (배터리/발열). visibilitychange에서 호출 (MOBILE_SUPPORT.md §6). */
@@ -46,7 +186,7 @@ export class SoundManager {
     osc.frequency.value = 110 + Math.min(magnitude, 120) * 3; // 셀수록 높은 음
     gain.gain.setValueAtTime(vol, now);
     gain.gain.exponentialRampToValueAtTime(0.001, now + 0.13);
-    osc.connect(gain).connect(this.ctx.destination);
+    osc.connect(gain).connect(this.out()); // 굴림음도 룸 리버브 경유 (같은 공간)
     osc.start(now);
     osc.stop(now + 0.14);
   }
@@ -58,8 +198,28 @@ export class SoundManager {
    */
   playRackCrash(standingCount: number) {
     if (!this.ctx || !this.enabled) return;
-    if (standingCount <= LIGHT_HIT_MAX) this.click(70);
+    if (this.strikeBuf) this.playStrike(standingCount); // 실제 샘플(핀수로 볼륨·길이 스케일) — 1~2핀도 합성 '뽁' 대신 가벼운 실제 타격음
+    else if (standingCount <= LIGHT_HIT_MAX) this.click(70); // 디코드 전 폴백
     else this.crash(0, standingCount);
+  }
+
+  /** 실제 스트라이크 녹음 재생 — 자연 잔향 포함이라 합성 리버브 우회(드라이, 이중 잔향 방지). */
+  private playStrike(count: number) {
+    const ctx = this.ctx!;
+    const now = ctx.currentTime;
+    const src = ctx.createBufferSource();
+    src.buffer = this.strikeBuf!;
+    const g = ctx.createGain();
+    const intensity = Math.min(1, count / 10);
+    const vol = 0.4 + intensity * 0.6; // 1핀≈0.4, 풀랙=1.0
+    // 적은 핀은 짧게(크랙+짧은 잔해), 많을수록 풀 클래터 — 1핀에 풀랙 소리 나는 부자연 방지.
+    const dur = 0.25 + intensity * 1.8; // 1핀≈0.25s, 풀랙≈2s
+    g.gain.setValueAtTime(0, now);
+    g.gain.linearRampToValueAtTime(vol, now + 0.012); // 12ms 페이드인 — 시작 클릭 제거
+    g.gain.setValueAtTime(vol, now + Math.max(0.05, dur - 0.06));
+    g.gain.linearRampToValueAtTime(0.0001, now + dur); // 끝 60ms 페이드아웃 — 자르기 클릭 제거
+    src.connect(g).connect(ctx.destination); // 드라이
+    src.start(0, STRIKE_LEADIN, dur); // 임팩트 구간부터, 길이는 핀수 비례
   }
 
   /** 1~2핀 딸각 — 짧고 또렷한 고음 틱 */
@@ -74,7 +234,7 @@ export class SoundManager {
     osc.frequency.value = 220 + Math.min(magnitude, 160) * 4;
     gain.gain.setValueAtTime(vol, now);
     gain.gain.exponentialRampToValueAtTime(0.001, now + 0.1);
-    osc.connect(gain).connect(ctx.destination);
+    osc.connect(gain).connect(this.out());
     osc.start(now);
     osc.stop(now + 0.11);
   }
@@ -102,7 +262,7 @@ export class SoundManager {
     const cg = ctx.createGain();
     cg.gain.setValueAtTime(0.34 + intensity * 0.2, now);
     cg.gain.exponentialRampToValueAtTime(0.001, now + 0.05);
-    crack.connect(cbp).connect(cg).connect(ctx.destination);
+    crack.connect(cbp).connect(cg).connect(this.out());
     crack.start(now);
     crack.stop(now + 0.06);
 
@@ -134,7 +294,7 @@ export class SoundManager {
     ng.gain.exponentialRampToValueAtTime(0.001, now + dur);
     noise.connect(bp1).connect(ng);
     noise.connect(bp2).connect(ng);
-    ng.connect(ctx.destination);
+    ng.connect(this.out());
     noise.start(now);
     noise.stop(now + dur);
 
@@ -147,7 +307,7 @@ export class SoundManager {
     og.gain.setValueAtTime(0.0001, now);
     og.gain.exponentialRampToValueAtTime(0.26 + intensity * 0.18, now + 0.008);
     og.gain.exponentialRampToValueAtTime(0.001, now + 0.22);
-    osc.connect(og).connect(ctx.destination);
+    osc.connect(og).connect(this.out());
     osc.start(now);
     osc.stop(now + 0.24);
 
@@ -164,7 +324,7 @@ export class SoundManager {
       sg.gain.setValueAtTime(0.0001, now);
       sg.gain.exponentialRampToValueAtTime(subVol, now + 0.012);
       sg.gain.exponentialRampToValueAtTime(0.001, now + 0.34);
-      sub.connect(sg).connect(ctx.destination);
+      sub.connect(sg).connect(this.out());
       sub.start(now);
       sub.stop(now + 0.36);
     }
@@ -182,7 +342,7 @@ export class SoundManager {
       const v = (0.05 + Math.random() * 0.07) * (0.6 + intensity * 0.6);
       g.gain.setValueAtTime(v, t);
       g.gain.exponentialRampToValueAtTime(0.001, t + 0.05 + Math.random() * 0.04);
-      o.connect(g).connect(ctx.destination);
+      o.connect(g).connect(this.out());
       o.start(t);
       o.stop(t + 0.12);
     }
