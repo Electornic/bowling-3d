@@ -28,11 +28,12 @@ export interface AiProfile {
   ballLb: number;
 }
 
+// 초→중→고 난이도 순으로 노출 (메뉴는 배열 순서대로 렌더). 라이벌 식별은 key(kim/yoon/han)로 — 저장/업적 호환 유지.
 export const AI_PROFILES: AiProfile[] = [
   {
     key: 'kim',
-    name: '흥부',
-    tagline: '착실한 직구 — 욕심 없이 꾸준하나 포켓을 종종 놓친다',
+    name: '초보',
+    tagline: '착실한 직구 — 꾸준하지만 포켓을 자주 놓친다',
     style: 'straight',
     power: 1.0,
     powerJitter: 0.05,
@@ -42,27 +43,27 @@ export const AI_PROFILES: AiProfile[] = [
     ballLb: 10,
   },
   {
-    key: 'han',
-    name: '홍길동',
-    tagline: '도술 같은 정밀 직구 — 포켓도 스페어도 빈틈이 없다',
-    style: 'straight',
-    power: 0.95,
-    powerJitter: 0.05,
-    aimJitterCm: 1, // 매치 sim 확정: mean ~228 (정밀). 좁은 3cm 포켓 밴드라 정타율 필수
-    spareAimJitterCm: 1.2,
-    spin: 0,
-    ballLb: 10,
-  },
-  {
     key: 'yoon',
-    name: '놀부',
-    tagline: '풀스핀 한 방 도박 — 박 타듯, 대박 아니면 쪽박',
+    name: '중수',
+    tagline: '풀스핀 한 방 승부 — 대박 아니면 쪽박',
     style: 'hook',
     power: 1.0,
     powerJitter: 0.04,
     aimJitterCm: 4, // 매치 sim 확정: mean ~169, sd ~28(최대) 와일드카드 — 중간 정타율에서 boom/bust 변동 피크
     spareAimJitterCm: 7,
     spin: 1,
+    ballLb: 10,
+  },
+  {
+    key: 'han',
+    name: '고수',
+    tagline: '빈틈없는 정밀 직구 — 포켓도 스페어도 놓치지 않는다',
+    style: 'straight',
+    power: 0.95,
+    powerJitter: 0.05,
+    aimJitterCm: 1, // 매치 sim 확정: mean ~228 (정밀). 좁은 3cm 포켓 밴드라 정타율 필수
+    spareAimJitterCm: 1.2,
+    spin: 0,
     ballLb: 10,
   },
 ];

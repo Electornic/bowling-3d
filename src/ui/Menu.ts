@@ -87,9 +87,9 @@ type Difficulty = 'beginner' | 'intermediate' | 'advanced' | 'custom';
 // 난이도 프리셋 (P3 §2.7 — 적응형 대신 큐레이션): 오일+예측선을 한 손잡이로 묶고, 커스텀은 두 축 따로.
 // 캐주얼은 '난이도' 하나만 보고, 고수는 커스텀에서 세밀 조정. 매핑은 P0 손맛 후 튜닝 여지.
 const DIFFICULTY_PRESETS: { key: Difficulty; label: string; desc: string; oil?: OilPattern; aim?: AimAid }[] = [
-  { key: 'beginner', label: '초급', desc: '하우스 + 풀 예측선 — 가장 쉬움', oil: 'house', aim: 'easy' },
-  { key: 'intermediate', label: '중급', desc: '하우스 + 훅 숨김 — 라인 직접 읽기', oil: 'house', aim: 'normal' },
-  { key: 'advanced', label: '고급', desc: '숏 패턴 + 방향 표식만 — 라인은 실력', oil: 'short', aim: 'pro' },
+  { key: 'beginner', label: '쉬움', desc: '하우스 + 풀 예측선 — 가장 쉬움', oil: 'house', aim: 'easy' },
+  { key: 'intermediate', label: '보통', desc: '하우스 + 훅 숨김 — 라인 직접 읽기', oil: 'house', aim: 'normal' },
+  { key: 'advanced', label: '어려움', desc: '숏 패턴 + 방향 표식만 — 라인은 실력', oil: 'short', aim: 'pro' },
   { key: 'custom', label: '커스텀', desc: '오일·예측선 직접 선택' },
 ];
 
@@ -114,6 +114,8 @@ export class MenuUI {
     private readonly onMenu: () => void,
     private readonly onWeight: (lb: number) => void,
     private readonly onSkinChange: (id: string) => void,
+    private readonly settings: Settings, // 시작 메뉴 사운드 토글이 읽는 현재 설정 (pause 모달과 동일 객체)
+    private readonly onSound: (v: boolean) => void, // 토글 시 적용+저장 (Boot 주입)
   ) {
     this.backdrop = document.createElement('div');
     css(this.backdrop, {
@@ -134,6 +136,7 @@ export class MenuUI {
     });
     this.panel = document.createElement('div');
     css(this.panel, {
+      position: 'relative', // 우상단 사운드 토글 등 absolute 자식의 기준
       background: 'rgba(14,17,27,0.96)',
       border: '1px solid rgba(255,255,255,0.1)',
       borderRadius: '16px',
@@ -161,10 +164,44 @@ export class MenuUI {
     this.backdrop.style.display = 'none';
   }
 
+  /** 우상단 사운드 on/off 토글 (시작 메뉴). 끄면 메뉴 BGM·지속음까지 멎는다(SoundManager.enabled setter). */
+  private soundToggle(): HTMLButtonElement {
+    const b = document.createElement('button');
+    const paint = () => {
+      b.textContent = this.settings.sound ? '🔊' : '🔇';
+      b.setAttribute('aria-label', this.settings.sound ? '사운드 끄기' : '사운드 켜기');
+    };
+    css(b, {
+      position: 'absolute',
+      top: '16px',
+      right: '16px',
+      width: '40px',
+      height: '40px',
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      borderRadius: '10px',
+      border: '1px solid rgba(255,255,255,0.14)',
+      background: 'rgba(255,255,255,0.04)',
+      color: '#e8edf5',
+      fontSize: '18px',
+      lineHeight: '1',
+      padding: '0',
+      cursor: 'pointer',
+    });
+    paint();
+    b.onclick = () => {
+      this.onSound(!this.settings.sound); // 적용+저장은 Boot 핸들러가 (settings.sound 갱신 포함)
+      paint();
+    };
+    return b;
+  }
+
   // --- 시작 메뉴 ---
   showMenu() {
     this.panel.replaceChildren();
     this.panel.appendChild(this.title('🎳 BOWLING 3D'));
+    this.panel.appendChild(this.soundToggle()); // 우상단 사운드 토글
 
     // 모드 선택
     this.panel.appendChild(this.sectionLabel('모드'));
@@ -212,7 +249,7 @@ export class MenuUI {
     this.refreshRivalChips(rivalBtns);
 
     // 난이도 프리셋 (P3 §2.7 — 오일+예측선을 한 손잡이로 큐레이션. '커스텀'에서만 두 축 따로)
-    this.panel.appendChild(this.sectionLabel('난이도'));
+    this.panel.appendChild(this.sectionLabel('레인 난이도'));
     const diffRow = document.createElement('div');
     css(diffRow, { display: 'flex', gap: '8px', marginBottom: '14px', flexWrap: 'wrap' });
     const diffBtns = new Map<Difficulty, HTMLButtonElement>();
@@ -284,7 +321,7 @@ export class MenuUI {
     wInput.type = 'range';
     wInput.min = '6';
     wInput.max = '16';
-    wInput.step = '0.5';
+    wInput.step = '1'; // 1파운드 단위
     wInput.value = String(this.weight);
     css(wInput, { flex: '1', accentColor: '#22d3ee', minHeight: COARSE ? '44px' : '' });
     const wVal = document.createElement('span');

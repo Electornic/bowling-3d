@@ -61,6 +61,7 @@ export async function boot() {
       if (inMatch && exitBtn.style.display === 'none') refreshIsland(); // 매치 진입 시 진행도 1회 갱신
       exitBtn.style.display = inMatch ? 'block' : 'none';
       island.style.display = inMatch ? 'block' : 'none';
+      sound.setMenuMusic(!inMatch); // 메뉴·결과 화면에서만 배경음악 (매치 시작하면 페이드아웃). 멱등.
     },
   );
   game.setTimeScale = (s) => {
@@ -79,10 +80,16 @@ export async function boot() {
     }
   });
 
-  // 세로 화면이면 가로 권장 1회 안내 (비차단, §5)
-  maybeShowOrientationHint();
-
-  document.getElementById('loading')?.remove();
+  // 부팅 완료 → 터미널 로더에 신호. 타이핑이 끝나면 'TAP TO START'가 뜨고, 탭하면 로더가
+  // 페이드아웃되며 그 시점에 가로 권장 안내를 띄운다. 연출은 index.html의 인라인 스크립트가 담당.
+  const w2 = window as Window & { __loaderReady?: (onDismiss: () => void) => void };
+  if (w2.__loaderReady) {
+    w2.__loaderReady(() => maybeShowOrientationHint());
+  } else {
+    // 로더 스크립트 부재 등 예외 — 폴백: 즉시 제거 + 안내
+    document.getElementById('loading')?.remove();
+    maybeShowOrientationHint();
+  }
 }
 
 /**
@@ -152,6 +159,12 @@ function buildScene(engine: Engine): {
     () => game.toMenu(),
     (lb) => game.setHumanBallSpec(makeBallSpec(lb)), // 볼 무게 (인게임 HUD 대신 메뉴에서 선택)
     (id) => game.setBallSkin(resolveSkin(id)), // 볼 스킨 (보상, 외형 전용)
+    settings, // 시작 메뉴 사운드 토글이 읽는 현재 설정 (pause 모달과 동일 객체)
+    (v) => {
+      settings.sound = v;
+      sound.enabled = v; // setter가 끄면 BGM·럼블 즉시 정지, 켜면 다음 프레임에 BGM 재개
+      saveSettings(settings);
+    },
   );
   game.setBallSkin(resolveSkin(loadRewards().selectedSkin)); // 저장된 장착 스킨 초기 적용
   menu.showMenu();
@@ -225,7 +238,7 @@ function buildScene(engine: Engine): {
     if (settings.haptics && typeof navigator.vibrate === 'function') navigator.vibrate(standing > 2 ? 30 : 12);
   };
   // 공 굴림 럼블 — 매 스텝 공 속도로 지속 저역음 (임팩트 직전 긴장감)
-  game.onRoll = (v) => sound.setRoll(v);
+  game.onRoll = (v, inGutter) => sound.setRoll(v, inGutter);
 
   // 인게임 '메뉴로' 버튼 — 게임 중 포기하고 메뉴 복귀 (가시성은 Loop onFrame에서 상태별 토글).
   // 좌상단 safe-area, 점수판(상단)과 안 겹치게 작게. Esc(데스크톱)도 동일 동작.
@@ -325,6 +338,7 @@ function buildScene(engine: Engine): {
     __engine?: Engine;
     __game?: GameState;
     __cameraRig?: CameraRig;
+    __sound?: SoundManager;
     __unlockAllRewards?: () => void;
     __resetRewards?: () => void;
   };
@@ -333,6 +347,7 @@ function buildScene(engine: Engine): {
   w.__engine = engine;
   w.__game = game;
   w.__cameraRig = cameraRig;
+  w.__sound = sound;
   // [DEV] 보상 디버그 — 콘솔에서 호출 후 새로고침
   w.__unlockAllRewards = () => {
     recordRewards(ACHIEVEMENTS.map((a) => a.id));

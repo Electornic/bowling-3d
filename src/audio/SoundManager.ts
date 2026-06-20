@@ -12,7 +12,26 @@ const STRIKE_LEADIN = 0.10;
 
 export class SoundManager {
   private ctx: AudioContext | null = null;
-  enabled = true;
+  private _enabled = true;
+  /**
+   * 사운드 on/off. 끄는 순간 '지속음'(굴림 럼블)과 메뉴 음악을 즉시 멎게 한다.
+   * 굴리는 도중 끄면 setRoll이 early-return해 rollGain이 마지막 값에 얼어붙어 럼블이 계속 울리던
+   * 버그 방지. (일회성 충돌음은 짧아 자연 종료라 별도 처리 불필요.)
+   */
+  get enabled(): boolean {
+    return this._enabled;
+  }
+  set enabled(v: boolean) {
+    this._enabled = v;
+    if (!v) {
+      if (this.ctx && this.rollGain) {
+        const now = this.ctx.currentTime;
+        this.rollGain.gain.cancelScheduledValues(now);
+        this.rollGain.gain.setTargetAtTime(0, now, 0.02); // 럼블 즉시 페이드아웃(클릭 방지)
+      }
+      this.stopMusic(); // 메뉴 음악도 정지
+    }
+  }
   private lastPlay = 0;
 
   constructor() {
@@ -82,8 +101,9 @@ export class SoundManager {
   // 저역이라 리버브 기여가 미미해 드라이 직결(컨볼버 상시 가동 CPU 절약).
   private rollGain: GainNode | null = null;
   private rollLp: BiquadFilterNode | null = null;
+  private rollGutterFilter: BiquadFilterNode | null = null; // 거터 홀로우용 피킹 필터 (레인=평탄/바이패스)
   /** 굴림 세기 갱신 (GameState가 매 스텝 공 속도로 호출). speed=공 속도(m/s), 0이면 무음. */
-  setRoll(speed: number) {
+  setRoll(speed: number, inGutter = false) {
     if (!this.ctx || !this.enabled) return;
     const ctx = this.ctx;
     if (!this.rollGain) {
@@ -91,9 +111,16 @@ export class SoundManager {
       g.gain.value = 0;
       const src = ctx.createBufferSource();
       src.loop = true;
+      // 거터 홀로우용 피킹 필터 — 레인 위엔 0dB(평탄=바이패스), 거터 진입 시 380Hz를 공명시켜 '채널 안 텅텅'.
+      // (하이패스로 저역을 깎으면 굴림음 자체가 저역 럼블이라 통째로 사라짐 → 피킹 부스트로 음색만 바꾼다.)
+      const gf = ctx.createBiquadFilter();
+      gf.type = 'peaking';
+      gf.frequency.value = 380;
+      gf.Q.value = 2.2;
+      gf.gain.value = 0;
       if (this.rollBuf) {
         src.buffer = this.rollBuf; // makeSeamlessLoop로 가공된 무한 루프 버퍼 (이음새 매끈)
-        src.connect(g).connect(ctx.destination); // 자체 스펙트럼이라 LP 없이 드라이
+        src.connect(gf).connect(g).connect(ctx.destination); // 자체 스펙트럼이라 LP 없이 드라이(+거터 피킹)
         this.rollMax = 0.7;
       } else {
         const len = Math.ceil(ctx.sampleRate * 1.0); // 폴백: 합성 저역 노이즈
@@ -104,19 +131,24 @@ export class SoundManager {
         const lp = ctx.createBiquadFilter();
         lp.type = 'lowpass';
         lp.frequency.value = 280;
-        src.connect(lp).connect(g).connect(ctx.destination);
+        src.connect(lp).connect(gf).connect(g).connect(ctx.destination);
         this.rollLp = lp;
         this.rollMax = 0.1;
       }
       src.start(); // 굴림 루프 시작 (통째 루프 — 이음새 클릭 없음)
       this.rollSrc = src;
       this.rollGain = g;
+      this.rollGutterFilter = gf;
     }
     const now = ctx.currentTime;
     const MAX = 12; // ≈ MAX_SPEED. 속도 1~12 → 게인·피치·밝기 종속.
     const t = Math.max(0, Math.min(1, (speed - 1) / (MAX - 1)));
-    this.rollGain.gain.setTargetAtTime(t * t * this.rollMax, now, 0.02); // 빠른 추종 (지연감 줄임, 클릭은 방지)
-    this.rollSrc!.playbackRate.setTargetAtTime(0.85 + t * 0.4, now, 0.05); // 빠를수록 살짝 높게
+    const gutterMul = inGutter ? 0.85 : 1; // 거터는 살짝만 작게 (사라지지 않게)
+    this.rollGain.gain.setTargetAtTime(t * t * this.rollMax * gutterMul, now, 0.02); // 빠른 추종 (지연감 줄임, 클릭은 방지)
+    this.rollSrc!.playbackRate.setTargetAtTime((inGutter ? 0.95 : 0.85) + t * 0.4, now, 0.05); // 거터는 살짝 높게(텅한 질감)
+    if (this.rollGutterFilter) {
+      this.rollGutterFilter.gain.setTargetAtTime(inGutter ? 12 : 0, now, 0.04); // 거터: 380Hz 공명 부각(홀로우), 레인=평탄
+    }
     if (this.rollLp) this.rollLp.frequency.setTargetAtTime(220 + t * 200, now, 0.05);
   }
 
@@ -366,5 +398,106 @@ export class SoundManager {
       osc.start(t);
       osc.stop(t + 0.32);
     });
+  }
+
+  // ───────────────────────────────────────────────────────────────────────────
+  // 메뉴 배경음악 — 칩튠 아르페지오 루프 (Web Audio 합성, 에셋 0). 메뉴/결과 화면에서만 재생,
+  // 게임 시작하면 페이드아웃(굴림·크래시와 안 싸우게). 룩어헤드 스케줄러로 정확 타이밍.
+  // 로더의 TAP(user gesture)으로 ctx가 풀린 뒤 호출되므로 모바일에서도 바로 울린다.
+  // ───────────────────────────────────────────────────────────────────────────
+  private musicGain: GainNode | null = null;
+  private musicTimer: number | null = null;
+  private musicStep = 0;
+  private musicNextTime = 0;
+  private musicOn = false;
+  private readonly musicVol = 0.5; // 전체 음악 레벨 (배경이라 작게)
+  // I–V–vi–IV (C장조) — 보편적으로 듣기 좋은 진행. 코드당 8스텝(16분음표)×4코드 = 32스텝 루프.
+  // arp=아르페지오 노트(MIDI), bass=루트 저음(MIDI).
+  private readonly MUSIC_PROG = [
+    { arp: [60, 64, 67, 72], bass: 36 }, // C
+    { arp: [62, 67, 71, 74], bass: 43 }, // G
+    { arp: [64, 69, 72, 76], bass: 45 }, // Am
+    { arp: [65, 69, 72, 77], bass: 41 }, // F
+  ];
+
+  /** 메뉴 음악 on/off (멱등). Loop onFrame이 게임 상태로 매 프레임 호출 — 메뉴=on, 매치=off. */
+  setMenuMusic(active: boolean) {
+    if (active) this.startMusic();
+    else this.stopMusic();
+  }
+
+  private startMusic() {
+    if (!this.enabled || this.musicOn) return;
+    if (!this.ctx || this.ctx.state !== 'running') return; // 제스처 전이면 다음 프레임에 재시도
+    this.musicOn = true;
+    const ctx = this.ctx;
+    if (!this.musicGain) {
+      this.musicGain = ctx.createGain();
+      this.musicGain.connect(ctx.destination); // 드라이 — 볼링장 리버브 우회
+    }
+    const now = ctx.currentTime;
+    this.musicGain.gain.cancelScheduledValues(now);
+    this.musicGain.gain.setValueAtTime(0.0001, now);
+    this.musicGain.gain.exponentialRampToValueAtTime(this.musicVol, now + 0.8); // 페이드인
+    this.musicStep = 0;
+    this.musicNextTime = now + 0.1;
+    this.musicTimer = window.setInterval(() => this.scheduleMusic(), 25);
+  }
+
+  private stopMusic() {
+    if (!this.musicOn) return;
+    this.musicOn = false;
+    if (this.musicTimer != null) {
+      clearInterval(this.musicTimer);
+      this.musicTimer = null;
+    }
+    if (this.ctx && this.musicGain) {
+      const now = this.ctx.currentTime;
+      const g = this.musicGain.gain;
+      g.cancelScheduledValues(now);
+      g.setValueAtTime(Math.max(0.0001, g.value), now);
+      g.exponentialRampToValueAtTime(0.0001, now + 0.5); // 페이드아웃 (스케줄된 잔여 노트가 잦아듦)
+    }
+  }
+
+  /** 룩어헤드 스케줄러 — 현재시각+lookahead까지의 스텝을 미리 예약 (정확 타이밍). */
+  private scheduleMusic() {
+    const ctx = this.ctx;
+    if (!ctx || !this.musicOn) return;
+    const stepDur = 60 / 112 / 4; // 16분음표 @112BPM ≈ 0.134s
+    const lookahead = 0.12;
+    while (this.musicNextTime < ctx.currentTime + lookahead) {
+      this.playMusicStep(this.musicStep, this.musicNextTime, stepDur);
+      this.musicNextTime += stepDur;
+      this.musicStep = (this.musicStep + 1) % 32;
+    }
+  }
+
+  private playMusicStep(i: number, time: number, stepDur: number) {
+    const chord = this.MUSIC_PROG[Math.floor(i / 8) % this.MUSIC_PROG.length];
+    const local = i % 8;
+    this.musicTone(this.mtof(chord.arp[local % chord.arp.length]), time, stepDur * 0.9, 'square', 0.07); // 아르페지오
+    if (local === 0 || local === 4) this.musicTone(this.mtof(chord.bass), time, stepDur * 3.6, 'triangle', 0.16); // 베이스(half마다)
+    if (local === 0) this.musicTone(this.mtof(chord.arp[0] + 12), time, stepDur * 1.6, 'square', 0.03); // 코드 전환 반짝임
+  }
+
+  /** 음악용 단음 — musicGain 경유(페이드/볼륨 일괄). 클릭 방지 위해 짧은 어택/릴리즈. */
+  private musicTone(freq: number, time: number, dur: number, type: OscillatorType, vol: number) {
+    const ctx = this.ctx!;
+    const o = ctx.createOscillator();
+    const g = ctx.createGain();
+    o.type = type;
+    o.frequency.value = freq;
+    g.gain.setValueAtTime(0.0001, time);
+    g.gain.exponentialRampToValueAtTime(vol, time + 0.006);
+    g.gain.exponentialRampToValueAtTime(0.0001, time + dur);
+    o.connect(g).connect(this.musicGain!);
+    o.start(time);
+    o.stop(time + dur + 0.02);
+  }
+
+  /** MIDI 노트 → 주파수(Hz). */
+  private mtof(m: number): number {
+    return 440 * Math.pow(2, (m - 69) / 12);
   }
 }

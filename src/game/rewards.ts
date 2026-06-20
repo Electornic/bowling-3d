@@ -63,9 +63,9 @@ export const SKINS: Record<string, BallSkin> = {
 /** v1 업적(§6 core 6). 전부 gameOver 데이터로 판정. */
 export const ACHIEVEMENTS: Achievement[] = [
   { id: 'first_game', badge: '첫 발걸음', desc: '첫 게임 완주', icon: '🎳', reward: 'satin', tier: 'core' },
-  { id: 'beat_kim', badge: '입문 졸업', desc: '흥부 격파', icon: '🥉', reward: 'ember', tier: 'core' },
-  { id: 'beat_han', badge: '명인 격파', desc: '홍길동 격파', icon: '🏅', reward: 'chrome', tier: 'core' },
-  { id: 'beat_yoon', badge: '하이롤러', desc: '놀부 격파', icon: '🎰', reward: 'galaxy', tier: 'core' },
+  { id: 'beat_kim', badge: '입문 졸업', desc: '초보 격파', icon: '🥉', reward: 'ember', tier: 'core' },
+  { id: 'beat_han', badge: '명인 격파', desc: '고수 격파', icon: '🏅', reward: 'chrome', tier: 'core' },
+  { id: 'beat_yoon', badge: '하이롤러', desc: '중수 격파', icon: '🎰', reward: 'galaxy', tier: 'core' },
   { id: 'score_200', badge: '200 클럽', desc: '풀게임 200점 돌파', icon: '💯', reward: 'volt', tier: 'core' },
   { id: 'turkey', badge: '터키', desc: '한 게임 3연속 스트라이크', icon: '🦃', reward: 'sunset', tier: 'core' },
 ];

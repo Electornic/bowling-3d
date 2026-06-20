@@ -117,8 +117,8 @@ export class GameState {
   setTimeScale?: (scale: number) => void;
   /** 투구당 1회 핀 임팩트 사운드 (Boot에서 SoundManager 연결). 인자 = 던질 때 서 있던 핀 수. */
   onPinImpact?: (standingCount: number) => void;
-  /** 공 굴림 지속음 세기 (Boot에서 SoundManager.setRoll 연결). 인자 = 공 속도(m/s). */
-  onRoll?: (speed: number) => void;
+  /** 공 굴림 지속음 세기 (Boot에서 SoundManager.setRoll 연결). speed=공 속도(m/s), inGutter=거터 홈 진입. */
+  onRoll?: (speed: number, inGutter: boolean) => void;
 
   private players: PlayerState[] = [];
   private settleTimer = 0;
@@ -268,9 +268,11 @@ export class GameState {
     const rolling = this.state === 'ROLLING' || this.state === 'SETTLING';
     if (this.onRoll) {
       // 레인 위 굴림만 — 공이 핀덱 뒤로 넘어가면(핀 충돌·핏 진입) 굴림음 차단.
-      const onLane = this.ballObj.body.translation().z < PIN_DECK_END;
+      const tr = this.ballObj.body.translation();
+      const onLane = tr.z < PIN_DECK_END;
+      const inGutter = Math.abs(tr.x) > LANE_WIDTH / 2; // 레인 끝을 넘어 거터 홈으로 빠짐 → 홀로우 음색
       const rv = this.ballObj.body.linvel();
-      this.onRoll(rolling && onLane ? Math.hypot(rv.x, rv.y, rv.z) : 0);
+      this.onRoll(rolling && onLane ? Math.hypot(rv.x, rv.y, rv.z) : 0, inGutter);
     }
 
     // 임팩트(사운드·슬로모) — 접촉 시간 기반으로 매 스텝 평가 (고정 z 트리거 폐기, 속도 무관 동기).

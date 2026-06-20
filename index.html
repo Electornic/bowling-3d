@@ -18,16 +18,227 @@
       }
       /* 게임 표면: 브라우저 제스처(핀치/더블탭 줌·스크롤) 전부 차단 — 입력은 우리가 처리 */
       canvas { display: block; touch-action: none; }
+
+      /* 터미널 부팅 로더 — 게임 네온(시안+마젠타) 톤. 정적 HTML이라 모듈/WASM 로드와 병렬로 즉시 타이핑 시작. */
+      /* z-index 1000: 메뉴(40)·도크·안내(50) 등 모든 UI 위에. 메뉴는 boot() 중 미리 만들어지므로
+         로더가 그 위를 완전히 덮어야 한다(탭하면 사라짐). */
       #loading {
-        position: fixed; inset: 0;
+        position: fixed; inset: 0; z-index: 1000;
         display: flex; align-items: center; justify-content: center;
-        color: #cfd6e4; font: 600 18px/1.4 system-ui, sans-serif;
-        background: #101018; z-index: 10;
+        padding: 24px; background: #05060a; color: #cfd6e4;
+        font: 14px/1.75 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        transition: opacity 0.42s ease;
       }
+      #loading.done { opacity: 0; pointer-events: none; }       /* 탭 시 페이드아웃 */
+      #loading .term { width: min(540px, 90vw); }
+      #boot-tap {
+        margin-top: 16px; display: none;                         /* 준비 완료 + 타이핑 끝나면 노출 */
+        color: #ff2d78; text-shadow: 0 0 10px #ff2d78; letter-spacing: 0.12em; /* CTA = 마젠타 */
+        animation: boot-pulse 1.2s ease-in-out infinite;
+      }
+      .boot-cur {
+        display: inline-block; width: 9px; height: 15px; vertical-align: -2px;
+        background: #ff2d78; box-shadow: 0 0 8px #ff2d78;        /* 깜빡이는 블록 커서 = 마젠타 */
+        animation: boot-blink 1s steps(1) infinite;
+      }
+      .boot-ok { color: #4ade80; }                               /* OK = 초록 */
+      .boot-dim { opacity: 0.45; }                               /* 프롬프트 '> ' = 탈색 */
+      .boot-ac { color: #22d3ee; text-shadow: 0 0 9px rgba(34, 211, 238, 0.55); } /* 강조 = 네온 시안 */
+      .boot-err { color: #ff5a5a; text-shadow: 0 0 9px rgba(255, 90, 90, 0.5); }  /* 부팅 실패 = 빨강 */
+      @keyframes boot-blink { 50% { opacity: 0; } }
+      @keyframes boot-pulse { 50% { opacity: 0.35; } }
     </style>
   </head>
   <body>
-    <div id="loading">Loading…</div>
+    <div id="loading" role="status" aria-label="로딩 중">
+      <div class="term">
+        <div id="boot-log"></div>
+        <div id="boot-tap">▶ TAP TO START</div>
+      </div>
+    </div>
+
+    <!--
+      터미널 부팅 연출. 모듈(/src/main.ts)은 defer라 이 인라인 스크립트가 먼저 실행되어
+      window.__loaderReady / __loaderError를 정의해 둔다.
+        · boot() 성공 → __loaderReady(onDismiss): 'ready' 표시 + 'TAP TO START', 탭하면 페이드아웃 후 제거.
+        · boot() 실패 → __loaderError(msg): 빨간 ERROR 줄 + 'TAP TO RETRY'(탭=새로고침), 타이핑 중단.
+      'ready'는 실제 엔진 준비 완료 후에만 찍는다(거짓 ready 방지) — 그 전엔 'initializing' 대기.
+      타이핑 도중 탭은 빨리감기(스킵). prefers-reduced-motion이면 타이핑 생략하고 바로 표시.
+    -->
+    <script>
+      (function () {
+        var log = document.getElementById('boot-log');
+        var tapEl = document.getElementById('boot-tap');
+        var L = document.getElementById('loading');
+
+        // [세그먼트 텍스트, CSS 클래스] — 볼링 테마 부팅 로그(앞 4줄). 'ready'는 준비 완료 후 별도로 찍는다.
+        var lines = [
+          [['> ', 'boot-dim'], ['booting strike.os', '']],
+          [['> ', 'boot-dim'], ['loading physics... ', ''], ['OK', 'boot-ok']],
+          [['> ', 'boot-dim'], ['racking pins ', ''], ['[||||||||||]', 'boot-ac'], [' 10/10', '']],
+          [['> ', 'boot-dim'], ['oiling lane... ', ''], ['OK', 'boot-ok']],
+        ];
+
+        var bootLinesDone = false, engineReady = false, dismissed = false, failed = false, fastForward = false;
+        var awaitingReady = false; // 4줄 다 찍었는데 엔진이 아직 준비 안 됨 → 'initializing' 대기 중
+        var finalLine = null;      // 마지막(ready/initializing) 줄 element
+        var onDismiss = null;
+        var reduce = false;
+        try { reduce = matchMedia('(prefers-reduced-motion: reduce)').matches; } catch (e) {}
+
+        function makeCursor() {
+          var c = document.createElement('span');
+          c.className = 'boot-cur';
+          return c;
+        }
+        function appendLine(segs) {
+          var d = document.createElement('div');
+          for (var s = 0; s < segs.length; s++) {
+            var sp = document.createElement('span');
+            if (segs[s][1]) sp.className = segs[s][1];
+            sp.textContent = segs[s][0];
+            d.appendChild(sp);
+          }
+          log.appendChild(d);
+          return d;
+        }
+
+        // ── 글자 단위 타이핑(앞 4줄). li=줄, si=세그먼트, ci=글자 인덱스. 커서는 항상 줄의 마지막 자식. ──
+        var li = 0, si = 0, ci = 0, curLine = null, curSpan = null;
+        function step() {
+          if (fastForward || dismissed || failed) return;
+          if (li >= lines.length) { bootLinesDone = true; proceedToFinal(); return; }
+          if (!curLine) {
+            curLine = document.createElement('div');
+            log.appendChild(curLine);
+            curLine.appendChild(makeCursor());
+          }
+          var seg = lines[li][si];
+          if (!curSpan) {
+            curSpan = document.createElement('span');
+            if (seg[1]) curSpan.className = seg[1];
+            curLine.insertBefore(curSpan, curLine.lastChild);
+          }
+          var txt = seg[0];
+          curSpan.textContent += txt.charAt(ci);
+          ci++;
+          if (ci >= txt.length) {
+            ci = 0; si++; curSpan = null;
+            if (si >= lines[li].length) {
+              si = 0; li++;
+              curLine.removeChild(curLine.lastChild); // 줄 끝 — 커서 제거(다음 줄에서 새로)
+              curLine = null;
+              setTimeout(step, 150);                  // 줄 사이 약간의 텀
+              return;
+            }
+          }
+          setTimeout(step, 14);
+        }
+
+        // ── 마지막 줄: 엔진이 준비됐으면 'ready', 아니면 'initializing'로 대기 ──
+        function proceedToFinal() {
+          if (failed) return;
+          if (engineReady) showReady();
+          else { awaitingReady = true; showWaiting(); }
+        }
+        function showWaiting() {
+          finalLine = appendLine([['> ', 'boot-dim'], ['initializing', 'boot-dim']]);
+          finalLine.appendChild(makeCursor());
+        }
+        function showReady() {
+          awaitingReady = false;
+          if (finalLine && finalLine.parentNode) finalLine.parentNode.removeChild(finalLine); // 'initializing' 줄 치우기
+          finalLine = appendLine([['> ', 'boot-dim'], ['ready', 'boot-ac']]);
+          finalLine.appendChild(makeCursor());
+          if (!dismissed && !failed) tapEl.style.display = 'block';
+        }
+
+        // ── 스킵(빨리감기): 앞 4줄 즉시 렌더 후 마지막 줄 단계로 ──
+        function skip() {
+          if (bootLinesDone || dismissed || failed) return;
+          fastForward = true;
+          log.innerHTML = '';
+          for (var i = 0; i < lines.length; i++) appendLine(lines[i]);
+          bootLinesDone = true;
+          proceedToFinal();
+        }
+
+        // ── 실패: 빨간 ERROR 줄 + 'TAP TO RETRY'(탭=새로고침). 타이핑은 failed 플래그로 중단됨. ──
+        function showError(msg) {
+          if (dismissed) return;
+          failed = true;
+          var curs = log.querySelectorAll('.boot-cur'); // 진행 중 커서 제거
+          for (var i = 0; i < curs.length; i++) curs[i].parentNode.removeChild(curs[i]);
+          appendLine([['> ', 'boot-dim'], ['ERROR: ' + (msg || 'boot failed'), 'boot-err']]);
+          tapEl.textContent = '▶ TAP TO RETRY';
+          tapEl.style.display = 'block';
+        }
+
+        // ── 종료(시작): 페이드아웃 후 제거 + 부팅음 ──
+        function dismiss() {
+          if (dismissed || failed || !engineReady || !bootLinesDone) return;
+          dismissed = true;
+          playBootChime();
+          L.classList.add('done');
+          setTimeout(function () {
+            if (L && L.parentNode) L.parentNode.removeChild(L);
+            if (onDismiss) onDismiss();
+          }, 440);
+        }
+
+        // ── 부팅음: 탭=사용자 제스처라 오디오 언락 가능. 게임 사운드 설정(localStorage)이 OFF면 무음. ──
+        function soundEnabled() {
+          try {
+            var raw = localStorage.getItem('bowling3d.settings.v1'); // settings.ts KEY
+            if (!raw) return true;
+            return JSON.parse(raw).sound !== false;
+          } catch (e) { return true; }
+        }
+        function playBootChime() {
+          if (!soundEnabled()) return;
+          try {
+            var AC = window.AudioContext || window.webkitAudioContext;
+            if (!AC) return;
+            var ctx = new AC();
+            var now = ctx.currentTime;
+            [[660, 0], [990, 0.08]].forEach(function (p) {     // 짧은 2음 상승 = '전원 켜짐'
+              var o = ctx.createOscillator(), g = ctx.createGain();
+              o.type = 'triangle'; o.frequency.value = p[0];
+              var t = now + p[1];
+              g.gain.setValueAtTime(0.0001, t);
+              g.gain.exponentialRampToValueAtTime(0.18, t + 0.01);
+              g.gain.exponentialRampToValueAtTime(0.0001, t + 0.16);
+              o.connect(g); g.connect(ctx.destination);
+              o.start(t); o.stop(t + 0.18);
+            });
+            setTimeout(function () { try { ctx.close(); } catch (e) {} }, 600);
+          } catch (e) {}
+        }
+
+        // ── 입력: 실패면 새로고침, 타이핑 중이면 스킵, 준비 완료면 시작 ──
+        function onTap() {
+          if (failed) { location.reload(); return; }
+          if (!bootLinesDone) skip();
+          else dismiss();
+        }
+        L.addEventListener('pointerdown', onTap);
+        window.addEventListener('keydown', function (e) {
+          if (e.key === 'Enter' || e.key === ' ' || e.key === 'Spacebar') onTap();
+        });
+
+        // ── boot() 연동 ──
+        window.__loaderReady = function (cb) {       // 엔진 준비 완료
+          onDismiss = cb || null;
+          engineReady = true;
+          if (failed) return;
+          if (bootLinesDone && awaitingReady) showReady(); // 'initializing' 대기 중이었으면 ready로 전환
+        };
+        window.__loaderError = function (msg) { showError(msg); }; // 부팅 실패
+
+        if (reduce) skip();
+        else setTimeout(step, 120);
+      })();
+    </script>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>
