@@ -119,7 +119,14 @@ export class Environment {
     const matLane = new THREE.MeshStandardMaterial({ map: woodNeighbor, roughness: 0.55 });
     const matGutter = new THREE.MeshStandardMaterial({ color: 0x14181f, roughness: 0.7 });
     const matRail = new THREE.MeshStandardMaterial({ color: 0x2a3140, roughness: 0.85 });
-    const pinGeo = new THREE.CylinderGeometry(0.045, 0.06, 0.36, 10);
+    // 배경 장식 핀 — 진짜 핀(Pin.ts)과 같은 병 실루엣 LatheGeometry. (예전 단순 원뿔 실린더라 어색했음.)
+    // base가 y=0, 꼭대기 y≈0.38. 배경이라 세그먼트는 적게(12). ⚠️ Pin.ts 프로파일 복제 — 모양 바꾸면 양쪽.
+    const pinProfile = [
+      [0.0, 0.0], [0.024, 0.0], [0.03, 0.03], [0.038, 0.1], [0.03, 0.15],
+      [0.02, 0.21], [0.016, 0.24], [0.024, 0.29], [0.026, 0.31], [0.018, 0.36],
+      [0.008, 0.38], [0.0, 0.38],
+    ].map(([r, y]) => new THREE.Vector2(r, y));
+    const pinGeo = new THREE.LatheGeometry(pinProfile, 12);
     const pinMat = new THREE.MeshStandardMaterial({ color: 0xf0ece4, roughness: 0.5 });
 
     // --- 옆 레인 ×2 (양쪽, 장식용) ---
@@ -139,7 +146,7 @@ export class Environment {
         for (let r = 0; r < 4; r++) {
           for (let c2 = 0; c2 <= r; c2++) {
             const pin = new THREE.Mesh(pinGeo, pinMat);
-            pin.position.set(cx + (c2 - r / 2) * PIN_SPACING, 0.18, HEADPIN_Z + r * ROW_GAP);
+            pin.position.set(cx + (c2 - r / 2) * PIN_SPACING, 0, HEADPIN_Z + r * ROW_GAP); // base가 y=0 (병 프로파일)
             engine.addVisual(pin);
           }
         }
