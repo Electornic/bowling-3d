@@ -402,7 +402,8 @@ export class SoundManager {
 
   // ───────────────────────────────────────────────────────────────────────────
   // 메뉴 배경음악 — 칩튠 아르페지오 루프 (Web Audio 합성, 에셋 0). 메뉴/결과 화면에서만 재생,
-  // 게임 시작하면 페이드아웃(굴림·크래시와 안 싸우게). 룩어헤드 스케줄러로 정확 타이밍.
+  // 매치 중엔 잔잔하게 죽인 배경으로 깔고(굴림·크래시와 안 싸울 레벨), 메뉴/결과에서 풀 레벨로 스월.
+  // 완전 정지는 사운드 OFF에서만. 룩어헤드 스케줄러로 정확 타이밍.
   // 로더의 TAP(user gesture)으로 ctx가 풀린 뒤 호출되므로 모바일에서도 바로 울린다.
   // ───────────────────────────────────────────────────────────────────────────
   private musicGain: GainNode | null = null;
@@ -410,7 +411,8 @@ export class SoundManager {
   private musicStep = 0;
   private musicNextTime = 0;
   private musicOn = false;
-  private readonly musicVol = 0.5; // 전체 음악 레벨 (배경이라 작게)
+  private readonly musicVol = 0.5; // 메뉴/결과 풀 레벨 (배경이라 작게)
+  private readonly musicMatchVol = 0.14; // 매치 중 잔잔한 배경 레벨 — 굴림·크래시 SFX와 안 싸울 만큼 죽임
   // I–V–vi–IV (C장조) — 보편적으로 듣기 좋은 진행. 코드당 8스텝(16분음표)×4코드 = 32스텝 루프.
   // arp=아르페지오 노트(MIDI), bass=루트 저음(MIDI).
   private readonly MUSIC_PROG = [
@@ -420,10 +422,27 @@ export class SoundManager {
     { arp: [65, 69, 72, 77], bass: 41 }, // F
   ];
 
-  /** 메뉴 음악 on/off (멱등). Loop onFrame이 게임 상태로 매 프레임 호출 — 메뉴=on, 매치=off. */
-  setMenuMusic(active: boolean) {
-    if (active) this.startMusic();
-    else this.stopMusic();
+  /**
+   * BGM 레벨 제어 (멱등, Loop onFrame이 매 프레임 게임 상태로 호출). 예전엔 매치 시작 시 완전 정지였으나,
+   * 굴림·크래시와 안 싸울 만큼 죽인 '잔잔한 배경'으로 매치 중에도 깔아 둔다(사용자 요청). 완전 정지는
+   * 사운드 OFF(enabled setter→stopMusic)에서만.
+   * @param menu true=메뉴/결과(풀 볼륨), false=매치(잔잔하게 죽임)
+   */
+  setMenuMusic(menu: boolean) {
+    if (!this.musicOn) {
+      this.startMusic(); // 첫 시작: 자체 페이드인(→ musicVol). 블라스트 방지로 레벨 조정은 다음 프레임부터
+      return;
+    }
+    this.setMusicLevel(menu ? this.musicVol : this.musicMatchVol);
+  }
+
+  /** 음악 게인을 목표 레벨로 부드럽게 (메뉴↔매치 크로스). musicGain만 만져 스케줄러/노트는 안 건드림. */
+  private setMusicLevel(vol: number) {
+    if (!this.ctx || !this.musicGain || !this.musicOn) return;
+    const now = this.ctx.currentTime;
+    const g = this.musicGain.gain;
+    g.cancelScheduledValues(now);
+    g.setTargetAtTime(Math.max(0.0001, vol), now, 0.4); // 0.4s 시정수 — 스월 인/아웃
   }
 
   private startMusic() {
