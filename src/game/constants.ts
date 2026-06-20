@@ -67,6 +67,20 @@ export const AIM_RANGE = 0.08;
 // 터치(ⓑ 상대 드래그) 조준 게인 (MOBILE_SUPPORT.md §2.4). 1.0 = 화면폭 절반 드래그로
 // ±AIM_RANGE(최대 조준)에 도달. 높이면 적게 끌어도 크게 꺾여 정밀도↓, 낮추면 그 반대.
 export const AIM_GAIN = 1.0;
+// --- P3 릴리스 타이밍 (실행 텐션, GAMEPLAY_ROADMAP P0.5 레버② / P3) ---
+// 노이즈 0인 마우스 조준에 *실행 분산*을 되돌려준다. 파워 게이지 골드 띠(=정확 릴리스 구간) 안에서
+// 떼면 정확, 벗어날수록 aim에 gaussian 노이즈. 노이즈 단위 = 진입 x cm (AI aimJitterCm와 동일 모델).
+// **플레이어 전용** — Controls 발사 경로에만 주입(AI는 computeAiThrow 자체 jitter 보유, throwBall 직행).
+// 측정 근거(sim-carry --noise, N=400): σ=0이면 직구·훅 모두 100% 스트라이크(=현 "직구 250" 문제),
+// σ↑하면 좁은 직구 윈도우가 넓은 훅보다 빨리 무너짐 — σ4에서 직구23%/훅41%(훅 1.8배), σ6에서 21%/32%.
+export const RELEASE_SWEET_LO = 0.6; // 정확 릴리스 구간 하단 (파워 게이지 골드 띠와 일치 — Controls가 공용)
+export const RELEASE_SWEET_HI = 0.9; // 상단 (꼭대기 1.0은 직진 과속이라 일부러 구간 밖 — 풀파워 직구에 소량 노이즈)
+export const RELEASE_SIGMA_MIN = 0; // 구간 안 릴리스 노이즈 (cm). 0 = 완벽 타이밍은 완벽 정확(300 가능, 실력 천장 보존).
+//   ⚠️ 숙련 플레이어가 직구로 띠를 매번 맞히면 직구 천장이 안 잡힌다. 그걸 막으려면 이 값을 1~2로 올려
+//   완벽 릴리스에도 바닥 분산을 주거나(300 포기), RELEASE_SWEET_* 폭을 좁혀 띠 적중을 어렵게 한다.
+export const RELEASE_SIGMA_MAX = 6; // 최악 릴리스 노이즈 (cm). sim --noise 기준 σ6 = 직구 21%/훅 32% 스트라이크.
+export const RELEASE_TOL = 0.3; // 구간 밖 이 거리(파워 단위)에서 σ_MAX 도달. 0.3 → power 1.0(띠+0.1)≈σ2, 패닉 릴리스(≤0.3)≈σ_MAX.
+
 export const SETTLE_VEL_EPS = 0.05;
 export const SETTLE_TIMEOUT = 4; // s
 export const PIN_FALL_ANGLE = Math.PI / 4; // 45° 쓰러짐 임계

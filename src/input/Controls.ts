@@ -23,6 +23,11 @@ import {
   BALL_FRICTION,
   LANE_FRICTION_OIL,
   LANE_FRICTION_DRY,
+  RELEASE_SWEET_LO,
+  RELEASE_SWEET_HI,
+  RELEASE_SIGMA_MIN,
+  RELEASE_SIGMA_MAX,
+  RELEASE_TOL,
 } from '../game/constants';
 import { hookFactor, oilEndZ } from '../game/oil';
 import { css, NEON, FONT_UI, rgba, ensureNeonStyles, applyPanel } from '../ui/theme';
@@ -34,8 +39,20 @@ const CHARGE_RATE = 1.08;
 // 스트라이크 최적 파워 존(흐리게 암시 — UI_REVAMP.md 결정②). carry sim상 윈도우는 "풀파워 근방"이나
 // 풀스핀은 미드파워가 더 휘어 *정확한* 최적은 플레이별로 갈림 → 넓고 은은한 상단~중상 띠로만 힌트.
 // 꼭대기(=최대)는 직진 과속이라 살짝 못 미치게 둔다. 정밀 조준은 실력에 맡김(난이도 보존).
-const POWER_SWEET_LO = 0.6;
-const POWER_SWEET_HI = 0.9;
+// 시각 골드 띠 = 릴리스 타이밍 '정확 구간'과 동일하게 constants에서 공용(P3) — 띠 안에서 떼면 정확.
+const POWER_SWEET_LO = RELEASE_SWEET_LO;
+const POWER_SWEET_HI = RELEASE_SWEET_HI;
+
+// 릴리스 타이밍(P3): aim↔진입x 변환 거리 (ai.ts ENTRY_DIST와 동일). 노이즈를 진입x cm로 환산.
+const ENTRY_DIST = HEADPIN_Z - BALL_START_Z; // ≈19.29
+/** 표준정규 난수 (Box-Muller) — 릴리스 타이밍 실행 노이즈용 (ai.ts gauss와 동일). */
+function gauss(): number {
+  let u = 0;
+  let v = 0;
+  while (u === 0) u = Math.random();
+  while (v === 0) v = Math.random();
+  return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v);
+}
 
 /**
  * 포인터(마우스+터치) + 키보드 입력 추상화 (도안 §8 / MOBILE_SUPPORT.md §2).
@@ -404,7 +421,11 @@ export class Controls {
       this.activePointerId = null;
       if (!this.charging) return;
       this.charging = false;
-      this.game.throwBall(this.aim, this.power, this.spin);
+      // 릴리스 타이밍(P3): 골드 띠 안에서 떼면 정확, 벗어날수록 진입x에 gaussian 노이즈(σ cm).
+      // **플레이어 전용** — AI는 이 경로를 안 거친다(computeAiThrow 자체 jitter). aim에만 더함(파워/스핀 보존).
+      const sigmaCm = this.releaseSigma(this.power);
+      const aimNoise = sigmaCm > 0 ? (gauss() * sigmaCm) / 100 / ENTRY_DIST : 0;
+      this.game.throwBall(this.aim + aimNoise, this.power, this.spin);
       this.power = 0;
       this.spin = 0;
     });
@@ -568,5 +589,16 @@ export class Controls {
     const end = path[last];
     this.aimEndMarker.position.set(end[0] * k, 0.021, sz(end[1]));
     this.aimEndMat.color.copy(spinCol);
+  }
+
+  /**
+   * 릴리스 타이밍 → aim 실행 노이즈 σ(cm) (P3). 골드 띠 [LO,HI] 안=정확(σ_MIN), 밖으로 멀수록 σ_MAX까지 선형.
+   * 노이즈 단위는 진입 x cm — AI aimJitterCm와 동일 모델이라 사람·AI 분산이 같은 척도다.
+   */
+  private releaseSigma(power: number): number {
+    const dist =
+      power < POWER_SWEET_LO ? POWER_SWEET_LO - power : power > POWER_SWEET_HI ? power - POWER_SWEET_HI : 0;
+    const t = Math.min(1, dist / RELEASE_TOL);
+    return RELEASE_SIGMA_MIN + (RELEASE_SIGMA_MAX - RELEASE_SIGMA_MIN) * t;
   }
 }

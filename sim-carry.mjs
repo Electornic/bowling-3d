@@ -253,6 +253,72 @@ function flyoutSweep(pinRest = PIN_RESTITUTION) {
   }
 }
 
+// ⓔ 릴리스 타이밍 = aim 실행 노이즈 (P3 / P0.5 레버②). 설계 근거: 실볼링의 직구 천장(~180)은
+//    물리가 아니라 *실행 분산*이 만든다 — 노이즈 0인 마우스 입력엔 그게 없어 직구가 250까지 뚫린다.
+//    포켓을 노린 채 진입 x에 gaussian σ(cm)를 주입해 σ별 기대 핀/스트라이크율을 잰다. 직구(좁은
+//    윈도우)가 훅(넓은 윈도우)보다 빨리 무너지면 "200+는 훅으로만"이 노이즈만으로 성립한다는 증거.
+const ENTRY_DIST = HEADPIN_Z - (-1); // ≈19.29 = HEADPIN_Z − BALL_START_Z (ai.ts와 동일: 진입x ≈ aim×ENTRY_DIST)
+function gaussNoise() {
+  let u = 0;
+  let v = 0;
+  while (u === 0) u = Math.random();
+  while (v === 0) v = Math.random();
+  return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v);
+}
+// 스타일별 포켓 최적 발사 진입x(m)를 σ=0에서 자동 보정 (스캔 argmax mean-knocked) — 하드코딩 드리프트
+// 가정 제거(파워마다 훅 드리프트가 달라 미드훅의 최적 발사가 풀파워와 다름). 결정 시뮬이라 1회 평가로 충분.
+function calibrateEntryX(power, spin, centerGuess) {
+  let best = null;
+  for (let i = -12; i <= 12; i++) {
+    const entryX = centerGuess + i * 0.01; // ±12cm, 1cm 스텝
+    const knocked = throwOnce({ aim: entryX / ENTRY_DIST, power, spin }).knocked;
+    if (!best || knocked > best.knocked) best = { entryX, knocked };
+  }
+  return best.entryX;
+}
+function noiseSweep() {
+  const N = Math.round(arg('noiseN', 300)); // 스타일·σ당 표본 수
+  const sigmas = [0, 2, 3, 4, 5, 6, 8]; // 진입 x 표준편차 (cm) — 실행 분산
+  const styles = [
+    { label: '직구 풀파워  ', power: 1.0, spin: 0, guess: -0.07 },
+    { label: '직구 미드0.7 ', power: 0.7, spin: 0, guess: -0.07 },
+    { label: '훅 풀파워    ', power: 1.0, spin: 1, guess: 0.38 },
+    { label: '훅 미드0.7   ', power: 0.7, spin: 1, guess: 0.34 },
+  ];
+  console.log(`\n=== ⓔ 릴리스 타이밍 노이즈 sweep (N=${N}/셀, σ=진입x cm 표준편차) ===`);
+  console.log('  (포켓을 노린 채 gaussian aim 노이즈 주입 → 평균 핀 / 스트라이크% / 9핀+%)');
+  for (const st of styles) {
+    const baseX = calibrateEntryX(st.power, st.spin, st.guess);
+    const meanRow = [];
+    const strikeRow = [];
+    const nineRow = [];
+    for (const sigma of sigmas) {
+      let sumK = 0;
+      let strikes = 0;
+      let nines = 0;
+      for (let n = 0; n < N; n++) {
+        const entryX = baseX + (sigma === 0 ? 0 : gaussNoise() * (sigma / 100)); // m
+        const r = throwOnce({ aim: entryX / ENTRY_DIST, power: st.power, spin: st.spin });
+        sumK += r.knocked;
+        if (r.knocked === 10) strikes++;
+        if (r.knocked >= 9) nines++;
+      }
+      meanRow.push((sumK / N).toFixed(2).padStart(7));
+      strikeRow.push(`${Math.round((strikes / N) * 100)}%`.padStart(7));
+      nineRow.push(`${Math.round((nines / N) * 100)}%`.padStart(7));
+    }
+    console.log(`\n  ${st.label} (발사 진입x=${(baseX * 100).toFixed(0)}cm)`);
+    console.log('    σ(cm) ' + sigmas.map((s) => String(s).padStart(7)).join(''));
+    console.log('    평균핀' + meanRow.join(''));
+    console.log('    스트%' + strikeRow.join('') + '   ← 직구가 σ에 빨리 무너지면 OK');
+    console.log('    9핀+%' + nineRow.join(''));
+  }
+}
+if (argv.includes('--noise')) {
+  noiseSweep();
+  process.exit(0);
+}
+
 console.log(
   `[params] pinMass=${PIN_MASS} pinRest=${PIN_RESTITUTION} pinFric=${PIN_FRICTION} ballRest=${BALL_RESTITUTION} pinComY=${PIN_COM_Y} pinDamp=${PIN_DAMP}`,
 );
