@@ -191,21 +191,35 @@ function buildScene(engine: Engine): {
         environment.announce(`${e.label} 변환!`, '#4ade80');
         break;
       case 'turn':
-        if (e.ai) environment.announce(`${e.playerName} 차례`, '#aab3c2');
+        // AI 차례: 전광판 배너. 사람 차례 + 로컬 교대전(isHotseat): 기기 핸드오프 차단 오버레이 +
+        // 입력 잠금. (vs AI에서 사람으로 돌아오는 건 같은 사람이라 핸드오프 불필요 → isHotseat 게이트.)
+        if (e.ai) {
+          environment.announce(`${e.playerName} 차례`, '#aab3c2');
+        } else if (game.isHotseat) {
+          game.inputLocked = true;
+          menu.showHandoff(e.playerName, () => {
+            game.inputLocked = false;
+          });
+        }
         break;
       case 'gameOver': {
         const sm = e.summary;
-        const fresh = evaluateAchievements(
-          {
-            mode: sm.mode,
-            humanScore: sm.players[0].score,
-            winner: sm.winner,
-            rivalKeys: sm.players.slice(1).map((p) => p.aiKey).filter((k): k is string => !!k),
-            rolls: sm.players[0].rolls,
-            frames: sm.frames,
-          },
-          loadRewards().earned,
-        );
+        // 로컬 교대전(사람 2인)은 파티 모드 — 소유자 업적/하이스코어를 건드리지 않는다
+        // (GameState.gameOver의 통계 생략과 동일 기준). 솔로·vs AI만 업적 평가.
+        const hotseat = sm.players.filter((p) => !p.ai).length > 1;
+        const fresh = hotseat
+          ? []
+          : evaluateAchievements(
+              {
+                mode: sm.mode,
+                humanScore: sm.players[0].score,
+                winner: sm.winner,
+                rivalKeys: sm.players.slice(1).map((p) => p.aiKey).filter((k): k is string => !!k),
+                rolls: sm.players[0].rolls,
+                frames: sm.frames,
+              },
+              loadRewards().earned,
+            );
         if (fresh.length) {
           recordRewards(fresh);
           sound.playUnlock();
@@ -261,7 +275,9 @@ function buildScene(engine: Engine): {
     'backdrop-filter:blur(4px)',
   ].join(';');
   const forfeit = () => {
-    if (game.state === 'MENU' || game.state === 'GAME_OVER') return;
+    // 핸드오프 오버레이 중엔 일시정지 진입 금지 — pause가 핸드오프를 덮으면 inputLocked가 안 풀린 채
+    // 게임으로 복귀하는 교착이 생긴다(핸드오프는 '내 차례 시작' 버튼으로만 닫힘).
+    if (game.state === 'MENU' || game.state === 'GAME_OVER' || game.inputLocked) return;
     // 인게임 일시정지 모달: 계속하기 + 안전 설정(사운드·햅틱·그래픽) + 포기. 토글은 즉시 적용 후 저장.
     // (네이티브 confirm()은 iOS 웹뷰/시뮬레이터에서 안 떠 못 씀 — 앱 내부 오버레이로 처리.)
     menu.showPause({

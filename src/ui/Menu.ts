@@ -102,7 +102,9 @@ export class MenuUI {
   private readonly backdrop: HTMLDivElement;
   private readonly panel: HTMLDivElement;
   private mode: GameMode = 'full';
-  private rivalKey: string | null = null;
+  private rivalKey: string | null = null; // null=혼자 · 'human'=로컬 2인 교대전 · 그 외=AI 라이벌 key
+  private p1Name = '1P'; // 로컬 교대전 플레이어 이름 (rivalKey==='human'일 때 사용)
+  private p2Name = '2P';
   private weight = 10; // 볼 무게(lb) — 시작 메뉴에서 선택 (인게임 BallPicker 대체)
   private difficulty: Difficulty = 'beginner'; // 난이도 프리셋 (P3 §2.7) — 오일+예측선 큐레이션
   private oilPattern: OilPattern = 'house'; // 오일 패턴 (P3) — 초급 프리셋과 일치
@@ -203,6 +205,13 @@ export class MenuUI {
     this.panel.appendChild(this.title('🎳 BOWLING 3D'));
     this.panel.appendChild(this.soundToggle()); // 우상단 사운드 토글
 
+    // 로컬 교대전 이름 입력 — '2인' 선택 시에만 노출. 생성은 여기서(모드/상대 칩 onclick이 syncNameWrap를
+    // 참조해야 함), DOM 배치는 상대 row 아래(아래에서 append). 모드가 스페어면 2인 불가라 자동 숨김.
+    const nameWrap = this.buildNameInputs();
+    const syncNameWrap = () => {
+      nameWrap.style.display = this.mode !== 'spare' && this.rivalKey === 'human' ? 'flex' : 'none';
+    };
+
     // 모드 선택
     this.panel.appendChild(this.sectionLabel('모드'));
     const modeRow = document.createElement('div');
@@ -212,41 +221,56 @@ export class MenuUI {
       const b = this.chipButton(`${m.label}`, m.desc);
       b.onclick = () => {
         this.mode = m.key;
-        if (m.key === 'spare') this.rivalKey = null; // 스페어 챌린지는 솔로만
+        if (m.key === 'spare') this.rivalKey = null; // 스페어 챌린지는 솔로만 (2인·AI 모두 불가)
         this.refreshChips(modeBtns, this.mode);
         this.refreshRivalChips(rivalBtns);
+        syncNameWrap();
       };
       modeBtns.set(m.key, b);
       modeRow.appendChild(b);
     }
     this.panel.appendChild(modeRow);
 
-    // 상대 선택
-    this.panel.appendChild(this.sectionLabel('상대 (AI 라이벌)'));
+    // 상대 선택 — 혼자 / 👥 2인(로컬 교대전) / AI 라이벌 3인
+    this.panel.appendChild(this.sectionLabel('상대'));
     const rivalRow = document.createElement('div');
-    css(rivalRow, { display: 'flex', gap: '8px', marginBottom: '16px', flexWrap: 'wrap' });
+    css(rivalRow, { display: 'flex', gap: '8px', marginBottom: '12px', flexWrap: 'wrap' });
     const rivalBtns = new Map<string | null, HTMLButtonElement>();
     const solo = this.chipButton('혼자', '연습 모드');
     solo.onclick = () => {
       this.rivalKey = null;
       this.refreshRivalChips(rivalBtns);
+      syncNameWrap();
     };
     rivalBtns.set(null, solo);
     rivalRow.appendChild(solo);
+    // 로컬 2인 교대전 (사람 vs 사람) — ai 없는 플레이어 2명으로 매치 구성(start). 한 기기 번갈아 투구.
+    const human = this.chipButton('👥 2인', '한 기기 교대전 — 사람 vs 사람');
+    human.onclick = () => {
+      if (this.mode === 'spare') return; // 스페어 챌린지는 솔로만
+      this.rivalKey = 'human';
+      this.refreshRivalChips(rivalBtns);
+      syncNameWrap();
+    };
+    rivalBtns.set('human', human);
+    rivalRow.appendChild(human);
     for (const p of AI_PROFILES) {
       const b = this.chipButton(p.name, p.tagline);
       b.onclick = () => {
         if (this.mode === 'spare') return;
         this.rivalKey = p.key;
         this.refreshRivalChips(rivalBtns);
+        syncNameWrap();
       };
       rivalBtns.set(p.key, b);
       rivalRow.appendChild(b);
     }
     this.panel.appendChild(rivalRow);
+    this.panel.appendChild(nameWrap); // 2인 선택 시 노출되는 이름 입력 (display는 syncNameWrap가 관리)
 
     this.refreshChips(modeBtns, this.mode);
     this.refreshRivalChips(rivalBtns);
+    syncNameWrap();
 
     // 난이도 프리셋 (P3 §2.7 — 오일+예측선을 한 손잡이로 큐레이션. '커스텀'에서만 두 축 따로)
     this.panel.appendChild(this.sectionLabel('레인 난이도'));
@@ -395,10 +419,16 @@ export class MenuUI {
   }
 
   private start() {
-    const players: MatchConfig['players'] = [{ name: '나' }];
-    if (this.mode !== 'spare' && this.rivalKey) {
-      const profile = AI_PROFILES.find((p) => p.key === this.rivalKey);
-      if (profile) players.push({ name: profile.name, ai: profile });
+    // 로컬 교대전: 사람 2명(ai 없음). 그 외: 사람 1명 + (AI 라이벌 선택 시) AI 1명. 이름 빈칸은 기본값.
+    let players: MatchConfig['players'];
+    if (this.mode !== 'spare' && this.rivalKey === 'human') {
+      players = [{ name: this.p1Name.trim() || '1P' }, { name: this.p2Name.trim() || '2P' }];
+    } else {
+      players = [{ name: '나' }];
+      if (this.mode !== 'spare' && this.rivalKey) {
+        const profile = AI_PROFILES.find((p) => p.key === this.rivalKey);
+        if (profile) players.push({ name: profile.name, ai: profile });
+      }
     }
     this.hide();
     this.onStart({ mode: this.mode, players, oilPattern: this.oilPattern, aimAid: this.aimAid });
@@ -410,10 +440,12 @@ export class MenuUI {
     const solo = summary.players.length === 1;
     const me = summary.players[0];
 
+    const hotseat = summary.players.filter((p) => !p.ai).length > 1; // 사람 2인 교대전 — 'P1 시점' 문구 대신 이름
     let headline: string;
     if (summary.mode === 'spare') headline = `스페어 ${me.score}/10 성공!`;
     else if (solo) headline = `최종 ${me.score}점`;
     else if (summary.winner === -1) headline = '무승부!';
+    else if (hotseat) headline = `🏆 ${summary.players[summary.winner].name} 승리!`;
     else if (summary.winner === 0) headline = '🏆 승리!';
     else headline = `패배… ${summary.players[summary.winner].name}의 승리`;
     this.panel.appendChild(this.title(headline));
@@ -530,6 +562,48 @@ export class MenuUI {
     btnRow.appendChild(again);
     btnRow.appendChild(menu);
     this.panel.appendChild(btnRow);
+
+    this.backdrop.style.display = 'flex';
+  }
+
+  // --- 로컬 교대전 핸드오프 ---
+  /**
+   * 다음 플레이어 차례 — 한 기기 교대전에서 기기를 넘길 때 끼우는 차단 오버레이.
+   * 탭 전까지 입력은 Boot이 game.inputLocked로 잠그고(조준선·게이지·발사·스핀 차단), 백드롭이 캔버스·
+   * 하단 도크 포인터를 가린다. 직전 플레이어 조준이 다음 사람에게 새지 않게 하는 게 핵심. onReady에서 해제.
+   */
+  showHandoff(name: string, onReady: () => void) {
+    this.panel.replaceChildren();
+    this.panel.appendChild(this.title('🔄 다음 차례'));
+
+    const who = document.createElement('div');
+    who.textContent = name;
+    css(who, { font: '800 30px/1.2 system-ui, sans-serif', textAlign: 'center', color: '#ffd54a', marginBottom: '6px' });
+    this.panel.appendChild(who);
+
+    const sub = document.createElement('div');
+    sub.textContent = '기기를 넘겨주세요 · 준비되면 시작';
+    css(sub, { font: '500 13px/1.5 system-ui, sans-serif', color: '#aab3c2', textAlign: 'center', marginBottom: '20px' });
+    this.panel.appendChild(sub);
+
+    const go = document.createElement('button');
+    go.textContent = '내 차례 시작 ▶';
+    css(go, {
+      width: '100%',
+      padding: '13px',
+      minHeight: COARSE ? '48px' : '',
+      borderRadius: '11px',
+      border: 'none',
+      background: 'linear-gradient(90deg,#22d3ee,#3b82f6)',
+      color: '#06121a',
+      font: '800 15px/1 system-ui, sans-serif',
+      cursor: 'pointer',
+    });
+    go.onclick = () => {
+      this.hide();
+      onReady();
+    };
+    this.panel.appendChild(go);
 
     this.backdrop.style.display = 'flex';
   }
@@ -693,6 +767,42 @@ export class MenuUI {
       cursor: 'pointer',
     });
     return b;
+  }
+
+  /** 로컬 교대전 플레이어 이름 입력 2칸 (rivalKey==='human'일 때만 노출 — syncNameWrap가 토글). */
+  private buildNameInputs(): HTMLDivElement {
+    const wrap = document.createElement('div');
+    css(wrap, { display: 'none', flexDirection: 'column', gap: '8px', marginBottom: '14px' });
+    const field = (tag: string, value: string, onChange: (v: string) => void): HTMLDivElement => {
+      const rowEl = document.createElement('div');
+      css(rowEl, { display: 'flex', alignItems: 'center', gap: '10px' });
+      const lab = document.createElement('span');
+      lab.textContent = tag;
+      css(lab, { font: '800 12px/1 system-ui, sans-serif', color: '#ffd54a', minWidth: '26px' });
+      const input = document.createElement('input');
+      input.type = 'text';
+      input.value = value;
+      input.maxLength = 8;
+      css(input, {
+        flex: '1',
+        minWidth: '0',
+        padding: COARSE ? '11px 12px' : '9px 11px',
+        minHeight: COARSE ? '44px' : '',
+        borderRadius: '9px',
+        border: '1px solid rgba(255,255,255,0.18)',
+        background: 'rgba(255,255,255,0.05)',
+        color: '#e8edf5',
+        font: '600 13px/1 system-ui, sans-serif',
+        boxSizing: 'border-box',
+      });
+      input.addEventListener('input', () => onChange(input.value));
+      rowEl.appendChild(lab);
+      rowEl.appendChild(input);
+      return rowEl;
+    };
+    wrap.appendChild(field('1P', this.p1Name, (v) => (this.p1Name = v)));
+    wrap.appendChild(field('2P', this.p2Name, (v) => (this.p2Name = v)));
+    return wrap;
   }
 
   private refreshChips<T>(map: Map<T, HTMLButtonElement>, active: T) {

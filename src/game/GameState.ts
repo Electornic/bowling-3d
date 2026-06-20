@@ -110,6 +110,8 @@ export class GameState {
   frames = 10;
   current = 0;
   aimAid: AimAid = 'easy'; // 예측선 난이도 (Controls가 읽음) — P3, UI 전용. 기본 easy(§2.7 스마트 기본값)
+  /** 핸드오프 오버레이 중 입력 잠금 (로컬 교대전 — Controls가 읽어 발사/스핀/조준선 차단) */
+  inputLocked = false;
 
   /** 게임 이벤트 (스트라이크/스페어/스플릿/게임오버) — 연출·사운드 연결점 */
   onEvent?: (e: GameEvent) => void;
@@ -160,6 +162,11 @@ export class GameState {
     return !this.currentPlayer?.ai;
   }
 
+  /** 로컬 교대전인가 (사람 2인 이상) — 턴 핸드오프·기록 정책 분기 (P4) */
+  get isHotseat(): boolean {
+    return this.players.filter((p) => !p.ai).length > 1;
+  }
+
   /** 새 매치 시작 — 리셋 체크리스트 (로드맵 P1) 전부 여기서 */
   startMatch(config: MatchConfig) {
     this.mode = config.mode;
@@ -180,6 +187,7 @@ export class GameState {
     this.pendingSplit = null;
     this.slowmoTimer = 0;
     this.slowmoUsed = false;
+    this.inputLocked = false; // 핸드오프 잠금 초기화 (이전 매치 중도 이탈 대비)
     this.aimAid = config.aimAid ?? 'easy'; // 예측선 난이도 (P3, UI 전용) — 기본 easy(§2.7)
     const oilPattern = config.oilPattern ?? 'house';
     resetOil(oilPattern); // 오일 프리셋 적용 + 마름 초기화 (P3)
@@ -202,6 +210,7 @@ export class GameState {
     this.ballObj.reset();
     this.slowmoTimer = 0;
     this.slowmoUsed = false;
+    this.inputLocked = false;
     this.setTimeScale?.(1);
     this.refreshHud();
   }
@@ -535,13 +544,15 @@ export class GameState {
       const tops = scores.filter((s) => s === max).length;
       winner = tops > 1 ? -1 : scores.indexOf(max);
     }
-    // 통계는 사람([0])만 기록
-    const { newBest, best } = recordGame(
-      this.mode,
-      scores[0],
-      this.players[0].rolls,
-      this.frames,
-    );
+    // 통계·하이스코어는 솔로/vs AI(소유자=players[0])만 기록. 로컬 교대전(사람 2인)은 파티 모드라
+    // 소유자 개인 기록(localStorage)을 오염시키지 않게 저장 생략 — 업적 평가도 Boot에서 같은 기준으로 건너뜀.
+    let newBest = false;
+    let best = 0;
+    if (!this.isHotseat) {
+      const r = recordGame(this.mode, scores[0], this.players[0].rolls, this.frames);
+      newBest = r.newBest;
+      best = r.best;
+    }
     this.state = 'GAME_OVER';
     this.setTimeScale?.(1);
     this.refreshHud();

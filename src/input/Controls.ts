@@ -399,8 +399,8 @@ export class Controls {
     });
 
     window.addEventListener('pointerdown', (e) => {
-      // AI 턴(로드맵 P1.5 입력 락)·메뉴에선 차징 불가
-      if (!this.onCanvas(e) || this.game.state !== 'AIMING' || !this.game.isHumanTurn()) return;
+      // AI 턴(로드맵 P1.5 입력 락)·메뉴·핸드오프(교대전)에선 차징 불가
+      if (!this.onCanvas(e) || this.game.state !== 'AIMING' || !this.game.isHumanTurn() || this.game.inputLocked) return;
       // 이미 차징 중인 손가락이 있으면 둘째 손가락은 무시 (멀티터치 오발사·파워 리셋 방지)
       if (this.activePointerId !== null) return;
       this.activePointerId = e.pointerId;
@@ -443,13 +443,13 @@ export class Controls {
 
     // 스핀 바 드래그 (캔버스 차징과 독립 — div 타겟이라 onCanvas=false, activePointerId 미사용)
     this.spinTrack.addEventListener('pointerdown', (e) => {
-      if (this.game.state !== 'AIMING' || !this.game.isHumanTurn()) return;
+      if (this.game.state !== 'AIMING' || !this.game.isHumanTurn() || this.game.inputLocked) return;
       this.draggingSpin = true;
       this.setSpinFromPointer(e.clientX);
       e.preventDefault();
     });
     window.addEventListener('keydown', (e) => {
-      if (this.game.state !== 'AIMING' || !this.game.isHumanTurn()) return;
+      if (this.game.state !== 'AIMING' || !this.game.isHumanTurn() || this.game.inputLocked) return;
       if (e.code === 'KeyQ') this.spin = Math.max(-1, Math.round((this.spin - 0.2) * 10) / 10);
       else if (e.code === 'KeyE') this.spin = Math.min(1, Math.round((this.spin + 0.2) * 10) / 10);
     });
@@ -486,12 +486,12 @@ export class Controls {
       this.spinValue.style.color = dirColor;
     }
 
-    // 메뉴/AI 턴엔 입력 UI 전체 숨김 (로드맵 P1/P1.5)
-    const inGame = this.game.state !== 'MENU' && this.game.isHumanTurn();
+    // 메뉴/AI 턴/핸드오프(교대전)엔 입력 UI 전체 숨김 (로드맵 P1/P1.5/P4)
+    const inGame = this.game.state !== 'MENU' && this.game.isHumanTurn() && !this.game.inputLocked;
     this.spinWrap.style.display = inGame ? '' : 'none';
     this.powerWrap.style.display = inGame ? '' : 'none';
 
-    const aiming = this.game.state === 'AIMING' && this.game.isHumanTurn();
+    const aiming = this.game.state === 'AIMING' && this.game.isHumanTurn() && !this.game.inputLocked;
     // 터치는 hover가 없어 aim이 갱신되지 않으므로, 새 조준 턴 진입 시 정중앙에서 시작 (드리프트 방지)
     if (this.coarse && aiming && !this.wasAiming) this.aim = 0;
     this.wasAiming = aiming;
