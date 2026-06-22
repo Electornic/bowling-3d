@@ -4,7 +4,6 @@ import {
   PIN_SPACING,
   HEADPIN_Z,
   ROW_GAP,
-  PIN_HEIGHT,
   SETTLE_VEL_EPS,
   LANE_WIDTH,
   PIN_ROWS,
@@ -65,7 +64,7 @@ export class PinSet {
     const q = pin.body.rotation();
     // 회전된 (0,1,0)의 y성분 = cos(tilt)
     const upY = 1 - 2 * (q.x * q.x + q.z * q.z);
-    return upY > UP_COS_45 && t.y > PIN_HEIGHT * 0.25;
+    return upY > UP_COS_45 && t.y > pin.height * 0.25; // 덕핀(#5)은 핀이 짧아 게이트도 모드별 높이 기준
   }
 
   /** 현재 서 있는 핀 수 */
@@ -140,5 +139,14 @@ export class PinSet {
     for (const p of this.powerExtras) p.stash();
     this.powerActive = [];
     this.powerMode = false;
+  }
+
+  /**
+   * 덕핀(#5) 핀 형상 토글 — 표준 10핀에 일괄 적용. on=짧고 통통한 덕핀 핀, off=텐핀 복귀.
+   * startMatch가 모드 진입마다 호출(다른 모드로 나갈 때 표준 형상 복귀를 보장). 파워 여분 핀은
+   * 덕핀을 안 쓰므로(파워는 항상 텐핀 랙) 건드리지 않는다.
+   */
+  setDuckpin(on: boolean) {
+    for (const p of this.pins) p.setDuckpin(on);
   }
 }

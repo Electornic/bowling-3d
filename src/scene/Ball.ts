@@ -31,12 +31,16 @@ import { CLASSIC_SKIN, type BallSkin } from '../game/rewards';
 export class Ball {
   readonly mesh: THREE.Mesh;
   readonly body: RAPIER.RigidBody;
-  private readonly collider: RAPIER.Collider;
+  private collider: RAPIER.Collider; // 반경 변경 시 재생성(remove+create) — makeCollider 팩토리로 새 shape·질량 일관 재구성
   private spec: BallSpec;
   private skin: BallSkin = CLASSIC_SKIN;
+  private _radius = BALL_RADIUS; // 현재 공 반경 — 모드별 가변(덕핀 #5). 기본 = 표준 BALL_RADIUS.
   private readonly gripMats: THREE.MeshStandardMaterial[] = [];
 
-  constructor(engine: Engine, spec: BallSpec) {
+  constructor(
+    private readonly engine: Engine,
+    spec: BallSpec,
+  ) {
     const RAPIER = getRapier();
     this.spec = spec;
 
@@ -81,20 +85,24 @@ export class Ball {
         .setLinearDamping(0.05)
         .setAngularDamping(0.1),
     );
-    this.collider = engine.world.createCollider(
-      RAPIER.ColliderDesc.ball(BALL_RADIUS)
-        .setMass(spec.massKg)
+    this.collider = this.makeCollider();
+    engine.add({ mesh: this.mesh, body: this.body });
+  }
+
+  /** 현재 반경(_radius)·질량(spec)으로 콜라이더를 만들어 body에 붙인다. 생성자 + setRadius 공용. */
+  private makeCollider(): RAPIER.Collider {
+    const RAPIER = getRapier();
+    return this.engine.world.createCollider(
+      RAPIER.ColliderDesc.ball(this._radius)
+        .setMass(this.spec.massKg)
         .setRestitution(0.1)
         .setFriction(BALL_FRICTION)
         // 충돌 그룹(장애물 레인 #3): 공은 레인·벽(WORLD)·핀(PIN)·배리어(BARRIER) 전부와 충돌.
-        // 기본값과 거동 동일하되, 배리어가 핀하고만 격리되도록 명시(constants.ts cgroups 주석).
         .setCollisionGroups(cgroups(CG_BALL, CG_WORLD | CG_PIN | CG_BARRIER))
         .setActiveEvents(RAPIER.ActiveEvents.CONTACT_FORCE_EVENTS)
         .setContactForceEventThreshold(2),
       this.body,
     );
-
-    engine.add({ mesh: this.mesh, body: this.body });
   }
 
   /** 조준선 예측 시뮬레이션용 (Controls) */
@@ -103,6 +111,25 @@ export class Ball {
   }
   get speedScale() {
     return this.spec.maxSpeedScale;
+  }
+  /** 현재 공 반경 (m) — 거터 perch·조준 등 외부 계산이 모드별 실제 반경을 쓰게 노출 (덕핀 #5). */
+  get radius() {
+    return this._radius;
+  }
+
+  /**
+   * 공 반경 교체 — 덕핀(#5)은 작은 공. 콜라이더 반경(setRadius) + 메시 스케일을 함께 바꾸고
+   * 휴지 위치를 새 반경에 맞춰 리셋한다. 무게(setSpec)와 직교 — startMatch에서 모드별 1회 호출.
+   */
+  setRadius(r: number) {
+    if (r === this._radius) return; // 같은 반경이면 생략 — 텐핀은 콜라이더 재생성을 안 탐(거동 불변)
+    this._radius = r;
+    // 콜라이더 재생성(remove+create) — 생성자와 같은 makeCollider 팩토리로 새 반경·질량을 일관되게 재구성.
+    this.engine.world.removeCollider(this.collider, false);
+    this.collider = this.makeCollider();
+    // 구 + 표면 마킹(자식)을 함께 축소. 마킹은 생성자에서 BALL_RADIUS 기준으로 배치돼 비례가 유지된다.
+    this.mesh.scale.setScalar(r / BALL_RADIUS);
+    this.reset();
   }
 
   /** 볼 무게/색 교체 (BallPicker, AIMING 중에만 권장). 도안 §4.5 */
@@ -144,9 +171,9 @@ export class Ball {
     // 거기에 스핀(ωz)을 더해 의도된 측면 슬립만 훅으로 작용.
     this.body.setAngvel(
       {
-        x: (vz / BALL_RADIUS) * ROLL_RATIO,
+        x: (vz / this._radius) * ROLL_RATIO,
         y: 0,
-        z: -(vx / BALL_RADIUS) * ROLL_RATIO + effectiveSpin(spin) * SPIN_RATE,
+        z: -(vx / this._radius) * ROLL_RATIO + effectiveSpin(spin) * SPIN_RATE,
       },
       true,
     );
@@ -162,11 +189,11 @@ export class Ball {
     const t = this.body.translation();
     const hook = hookFactor(t.z);
     if (hook <= 0) return;
-    if (t.y > BALL_RADIUS + 0.005) return; // 접지 마찰 모델 — 공중(바운드 중)엔 주입 금지
+    if (t.y > this._radius + 0.005) return; // 접지 마찰 모델 — 공중(바운드 중)엔 주입 금지
     const v = this.body.linvel();
     const w = this.body.angvel();
-    const slipX = v.x + w.z * BALL_RADIUS;
-    const slipZ = v.z - w.x * BALL_RADIUS;
+    const slipX = v.x + w.z * this._radius;
+    const slipZ = v.z - w.x * this._radius;
     const slipMag = Math.hypot(slipX, slipZ);
     if (slipMag <= SLIP_EPS) return;
     const fMag = FRICTION_K * REF_MASS * 9.81 * hook;
@@ -177,7 +204,7 @@ export class Ball {
   }
 
   reset() {
-    this.body.setTranslation({ x: 0, y: BALL_RADIUS, z: BALL_START_Z }, true);
+    this.body.setTranslation({ x: 0, y: this._radius, z: BALL_START_Z }, true);
     this.body.setLinvel({ x: 0, y: 0, z: 0 }, true);
     this.body.setAngvel({ x: 0, y: 0, z: 0 }, true);
   }

@@ -132,6 +132,46 @@ describe('노탭 (No-Tap) — isNoTapStrike 술어 + record-as-10 회귀', () =>
   });
 });
 
+describe('덕핀 (Duckpin) — 3구/프레임 점수 (ballsPerFrame=3)', () => {
+  it('오픈 프레임: 3구 합 [3,4,2] = 9', () => {
+    expect(frameScores([3, 4, 2], 10, 3)).toEqual([9]);
+  });
+
+  it("'ten': 3구로 전멸 [3,4,3] = 10점 (보너스 없음)", () => {
+    expect(frameScores([3, 4, 3], 10, 3)).toEqual([10]);
+  });
+
+  it('스페어(2구 내 전멸): 10 + 다음 1구. [6,4, 3,4,2] → [13,22]', () => {
+    // F1 스페어=10+3(다음1구)=13, F2 오픈=3+4+2=9 → 누적 22
+    expect(frameScores([6, 4, 3, 4, 2], 10, 3)).toEqual([13, 22]);
+  });
+
+  it('스트라이크: 10 + 다음 2구. [10, 3,4,2] → [17,26]', () => {
+    // F1 스트라이크=10+(3+4)=17, F2 오픈=3+4+2=9 → 누적 26
+    expect(frameScores([10, 3, 4, 2], 10, 3)).toEqual([17, 26]);
+  });
+
+  it('퍼펙트 덕핀 (12 스트라이크) = 300', () => {
+    expect(totalScore(Array(12).fill(10), 10, 3)).toBe(300);
+  });
+
+  it('미완 프레임(3구·보너스 미도착)은 누적에서 제외', () => {
+    expect(frameScores([3, 4], 10, 3)).toEqual([]); // 3구째 미도착
+    expect(frameScores([6, 4], 10, 3)).toEqual([]); // 스페어지만 보너스 1구 미도착
+    expect(frameScores([10], 10, 3)).toEqual([]); // 스트라이크지만 보너스 2구 미도착
+  });
+
+  it("마지막 프레임은 항상 3구: 9프레임 올 'ten' + 10F 스트라이크[10,10,10] = 120", () => {
+    const nine = Array(9).fill([3, 4, 3]).flat(); // 9프레임 × (3구 합 10, 보너스 없음) = 90
+    expect(totalScore([...nine, 10, 10, 10], 10, 3)).toBe(120); // 90 + (10+10+10)
+  });
+
+  it('ballsPerFrame 기본 2는 텐핀 그대로 — 3구째 분기 안 탐', () => {
+    // [3,4,2] 텐핀이면 F1 오픈=7(3+4), 남은 2는 F2 ball1 → 미완 → [7]
+    expect(frameScores([3, 4, 2])).toEqual([7]);
+  });
+});
+
 describe('장애물 레인 — OBSTACLE_STAGES 코스 데이터 검증', () => {
   // 핀 x좌표 (splits.ts GEOM과 동일). 7·10(±0.457)은 표적이면 거터 직구로 우연히 맞을 수 있어 제외돼야 함.
   const PIN_X: Record<number, number> = {

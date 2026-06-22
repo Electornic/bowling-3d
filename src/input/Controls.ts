@@ -8,7 +8,6 @@ import type { Ball } from '../scene/Ball';
 import { isCoarsePointer } from '../core/device';
 import {
   BALL_START_Z,
-  BALL_RADIUS,
   MIN_SPEED,
   MAX_SPEED,
   FRICTION_K,
@@ -519,7 +518,7 @@ export class Controls {
     const nrm = Math.hypot(this.aim, 1);
     let vx = (this.aim / nrm) * speed;
     let vz = (1 / nrm) * speed;
-    let wzR = -vx * ROLL_RATIO + effectiveSpin(this.spin) * SPIN_RATE * BALL_RADIUS; // ωz·R
+    let wzR = -vx * ROLL_RATIO + effectiveSpin(this.spin) * SPIN_RATE * this.ball.radius; // ωz·R (덕핀 #5: 작은 공 반경 반영)
     const wxR = vz * ROLL_RATIO; // ωx·R
     const inject = (FRICTION_K * REF_MASS * 9.81) / this.ball.massKg;
 

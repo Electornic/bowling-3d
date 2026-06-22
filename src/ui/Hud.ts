@@ -76,6 +76,30 @@ function marksLast(fr: number[]): string[] {
   return c;
 }
 
+/** 덕핀(#5) 일반 프레임(최대 3구) 마크: 1구 X / 2구 내 스페어 '/' / 3구는 숫자(전멸이면 'ten'). */
+function marksDuckpin(fr: number[]): string[] {
+  const c = ['', '', ''];
+  if (fr[0] !== undefined) c[0] = fr[0] === 10 ? 'X' : num(fr[0]);
+  if (fr[1] !== undefined && fr[0] !== 10) c[1] = fr[0] + fr[1] === 10 ? '/' : num(fr[1]);
+  if (fr[2] !== undefined) c[2] = num(fr[2]); // 3구째 (오픈 또는 'ten' — 보너스 없음이라 별도 기호 없이 숫자)
+  return c;
+}
+
+/** 덕핀 마지막 프레임(항상 3구) 마크 — 스트라이크/스페어 뒤 보너스 구는 새 랙 표기. */
+function marksDuckpinLast(fr: number[]): string[] {
+  const c = ['', '', ''];
+  if (fr[0] !== undefined) c[0] = fr[0] === 10 ? 'X' : num(fr[0]);
+  if (fr[1] !== undefined) {
+    if (fr[0] === 10) c[1] = fr[1] === 10 ? 'X' : num(fr[1]); // 스트라이크 뒤 새 랙
+    else c[1] = fr[0] + fr[1] === 10 ? '/' : num(fr[1]); // 2구 내 스페어
+  }
+  if (fr[2] !== undefined) {
+    const fresh = fr[1] === 10 || fr[0] + fr[1] === 10; // 직전이 X(보너스)·스페어였으면 3구는 새 랙
+    c[2] = fresh ? (fr[2] === 10 ? 'X' : num(fr[2])) : num(fr[2]);
+  }
+  return c;
+}
+
 /** 마크 글자색 — 스트라이크/스페어=골드, 그 외 평범 */
 const markColor = (m: string): string => (m === 'X' || m === '/' ? NEON.gold : '#dfe6f2');
 
@@ -170,8 +194,8 @@ export class Hud {
     } else {
       // 중앙 업적 아일랜드와 공존하도록 컴팩트하게. 누구 차례인지는 점수판 골드 하이라이트 + 차례 배너로,
       // 선 핀 수는 3D 장면으로 보이므로 상태바에서는 생략(프레임·구·상태만).
-      const noTapBadge = d.noTap && d.noTap < 10 ? ` · 노탭${d.noTap}` : '';
-      this.status.textContent = `${cur.frame}F · ${cur.ball}구 · ${STATE_LABEL[d.state] ?? d.state}${noTapBadge}`;
+      const badge = d.mode === 'duckpin' ? ' · 덕핀' : d.noTap && d.noTap < 10 ? ` · 노탭${d.noTap}` : '';
+      this.status.textContent = `${cur.frame}F · ${cur.ball}구 · ${STATE_LABEL[d.state] ?? d.state}${badge}`;
     }
   }
 
@@ -291,14 +315,16 @@ export class Hud {
       return row;
     }
 
-    const cum = frameScores(p.rolls.flat(), d.frames);
+    const duckpin = d.mode === 'duckpin'; // 덕핀(#5): 모든 프레임 3구 → 3칸 마크 + 3구 점수
+    const cum = frameScores(p.rolls.flat(), d.frames, duckpin ? 3 : 2);
     for (let f = 0; f < d.frames; f++) {
       const fr = p.rolls[f] ?? [];
       const isCurrent = active && f === p.frame - 1 && d.state !== 'GAME_OVER';
 
       const box = document.createElement('div');
       css(box, {
-        flex: `${f === d.frames - 1 ? 3 : 2} 1 0`, // 칸 수(일반2/마지막3) 비례 분배 → 모든 셀 폭 균일
+        // 칸 수 비례 분배 → 모든 셀 폭 균일 (덕핀=전 프레임 3칸 / 텐핀=일반2·마지막3)
+        flex: `${duckpin || f === d.frames - 1 ? 3 : 2} 1 0`,
         minWidth: '0',
         borderRadius: '7px',
         overflow: 'hidden',
@@ -309,7 +335,14 @@ export class Hud {
 
       const marks = document.createElement('div');
       css(marks, { display: 'flex' });
-      for (const m of f === d.frames - 1 ? marksLast(fr) : marksNormal(fr)) {
+      const marksFor = duckpin
+        ? f === d.frames - 1
+          ? marksDuckpinLast(fr)
+          : marksDuckpin(fr)
+        : f === d.frames - 1
+          ? marksLast(fr)
+          : marksNormal(fr);
+      for (const m of marksFor) {
         const cell = document.createElement('div');
         css(cell, {
           flex: '1 1 0', // basis:0 비례 분배 — 빈 칸도 내용과 무관하게 폭 유지(찌그러짐 방지)

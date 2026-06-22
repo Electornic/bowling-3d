@@ -70,6 +70,7 @@ const MODES: { key: GameMode; label: string; desc: string }[] = [
   { key: 'spare', label: '스페어 챌린지', desc: '클래식 리브 10연속 픽업 (솔로)' },
   { key: 'obstacle', label: '장애물 레인', desc: '훅으로 장벽을 감아 도는 10코스 (솔로)' },
   { key: 'power', label: '파워 스로', desc: '벽 너머 거대 핀 랙을 한 방에 쓸기 (솔로)' },
+  { key: 'duckpin', label: '덕핀', desc: '3구/프레임 · 작은 공·통통한 핀 (솔로)' },
 ];
 
 const OIL_PATTERNS: { key: OilPattern; label: string; desc: string }[] = [
@@ -179,9 +180,10 @@ export class MenuUI {
     this.backdrop.style.display = 'none';
   }
 
-  /** 솔로 전용 모드(라운드형 — 스페어·장애물). 2인/AI 라이벌 불가(scoreSpareMode 기반, GameState §0). */
+  /** 솔로 전용 모드. 라운드형(스페어·장애물·파워)은 scoreSpareMode 기반(GameState §0), 덕핀(#5)은
+   *  표준 흐름이라 멀티 가능하나 AI 사다리가 텐핀 물리 기준이라 1차에선 솔로로 제한. */
   private isSoloMode(m: GameMode = this.mode): boolean {
-    return m === 'spare' || m === 'obstacle' || m === 'power';
+    return m === 'spare' || m === 'obstacle' || m === 'power' || m === 'duckpin';
   }
 
   /** 우상단 사운드 on/off 토글 (시작 메뉴). 끄면 메뉴 BGM·지속음까지 멎는다(SoundManager.enabled setter). */
@@ -439,7 +441,7 @@ export class MenuUI {
       font: '500 12px/1.7 system-ui, sans-serif',
       color: '#aab3c2',
     });
-    stats.innerHTML = `풀게임 — ${s.full}<br>블리츠 — ${s.blitz}<br>스페어 챌린지 — ${s.spare}<br>장애물 레인 — ${s.obstacle}<br>파워 스로 — ${s.power}`;
+    stats.innerHTML = `풀게임 — ${s.full}<br>블리츠 — ${s.blitz}<br>스페어 챌린지 — ${s.spare}<br>장애물 레인 — ${s.obstacle}<br>파워 스로 — ${s.power}<br>덕핀 — ${s.duckpin}`;
     this.panel.appendChild(stats);
 
     // 조작법
@@ -480,6 +482,7 @@ export class MenuUI {
     if (summary.mode === 'spare') headline = `스페어 ${me.score}/10 성공!`;
     else if (summary.mode === 'obstacle') headline = `장애물 ${me.score}/${summary.frames} 클리어!`;
     else if (summary.mode === 'power') headline = `파워 스로 ${me.score}핀 쓸기!`;
+    else if (summary.mode === 'duckpin') headline = `덕핀 ${me.score}점`;
     else if (solo) headline = `최종 ${me.score}점`;
     else if (summary.winner === -1) headline = '무승부!';
     else if (hotseat) headline = `🏆 ${summary.players[summary.winner].name} 승리!`;

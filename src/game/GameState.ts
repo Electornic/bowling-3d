@@ -5,6 +5,7 @@ import type { Hud } from '../ui/Hud';
 import {
   LANE_WIDTH,
   BALL_RADIUS,
+  DUCKPIN_BALL_RADIUS,
   GUTTER_WIDTH,
   PIN_DECK_END,
   SETTLE_TIMEOUT,
@@ -24,7 +25,7 @@ import type { BarrierSet } from '../scene/Barrier';
 import type { PowerArena } from '../scene/PowerArena';
 
 export type GameStateName = 'MENU' | 'AIMING' | 'ROLLING' | 'SETTLING' | 'GAME_OVER';
-export type GameMode = 'full' | 'blitz' | 'spare' | 'obstacle' | 'power';
+export type GameMode = 'full' | 'blitz' | 'spare' | 'obstacle' | 'power' | 'duckpin';
 /** 예측선 난이도 (조준 보조) — P3. UI 전용, 점수·물리 무영향. */
 export type AimAid = 'easy' | 'normal' | 'pro';
 
@@ -118,6 +119,7 @@ export class GameState {
   current = 0;
   aimAid: AimAid = 'easy'; // 예측선 난이도 (Controls가 읽음) — P3, UI 전용. 기본 easy(§2.7 스마트 기본값)
   noTap = 10; // 노탭 임계 (10=비활성, 9/8). startMatch에서 config로 설정 — Scoreboard.isNoTapStrike 인자
+  ballsPerFrame = 2; // 프레임당 최대 투구 (2=텐핀/블리츠, 3=덕핀 #5). startMatch에서 모드로 결정 — 점수·HUD 공용
   /** 핸드오프 오버레이 중 입력 잠금 (로컬 교대전 — Controls가 읽어 발사/스핀/조준선 차단) */
   inputLocked = false;
 
@@ -181,8 +183,9 @@ export class GameState {
   /** 새 매치 시작 — 리셋 체크리스트 (로드맵 P1) 전부 여기서 */
   startMatch(config: MatchConfig) {
     this.mode = config.mode;
+    this.ballsPerFrame = config.mode === 'duckpin' ? 3 : 2; // 덕핀(#5)만 3구/프레임 — 점수·HUD·흐름 공용
     this.frames =
-      config.mode === 'full'
+      config.mode === 'full' || config.mode === 'duckpin'
         ? 10
         : config.mode === 'blitz'
           ? 3
@@ -211,12 +214,15 @@ export class GameState {
     const roundMode = this.mode === 'spare' || this.mode === 'obstacle' || this.mode === 'power';
     // 장애물 레인: 훅 정밀이 필수라 예측선 풀 곡선(easy) 강제 (문서 §3 — aimAid는 UI 전용, 점수·물리 무영향).
     this.aimAid = this.mode === 'obstacle' ? 'easy' : (config.aimAid ?? 'easy'); // 예측선 난이도 (P3) — 기본 easy(§2.7)
-    this.noTap = roundMode ? 10 : (config.noTap ?? 10); // 노탭 (라운드형은 무의미 → 비활성)
+    // 노탭은 풀랙 2구 가정이라 덕핀(3구)과 안 맞음 → 라운드형과 함께 비활성.
+    this.noTap = roundMode || this.mode === 'duckpin' ? 10 : (config.noTap ?? 10);
     // 장애물=short(훅 살리기), 파워=house(직구 캐리 쇼케이스 — 바닥 저마찰은 PowerArena가 담당), 그 외 선택 프리셋.
     const oilPattern: OilPattern =
       this.mode === 'obstacle' ? 'short' : this.mode === 'power' ? 'house' : (config.oilPattern ?? 'house');
     resetOil(oilPattern); // 오일 프리셋 적용 + 마름 초기화 (P3)
     this.lane.applyOilVisual(oilPattern); // 광택 시트 길이를 프리셋에 맞춤 (읽기 단서)
+    // 덕핀(#5): 표준 10핀을 짧고 통통한 핀으로(다른 모드면 텐핀 복귀). 레이아웃(아래)이 새 형상으로 재배치됨.
+    this.pins.setDuckpin(this.mode === 'duckpin');
     if (this.mode === 'spare') {
       this.pins.setLayout(SPARE_LEAVES[0]);
     } else if (this.mode === 'obstacle') {
@@ -233,6 +239,8 @@ export class GameState {
     this.powerArena.setActive(this.mode === 'power');
     if (this.mode !== 'power') this.pins.clearPower();
     this.standingAtThrow = this.pins.standingCount();
+    // 덕핀(#5)은 작은 공 — 모드별 반경 적용(콜라이더+메시). 무게(applyBallSpecForTurn)와 직교.
+    this.ballObj.setRadius(this.mode === 'duckpin' ? DUCKPIN_BALL_RADIUS : BALL_RADIUS);
     this.ballObj.reset();
     this.applyBallSpecForTurn();
     this.state = 'AIMING';
@@ -245,11 +253,14 @@ export class GameState {
     this.state = 'MENU';
     this.players = [];
     this.pins.clearPower(); // 파워 풀 정리 (powerMode off) — resetAll 전에 (표준 10핀 기준 복귀)
+    this.pins.setDuckpin(false); // 덕핀 핀 형상 복귀 (메뉴 배경은 표준 핀)
     this.lane.setPowerMode(false);
     this.powerArena.setActive(false);
     this.pins.resetAll();
     this.barriers.clear();
+    this.ballObj.setRadius(BALL_RADIUS); // 표준 공 복귀
     this.ballObj.reset();
+    this.ballsPerFrame = 2;
     this.slowmoTimer = 0;
     this.slowmoUsed = false;
     this.inputLocked = false;
@@ -366,7 +377,7 @@ export class GameState {
       this.ballObj.applySpinForce(dt); // 훅 측면력 (도안 §4.1)
       const t = this.ballObj.body.translation();
       // 파워 스로는 거터가 없고(와이드 아레나) 공이 |x|>0.4에 정당하게 갈 수 있어 거터 기준 SETTLING 전환을 끈다.
-      const inGutter = this.mode !== 'power' && Math.abs(t.x) > LANE_WIDTH / 2 - BALL_RADIUS;
+      const inGutter = this.mode !== 'power' && Math.abs(t.x) > LANE_WIDTH / 2 - this.ballObj.radius;
       // 장애물 레인(#3): 배리어에 막혀 레인 위에 멈춘 공은 핀덱·거터·낙하 어디에도 안 닿아 ROLLING에
       // 갇힌다(전환 조건 부재). 0.2m/s 미만이 0.5s 지속되면 멈춤으로 보고 SETTLING으로 — score()가
       // 친 만큼(보통 0핀)으로 정산해 스테이지 진행. (일반 모드는 MIN_SPEED로 늘 핀덱에 닿아 오발동 없음.)
@@ -415,7 +426,7 @@ export class GameState {
     this.gutterSettled = true;
     const side = Math.sign(t.x);
     const roll = Math.min(8, Math.sqrt(2 * 0.785 * (PIN_DECK_END + 1 - t.z + 0.5)));
-    b.setTranslation({ x: side * (LANE_WIDTH / 2 + GUTTER_WIDTH / 2), y: -0.13 + BALL_RADIUS, z: t.z }, true);
+    b.setTranslation({ x: side * (LANE_WIDTH / 2 + GUTTER_WIDTH / 2), y: -0.13 + this.ballObj.radius, z: t.z }, true);
     b.setLinvel({ x: 0, y: 0, z: roll }, true);
     b.setAngvel({ x: roll / BALL_RADIUS, y: 0, z: 0 }, true);
   }
@@ -463,7 +474,12 @@ export class GameState {
       }
     }
 
-    if (p.frame < this.frames) {
+    if (this.mode === 'duckpin') {
+      // 덕핀(#5): 3구/프레임. 텐핀 흐름과 별도 룰셋 — 1구 전멸=스트라이크, 2구 내=스페어,
+      // 3구로 비우면 'ten'(보너스 없음), 못 비우면 오픈. 점수는 frameScores(ballsPerFrame=3).
+      if (p.frame < this.frames) this.scoreNormalFrameDuckpin(standing);
+      else this.scoreLastFrameDuckpin(standing);
+    } else if (p.frame < this.frames) {
       this.scoreNormalFrame(standing);
     } else {
       this.scoreLastFrame(standing);
@@ -542,6 +558,104 @@ export class GameState {
     } else {
       this.finishFrame(); // 3구 종료
     }
+  }
+
+  /**
+   * 덕핀(#5) 일반 프레임(1~9): 최대 3구. 1구 전멸=스트라이크(프레임 종료), 2구 내 전멸=스페어(종료),
+   * 3구째는 비우든 못 비우든 종료('ten'=10점·보너스 없음 / 오픈). 데드우드는 매 구 치움(respot) —
+   * 데드우드 유지는 캔들핀(후속). 점수 자체는 frameScores(ballsPerFrame=3)가 투구 배열로 계산.
+   */
+  private scoreNormalFrameDuckpin(standing: number) {
+    const p = this.currentPlayer!;
+    if (p.ball === 1 && standing === 0) {
+      p.strikeStreak += 1;
+      this.emit({ type: 'strike', streak: p.strikeStreak });
+      this.finishFrame();
+      return;
+    }
+    if (p.ball === 2 && standing === 0) {
+      // 2구 내 전멸 = 스페어 (보너스 다음 1구)
+      p.strikeStreak = 0;
+      if (this.pendingSplit) this.emit({ type: 'splitConverted', label: this.pendingSplit });
+      else this.emit({ type: 'spare' });
+      this.finishFrame();
+      return;
+    }
+    if (p.ball < 3) {
+      this.pins.respot(); // 선 핀 리스팟 + 데드우드 치움, 다음 구
+      p.ball += 1;
+      this.ballObj.reset();
+      this.state = 'AIMING';
+      this.aiWait = 0;
+      return;
+    }
+    // 3구 종료 — 전멸이면 'ten'(10점, 보너스·전용 배너 없음 → 스페어와 구분), 아니면 오픈.
+    p.strikeStreak = 0;
+    this.finishFrame();
+  }
+
+  /**
+   * 덕핀(#5) 마지막 프레임: 항상 3구. 스트라이크·스페어면 새 랙(resetAll)으로 보너스 구를 던지고,
+   * 2구로 못 비우면 남은 핀에 3구째(보너스 아님). 점수는 frameScores가 일관 처리하므로 여기선
+   * 랙 관리 + 연출(배너)만 — 새 랙에서 전멸하면 스트라이크 배너.
+   */
+  private scoreLastFrameDuckpin(standing: number) {
+    const p = this.currentPlayer!;
+    const f = p.rolls[this.frames - 1];
+    if (p.ball === 1) {
+      if (standing === 0) {
+        p.strikeStreak += 1;
+        this.emit({ type: 'strike', streak: p.strikeStreak });
+        this.pins.resetAll(); // 스트라이크 → 보너스 위해 새 랙
+      } else {
+        this.pins.respot();
+      }
+      p.ball = 2;
+      this.ballObj.reset();
+      this.state = 'AIMING';
+      this.aiWait = 0;
+      return;
+    }
+    if (p.ball === 2) {
+      if (f[0] === 10) {
+        // 1구 스트라이크 → 2구는 새 랙 보너스. 또 전멸이면 스트라이크.
+        if (standing === 0) {
+          p.strikeStreak += 1;
+          this.emit({ type: 'strike', streak: p.strikeStreak });
+          this.pins.resetAll();
+        } else {
+          p.strikeStreak = 0;
+          this.pins.respot();
+        }
+      } else if (standing === 0) {
+        // 2구 내 전멸 = 스페어 → 보너스 1구 위해 새 랙
+        p.strikeStreak = 0;
+        if (this.pendingSplit) {
+          this.emit({ type: 'splitConverted', label: this.pendingSplit });
+          this.pendingSplit = null;
+        } else {
+          this.emit({ type: 'spare' });
+        }
+        this.pins.resetAll();
+      } else {
+        p.strikeStreak = 0;
+        this.pins.respot(); // 아직 못 비움 → 3구째는 남은 핀에
+      }
+      p.ball = 3;
+      this.ballObj.reset();
+      this.state = 'AIMING';
+      this.aiWait = 0;
+      return;
+    }
+    // 3구 종료. 직전이 X(보너스)·스페어였으면 3구는 새 랙 — 거기서 전멸하면 스트라이크 배너.
+    const freshBefore3 = f[1] === 10 || f[0] + f[1] === 10;
+    if (freshBefore3 && standing === 0) {
+      p.strikeStreak += 1;
+      this.emit({ type: 'strike', streak: p.strikeStreak });
+    } else {
+      p.strikeStreak = 0;
+    }
+    this.finishFrame();
   }
 
   /** 스페어 챌린지: 라운드당 1구, 전부 치우면 성공 (로드맵 P1 경량 모드) */
@@ -658,7 +772,7 @@ export class GameState {
     if (this.mode === 'power') return p.rolls.reduce((s, fr) => s + fr.reduce((a, b) => a + b, 0), 0);
     return this.mode === 'spare' || this.mode === 'obstacle'
       ? p.conversions
-      : totalScore(p.rolls.flat(), this.frames);
+      : totalScore(p.rolls.flat(), this.frames, this.ballsPerFrame); // 덕핀=3구/프레임
   }
 
   private gameOver() {

@@ -9,8 +9,11 @@
 const STRIKE = 10;
 
 /** 완성된 프레임들의 누적 점수 배열 (HUD 점수판용). 미완 프레임은 제외.
- *  frames: 게임 길이 (10=풀게임, 3=블리츠 — 마지막 프레임이 보너스 투구 프레임) */
-export function frameScores(rolls: number[], frames = 10): number[] {
+ *  frames: 게임 길이 (10=풀게임, 3=블리츠 — 마지막 프레임이 보너스 투구 프레임)
+ *  ballsPerFrame: 프레임당 최대 투구 (2=텐핀/블리츠, 3=덕핀). 스트라이크/스페어 보너스는
+ *    "다음 N구"라 투구 배열만 보면 돼서 텐핀과 동일 — 차이는 2구로 못 비운 프레임뿐이다:
+ *    텐핀=오픈(2구 합), 덕핀=3구째까지 던져 세 구 합(세 구로 비우면 'ten'=10점·보너스 없음). */
+export function frameScores(rolls: number[], frames = 10, ballsPerFrame = 2): number[] {
   const out: number[] = [];
   let total = 0;
   let i = 0;
@@ -24,12 +27,18 @@ export function frameScores(rolls: number[], frames = 10): number[] {
       total += 10 + rolls[i + 1] + rolls[i + 2];
       i += 1;
     } else if (rolls[i] + (rolls[i + 1] ?? 0) === 10) {
-      // 스페어: 10 + 다음 1구
+      // 스페어(2구 내 전멸): 10 + 다음 1구
       if (rolls[i + 1] === undefined || rolls[i + 2] === undefined) break;
       total += 10 + rolls[i + 2];
       i += 2;
+    } else if (ballsPerFrame >= 3) {
+      // 덕핀 3구 프레임: 2구로 못 비웠으면 3구째를 던진다. 세 구 합이 곧 점수 —
+      // 세 구로 다 비우면 sum===10이라 자연히 'ten'(10점·보너스 없음), 못 비우면 오픈(<10).
+      if (rolls[i + 1] === undefined || rolls[i + 2] === undefined) break;
+      total += rolls[i] + rolls[i + 1] + rolls[i + 2];
+      i += 3;
     } else {
-      // 오픈: 두 구 합
+      // 텐핀 오픈: 두 구 합
       if (rolls[i + 1] === undefined) break;
       total += rolls[i] + rolls[i + 1];
       i += 2;
@@ -39,9 +48,9 @@ export function frameScores(rolls: number[], frames = 10): number[] {
   return out;
 }
 
-/** 최종 총점 (완성된 프레임까지의 누적) */
-export function totalScore(rolls: number[], frames = 10): number {
-  const s = frameScores(rolls, frames);
+/** 최종 총점 (완성된 프레임까지의 누적). ballsPerFrame=3 → 덕핀. */
+export function totalScore(rolls: number[], frames = 10, ballsPerFrame = 2): number {
+  const s = frameScores(rolls, frames, ballsPerFrame);
   return s.length ? s[s.length - 1] : 0;
 }
 
