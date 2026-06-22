@@ -51,8 +51,8 @@ export function recordGame(
   s.best = Math.max(s.best, score);
   s.games += 1;
   s.totalScore += score;
-  if (mode !== 'spare' && mode !== 'obstacle') {
-    // 라운드형(스페어·장애물)은 rolls가 1구/스테이지라 frameScores 가정과 달라 통계 집계 제외 (최고/판수만).
+  if (mode !== 'spare' && mode !== 'obstacle' && mode !== 'power') {
+    // 라운드형(스페어·장애물·파워)은 rolls가 1구/스테이지라 frameScores 가정과 달라 통계 집계 제외 (최고/판수만).
     const rs = rollStats(rolls, frames);
     s.strikes += rs.strikes;
     s.strikeChances += rs.strikeChances;
@@ -71,12 +71,13 @@ export function recordGame(
 const pct = (n: number, d: number) => (d > 0 ? Math.round((n / d) * 100) : 0);
 
 /** 메뉴 표시용 요약 문자열들 */
-export function statsSummary(): { full: string; blitz: string; spare: string; obstacle: string } {
+export function statsSummary(): { full: string; blitz: string; spare: string; obstacle: string; power: string } {
   const all = loadStats();
   const f = all['full'];
   const b = all['blitz'];
   const sp = all['spare'];
   const ob = all['obstacle'];
+  const pw = all['power'];
   return {
     full: f
       ? `최고 ${f.best} · 평균 ${Math.round(f.totalScore / f.games)} · 스트라이크 ${pct(f.strikes, f.strikeChances)}% · 스페어 ${pct(f.spares, f.spareChances)}% (${f.games}판)`
@@ -84,5 +85,6 @@ export function statsSummary(): { full: string; blitz: string; spare: string; ob
     blitz: b ? `최고 ${b.best} (${b.games}판)` : '기록 없음',
     spare: sp ? `최고 ${sp.best}/10 (${sp.games}판)` : '기록 없음',
     obstacle: ob ? `최고 ${ob.best}/10 (${ob.games}판)` : '기록 없음',
+    power: pw ? `최고 ${pw.best}핀 (${pw.games}판)` : '기록 없음',
   };
 }

@@ -69,6 +69,7 @@ const MODES: { key: GameMode; label: string; desc: string }[] = [
   { key: 'blitz', label: '블리츠', desc: '3프레임 스피드전' },
   { key: 'spare', label: '스페어 챌린지', desc: '클래식 리브 10연속 픽업 (솔로)' },
   { key: 'obstacle', label: '장애물 레인', desc: '훅으로 장벽을 감아 도는 10코스 (솔로)' },
+  { key: 'power', label: '파워 스로', desc: '벽 너머 거대 핀 랙을 한 방에 쓸기 (솔로)' },
 ];
 
 const OIL_PATTERNS: { key: OilPattern; label: string; desc: string }[] = [
@@ -180,7 +181,7 @@ export class MenuUI {
 
   /** 솔로 전용 모드(라운드형 — 스페어·장애물). 2인/AI 라이벌 불가(scoreSpareMode 기반, GameState §0). */
   private isSoloMode(m: GameMode = this.mode): boolean {
-    return m === 'spare' || m === 'obstacle';
+    return m === 'spare' || m === 'obstacle' || m === 'power';
   }
 
   /** 우상단 사운드 on/off 토글 (시작 메뉴). 끄면 메뉴 BGM·지속음까지 멎는다(SoundManager.enabled setter). */
@@ -438,7 +439,7 @@ export class MenuUI {
       font: '500 12px/1.7 system-ui, sans-serif',
       color: '#aab3c2',
     });
-    stats.innerHTML = `풀게임 — ${s.full}<br>블리츠 — ${s.blitz}<br>스페어 챌린지 — ${s.spare}<br>장애물 레인 — ${s.obstacle}`;
+    stats.innerHTML = `풀게임 — ${s.full}<br>블리츠 — ${s.blitz}<br>스페어 챌린지 — ${s.spare}<br>장애물 레인 — ${s.obstacle}<br>파워 스로 — ${s.power}`;
     this.panel.appendChild(stats);
 
     // 조작법
@@ -478,6 +479,7 @@ export class MenuUI {
     let headline: string;
     if (summary.mode === 'spare') headline = `스페어 ${me.score}/10 성공!`;
     else if (summary.mode === 'obstacle') headline = `장애물 ${me.score}/${summary.frames} 클리어!`;
+    else if (summary.mode === 'power') headline = `파워 스로 ${me.score}핀 쓸기!`;
     else if (solo) headline = `최종 ${me.score}점`;
     else if (summary.winner === -1) headline = '무승부!';
     else if (hotseat) headline = `🏆 ${summary.players[summary.winner].name} 승리!`;
@@ -495,7 +497,14 @@ export class MenuUI {
         gap: '24px',
         color: i === summary.winner ? '#ffd54a' : '#e8edf5',
       });
-      const unit = summary.mode === 'spare' ? '/10' : summary.mode === 'obstacle' ? `/${summary.frames}` : '점';
+      const unit =
+        summary.mode === 'spare'
+          ? '/10'
+          : summary.mode === 'obstacle'
+            ? `/${summary.frames}`
+            : summary.mode === 'power'
+              ? '핀'
+              : '점';
       row.innerHTML = `<span>${p.ai ? '🤖 ' : ''}${p.name}</span><span>${p.score}${unit}</span>`;
       list.appendChild(row);
     });

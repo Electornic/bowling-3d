@@ -16,6 +16,15 @@ export const BALL_START_Z = -1; // 공 시작 (파울라인 뒤)
 export const HEADPIN_Z = 18.29; // 1번핀
 export const ROW_GAP = PIN_SPACING * Math.cos(Math.PI / 6); // ≈0.264 행 간격
 export const PIN_DECK_END = HEADPIN_Z + 3 * ROW_GAP; // ≈19.08 마지막 행 (전환 트리거 기준 §4.2)
+
+// --- 파워 스로(#4) — 넓은 레인 + 거대 삼각 랙 (GAME_MODES_EXPANSION §4) ---
+// 표준 레인(LANE_WIDTH 1.05)은 4행 10핀 가정이라 그 이상의 삼각 랙은 폭이 안 맞는다
+// (10행 바닥줄 폭 ≈2.74m). 파워 스로는 거터 대신 벽으로 막은 별도 '와이드 아레나'(PowerArena)를
+// 켜고, PinSet은 isStanding x-게이트를 POWER_LANE_HALF로 넓힌다. 일반 모드 지오메트리는 불변.
+export const POWER_MAX_ROWS = 10; // 최대 행 수 = 마지막 스테이지 (10행 = 55핀). 모바일 성능 상한(§4 — 91핀 타협).
+// 와이드 아레나 반폭 (m). 10행 바닥줄 바깥 핀 중심 = (POWER_MAX_ROWS-1)/2·PIN_SPACING ≈1.372,
+// + 핀반경 0.06 + 여유 → 1.55. 벽 안쪽 면이 여기. 핀이 벽 밖으로 못 나가고 공도 안 빠진다.
+export const POWER_LANE_HALF = 1.55;
 // 행별 핀 열 오프셋 (PIN_SPACING 배수). 행 0=헤드핀 ... 행 3=뒷줄. PinSet·splits 공용.
 export const PIN_ROWS: readonly (readonly number[])[] = [
   [0],

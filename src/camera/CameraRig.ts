@@ -77,6 +77,10 @@ export class CameraRig {
           // 장애물 레인: 미드레인 배리어(z 10~16)가 한눈에 보이게 더 높고 뒤로 — 라인 계획용 하이앵글.
           px = 0; py = 2.4; pz = -3.4;
           tx = 0; ty = -0.1; tz = 11;
+        } else if (this.game.mode === 'power') {
+          // 파워 스로: 멀고 넓은 거대 랙(z 18~21, 폭 ±1.5)이 다 들어오게 더 높고 뒤로 — 와이드 하이앵글.
+          px = 0; py = 3.3; pz = -3.2;
+          tx = 0; ty = 0.1; tz = 15;
         } else {
           // 낮고 가까운 1인칭 느낌 — 레인이 화면을 채우고 원근이 살도록
           px = 0; py = 1.12; pz = -2.7;
@@ -91,8 +95,14 @@ export class CameraRig {
         const span = HEADPIN_Z - CAM_APPROACH_Z;
         const u = b.y <= -1.5 ? 1 : clamp((b.z - CAM_APPROACH_Z) / span, 0, 1);
         const e = u * u * (3 - 2 * u); // smoothstep
-        px = lerp(px, 0, e); py = lerp(py, 1.25, e); pz = lerp(pz, 15.8, e);
-        tx = lerp(tx, 0, e); ty = lerp(ty, 0.5, e); tz = lerp(tz, 19.4, e);
+        if (this.game.mode === 'power') {
+          // 파워 스로: 거대·와이드 랙 전체가 보이게 표준 클로즈업보다 더 높고 뒤로 (핀 폭발 스프레드 감상).
+          px = lerp(px, 0, e); py = lerp(py, 3.6, e); pz = lerp(pz, 12.6, e);
+          tx = lerp(tx, 0, e); ty = lerp(ty, 0.3, e); tz = lerp(tz, 19.2, e);
+        } else {
+          px = lerp(px, 0, e); py = lerp(py, 1.25, e); pz = lerp(pz, 15.8, e);
+          tx = lerp(tx, 0, e); ty = lerp(ty, 0.5, e); tz = lerp(tz, 19.4, e);
+        }
         break;
       }
       default: // GAME_OVER

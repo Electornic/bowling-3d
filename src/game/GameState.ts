@@ -19,10 +19,12 @@ import { recordGame } from './Stats';
 import { resetOil, advanceOilDrying, type OilPattern } from './oil';
 import { CLASSIC_SKIN, type BallSkin } from './rewards';
 import { OBSTACLE_STAGES } from './obstacles';
+import { POWER_STAGES } from './power';
 import type { BarrierSet } from '../scene/Barrier';
+import type { PowerArena } from '../scene/PowerArena';
 
 export type GameStateName = 'MENU' | 'AIMING' | 'ROLLING' | 'SETTLING' | 'GAME_OVER';
-export type GameMode = 'full' | 'blitz' | 'spare' | 'obstacle';
+export type GameMode = 'full' | 'blitz' | 'spare' | 'obstacle' | 'power';
 /** 예측선 난이도 (조준 보조) — P3. UI 전용, 점수·물리 무영향. */
 export type AimAid = 'easy' | 'normal' | 'pro';
 
@@ -75,6 +77,7 @@ export type GameEvent =
   | { type: 'strike'; streak: number }
   | { type: 'spare' }
   | { type: 'stageClear' } // 장애물 레인: 스테이지 전 핀 클리어 (전용 연출)
+  | { type: 'powerSweep'; pins: number } // 파워 스로: 한 구로 쓸어버린 핀 수 (피드백)
   | { type: 'gutter' }
   | { type: 'split'; label: string }
   | { type: 'splitConverted'; label: string }
@@ -146,6 +149,7 @@ export class GameState {
     private readonly hud: Hud,
     private readonly lane: Lane,
     private readonly barriers: BarrierSet,
+    private readonly powerArena: PowerArena,
   ) {
     this.refreshHud();
   }
@@ -184,7 +188,9 @@ export class GameState {
           ? 3
           : config.mode === 'obstacle'
             ? OBSTACLE_STAGES.length
-            : SPARE_LEAVES.length;
+            : config.mode === 'power'
+              ? POWER_STAGES.length
+              : SPARE_LEAVES.length;
     this.players = config.players.map((p) => ({
       name: p.name,
       ai: p.ai,
@@ -202,12 +208,13 @@ export class GameState {
     this.slowmoTimer = 0;
     this.slowmoUsed = false;
     this.inputLocked = false; // 핸드오프 잠금 초기화 (이전 매치 중도 이탈 대비)
-    const roundMode = this.mode === 'spare' || this.mode === 'obstacle';
+    const roundMode = this.mode === 'spare' || this.mode === 'obstacle' || this.mode === 'power';
     // 장애물 레인: 훅 정밀이 필수라 예측선 풀 곡선(easy) 강제 (문서 §3 — aimAid는 UI 전용, 점수·물리 무영향).
     this.aimAid = this.mode === 'obstacle' ? 'easy' : (config.aimAid ?? 'easy'); // 예측선 난이도 (P3) — 기본 easy(§2.7)
     this.noTap = roundMode ? 10 : (config.noTap ?? 10); // 노탭 (라운드형은 무의미 → 비활성)
-    // 장애물 레인은 훅이 충분히 살게 short 오일 고정(드라이 존 길게 — 문서 §3). 그 외엔 선택 프리셋.
-    const oilPattern: OilPattern = this.mode === 'obstacle' ? 'short' : (config.oilPattern ?? 'house');
+    // 장애물=short(훅 살리기), 파워=house(직구 캐리 쇼케이스 — 바닥 저마찰은 PowerArena가 담당), 그 외 선택 프리셋.
+    const oilPattern: OilPattern =
+      this.mode === 'obstacle' ? 'short' : this.mode === 'power' ? 'house' : (config.oilPattern ?? 'house');
     resetOil(oilPattern); // 오일 프리셋 적용 + 마름 초기화 (P3)
     this.lane.applyOilVisual(oilPattern); // 광택 시트 길이를 프리셋에 맞춤 (읽기 단서)
     if (this.mode === 'spare') {
@@ -215,10 +222,16 @@ export class GameState {
     } else if (this.mode === 'obstacle') {
       this.pins.setLayout(OBSTACLE_STAGES[0].pins);
       this.barriers.setLayout(OBSTACLE_STAGES[0].barriers); // 첫 스테이지 배리어
+    } else if (this.mode === 'power') {
+      this.pins.setPowerRack(POWER_STAGES[0]); // 첫 스테이지 삼각 랙
     } else {
       this.pins.resetAll();
     }
     if (this.mode !== 'obstacle') this.barriers.clear(); // 이전 매치 배리어 잔존 방지
+    // 파워 스로: 표준 레인을 치우고 와이드 아레나 켜기. 그 외엔 표준 레인 복귀 + 파워 풀 정리.
+    this.lane.setPowerMode(this.mode === 'power');
+    this.powerArena.setActive(this.mode === 'power');
+    if (this.mode !== 'power') this.pins.clearPower();
     this.standingAtThrow = this.pins.standingCount();
     this.ballObj.reset();
     this.applyBallSpecForTurn();
@@ -231,6 +244,9 @@ export class GameState {
   toMenu() {
     this.state = 'MENU';
     this.players = [];
+    this.pins.clearPower(); // 파워 풀 정리 (powerMode off) — resetAll 전에 (표준 10핀 기준 복귀)
+    this.lane.setPowerMode(false);
+    this.powerArena.setActive(false);
     this.pins.resetAll();
     this.barriers.clear();
     this.ballObj.reset();
@@ -296,8 +312,9 @@ export class GameState {
     if (this.state === 'MENU' || this.state === 'GAME_OVER' || !this.players.length) return;
 
     // 오일/드라이 마찰 전환 (단일 바닥 콜라이더, Lane.updateFriction 참고).
-    // Loop가 아니라 여기 두는 이유: 수동 스텝 디버그(__engine.step + __game.update)에서도 동작해야 함
-    this.lane.updateFriction(this.ballObj.body.translation().z);
+    // Loop가 아니라 여기 두는 이유: 수동 스텝 디버그(__engine.step + __game.update)에서도 동작해야 함.
+    // 파워 스로는 표준 바닥을 치우고 PowerArena(고정 저마찰) 위에서 굴리므로 전환 불필요 → 스킵.
+    if (this.mode !== 'power') this.lane.updateFriction(this.ballObj.body.translation().z);
 
     // 공 굴림 럼블 — 레인 위 공 속도로 지속 저역음 구동 (SoundManager.setRoll). 굴림/안착 중만,
     // 그 외엔 0으로 꺼짐. 공이 멈추면 속도→0이라 자연히 사라진다.
@@ -348,7 +365,8 @@ export class GameState {
     } else if (this.state === 'ROLLING') {
       this.ballObj.applySpinForce(dt); // 훅 측면력 (도안 §4.1)
       const t = this.ballObj.body.translation();
-      const inGutter = Math.abs(t.x) > LANE_WIDTH / 2 - BALL_RADIUS;
+      // 파워 스로는 거터가 없고(와이드 아레나) 공이 |x|>0.4에 정당하게 갈 수 있어 거터 기준 SETTLING 전환을 끈다.
+      const inGutter = this.mode !== 'power' && Math.abs(t.x) > LANE_WIDTH / 2 - BALL_RADIUS;
       // 장애물 레인(#3): 배리어에 막혀 레인 위에 멈춘 공은 핀덱·거터·낙하 어디에도 안 닿아 ROLLING에
       // 갇힌다(전환 조건 부재). 0.2m/s 미만이 0.5s 지속되면 멈춤으로 보고 SETTLING으로 — score()가
       // 친 만큼(보통 0핀)으로 정산해 스테이지 진행. (일반 모드는 MIN_SPEED로 늘 핀덱에 닿아 오발동 없음.)
@@ -386,7 +404,7 @@ export class GameState {
    * 이미 정산 끝난 죽은 공이라 점수·물리 부작용 없음.
    */
   private settleGutterPerch() {
-    if (this.gutterSettled) return;
+    if (this.gutterSettled || this.mode === 'power') return; // 파워 스로는 거터가 없다 (와이드 아레나)
     const b = this.ballObj.body;
     const t = b.translation();
     // 공 중심이 레인 끝(±LANE_WIDTH/2)을 넘었는데 아직 골(y≈-0.02)에 안 떨어졌으면, 공이 거터 홈으로
@@ -424,6 +442,10 @@ export class GameState {
     }
     if (this.mode === 'obstacle') {
       this.scoreObstacleMode(standing);
+      return;
+    }
+    if (this.mode === 'power') {
+      this.scorePowerMode(standing);
       return;
     }
 
@@ -569,6 +591,34 @@ export class GameState {
     this.refreshHud();
   }
 
+  /**
+   * 파워 스로(#4): 라운드형(1구/스테이지)이되 점수는 '쓰러뜨린 핀 누적'(playerScore가 rolls 합산).
+   * 스테이지마다 삼각 랙 행 수를 늘린다. 전멸(perfect sweep)은 conversions++ + CLEAR 연출,
+   * 그 외엔 쓸어버린 핀 수를 전광판에 띄운다(피드백). 솔로 전용(라운드형 제약, §0).
+   */
+  private scorePowerMode(standing: number) {
+    const p = this.currentPlayer!;
+    const knocked = Math.max(0, this.standingAtThrow - standing);
+    if (standing === 0) {
+      p.conversions += 1; // 전 핀 쓸기(퍼펙트) 횟수 — 부가 기록
+      this.emit({ type: 'stageClear' }); // "CLEAR!" 연출
+    } else if (knocked > 0) {
+      this.emit({ type: 'powerSweep', pins: knocked }); // knocked===0(거터)은 score()가 이미 emit
+    }
+    if (p.frame >= this.frames) {
+      this.gameOver();
+    } else {
+      p.frame += 1;
+      p.ball = 1;
+      p.rolls.push([]);
+      this.pins.setPowerRack(POWER_STAGES[p.frame - 1]); // 다음 스테이지 = 더 큰 랙
+      this.ballObj.reset();
+      this.state = 'AIMING';
+      this.aiWait = 0;
+    }
+    this.refreshHud();
+  }
+
   /** 현재 플레이어의 프레임 종료 → 다음 플레이어/프레임 교대 (로드맵 P1.5) */
   private finishFrame() {
     const p = this.currentPlayer!;
@@ -604,7 +654,8 @@ export class GameState {
   }
 
   private playerScore(p: PlayerState): number {
-    // 라운드형(스페어·장애물)은 성공 스테이지 수가 점수. 그 외는 누적 점수.
+    // 파워 스로 = 쓰러뜨린 핀 누적(rolls 합). 스페어·장애물 = 성공 스테이지 수. 그 외 = 표준 누적 점수.
+    if (this.mode === 'power') return p.rolls.reduce((s, fr) => s + fr.reduce((a, b) => a + b, 0), 0);
     return this.mode === 'spare' || this.mode === 'obstacle'
       ? p.conversions
       : totalScore(p.rolls.flat(), this.frames);

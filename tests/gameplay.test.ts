@@ -2,7 +2,8 @@ import { describe, it, expect } from 'vitest';
 import { totalScore, frameScores, isNoTapStrike, rollStats } from '../src/game/Scoreboard';
 import { detectSplit, pinIndexByNumber, PIN_NUMBERS } from '../src/game/splits';
 import { OBSTACLE_STAGES } from '../src/game/obstacles';
-import { LANE_WIDTH } from '../src/game/constants';
+import { POWER_STAGES, POWER_MAX_PINS, pinCountForRows, powerRackPositions } from '../src/game/power';
+import { LANE_WIDTH, POWER_LANE_HALF, POWER_MAX_ROWS, PIN_SPACING } from '../src/game/constants';
 
 /** 핀 번호 목록 → standingMask */
 const mask = (standing: number[]): boolean[] =>
@@ -171,5 +172,50 @@ describe('장애물 레인 — OBSTACLE_STAGES 코스 데이터 검증', () => {
         expect(Math.abs(PIN_X[n]), `stage ${i + 1} 표적 핀 ${n}`).toBeLessThanOrEqual(0.31);
       }
     });
+  });
+});
+
+describe('파워 스로 — POWER_STAGES / 삼각 랙 기하 검증', () => {
+  it('스테이지: 1개 이상 · 행 수 1~POWER_MAX_ROWS · 마지막 = POWER_MAX_ROWS', () => {
+    expect(POWER_STAGES.length).toBeGreaterThan(0);
+    for (const rows of POWER_STAGES) {
+      expect(rows).toBeGreaterThanOrEqual(1);
+      expect(rows).toBeLessThanOrEqual(POWER_MAX_ROWS);
+    }
+    expect(POWER_STAGES[POWER_STAGES.length - 1]).toBe(POWER_MAX_ROWS);
+  });
+
+  it('스테이지 행 수는 단조 증가 (점점 커짐)', () => {
+    for (let i = 1; i < POWER_STAGES.length; i++) {
+      expect(POWER_STAGES[i], `stage ${i + 1}`).toBeGreaterThan(POWER_STAGES[i - 1]);
+    }
+  });
+
+  it('pinCountForRows = 삼각수 (4행=10, 10행=55) · POWER_MAX_PINS 일치', () => {
+    expect(pinCountForRows(4)).toBe(10);
+    expect(pinCountForRows(10)).toBe(55);
+    expect(POWER_MAX_PINS).toBe(pinCountForRows(POWER_MAX_ROWS));
+  });
+
+  it('powerRackPositions: 개수=삼각수 · 와이드 아레나 폭 안(핀 반경 0.06 포함) · z 증가', () => {
+    for (const rows of POWER_STAGES) {
+      const pos = powerRackPositions(rows);
+      expect(pos.length, `${rows}행 핀 수`).toBe(pinCountForRows(rows));
+      for (const p of pos) {
+        // 핀(반경 0.06)이 벽 안쪽(±POWER_LANE_HALF) 안에 — 안 그러면 isStanding 게이트/벽에 걸림
+        expect(Math.abs(p.x) + 0.06, `${rows}행 핀 x폭`).toBeLessThanOrEqual(POWER_LANE_HALF + 1e-9);
+      }
+      // 행이 뒤로 갈수록 z 증가 (첫 핀=헤드핀, 마지막 핀=뒷줄)
+      expect(pos[pos.length - 1].z, `${rows}행 z`).toBeGreaterThan(pos[0].z);
+    }
+  });
+
+  it('앞 4행(10핀)은 표준 랙과 동일 — 헤드핀 중앙 · 뒷줄 바깥 ±1.5·PIN_SPACING', () => {
+    const pos = powerRackPositions(4);
+    expect(pos.length).toBe(10);
+    expect(pos[0].x).toBeCloseTo(0); // 헤드핀
+    const backXs = pos.slice(6, 10).map((p) => p.x).sort((a, b) => a - b); // 뒷줄 4핀
+    expect(backXs[0]).toBeCloseTo(-1.5 * PIN_SPACING);
+    expect(backXs[3]).toBeCloseTo(1.5 * PIN_SPACING);
   });
 });

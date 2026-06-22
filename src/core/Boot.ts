@@ -6,6 +6,7 @@ import { Environment } from '../scene/Environment';
 import { Ball } from '../scene/Ball';
 import { PinSet } from '../scene/PinSet';
 import { BarrierSet } from '../scene/Barrier';
+import { PowerArena } from '../scene/PowerArena';
 import { GameState } from '../game/GameState';
 import { Hud } from '../ui/Hud';
 import { MenuUI } from '../ui/Menu';
@@ -149,9 +150,10 @@ function buildScene(engine: Engine): {
   const environment = new Environment(engine); // 볼링장 배경 (옆 레인·벽·천장·네온·전광판)
   const pins = new PinSet(engine);
   const barriers = new BarrierSet(engine); // 장애물 레인(#3) — 비활성 풀로 시작, 모드 시작 시 배치
+  const powerArena = new PowerArena(engine); // 파워 스로(#4) — 와이드 바닥+벽, 비활성으로 시작
   const ball = new Ball(engine, makeBallSpec(10));
   const hud = new Hud();
-  const game = new GameState(ball, pins, hud, lane, barriers);
+  const game = new GameState(ball, pins, hud, lane, barriers, powerArena);
   const controls = new Controls(engine, game, ball);
   const cameraRig = new CameraRig(engine, game, ball);
 
@@ -184,7 +186,11 @@ function buildScene(engine: Engine): {
         environment.announce('SPARE!', '#22d3ee');
         break;
       case 'stageClear':
-        environment.announce('CLEAR!', '#4ade80'); // 장애물 스테이지 클리어 — 초록(성공)
+        environment.announce('CLEAR!', '#4ade80'); // 장애물/파워 전 핀 클리어 — 초록(성공)
+        break;
+      case 'powerSweep':
+        // 파워 스로: 한 구로 쓸어버린 핀 수. 많이 쓸수록 뜨거운 색 (핑크↑).
+        environment.announce(`${e.pins}핀!`, e.pins >= 20 ? '#ff2d78' : e.pins >= 10 ? '#ffd54a' : '#22d3ee');
         break;
       case 'gutter':
         environment.announce('GUTTER', '#9aa6bd'); // 탈색조 — 아쉬운 투구

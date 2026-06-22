@@ -72,18 +72,31 @@ export class Pin {
 
   /** 핀을 home 위치에 똑바로 세워 리셋 (속도 0) */
   reset() {
+    this.place(this.home.x, this.home.z);
+  }
+
+  /**
+   * 핀을 임의 (x,z)에 똑바로 세움 (속도 0, 깨움). 파워 스로(#4) 삼각 랙처럼 home과 다른
+   * 자리에 세울 때 사용 — home은 안 건드린다(파워 종료 후 reset()이 표준 자리로 복귀 가능).
+   */
+  place(x: number, z: number) {
     this.mesh.visible = true;
-    this.body.setTranslation({ x: this.home.x, y: PIN_HEIGHT / 2, z: this.home.z }, true);
+    this.body.setTranslation({ x, y: PIN_HEIGHT / 2, z }, true);
     this.body.setRotation({ x: 0, y: 0, z: 0, w: 1 }, true);
     this.body.setLinvel({ x: 0, y: 0, z: 0 }, true);
     this.body.setAngvel({ x: 0, y: 0, z: 0 }, true);
   }
 
-  /** 쓰러진 핀(데드우드)을 레인 밖으로 치움 (도안 §6 CLEAR_DEADWOOD) */
+  /**
+   * 쓰러진 핀(데드우드)을 레인 밖으로 치움 (도안 §6 CLEAR_DEADWOOD).
+   * 슬립까지 재워 미사용 핀이 매 스텝 적분되지 않게 한다 — 파워 풀(최대 55개 중 미사용분)이
+   * 일반 모드에서 영구 낙하 적분하는 부담을 없앤다. place()/reset()의 setTranslation(wakeUp=true)이 다시 깨운다.
+   */
   stash() {
     this.mesh.visible = false;
     this.body.setTranslation({ x: this.home.x, y: -50, z: this.home.z }, false);
     this.body.setLinvel({ x: 0, y: 0, z: 0 }, false);
     this.body.setAngvel({ x: 0, y: 0, z: 0 }, false);
+    this.body.sleep();
   }
 }

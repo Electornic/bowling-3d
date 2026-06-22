@@ -12,14 +12,31 @@ import {
 import { hookFactor, oilEndZ, OIL_PRESETS, type OilPattern } from '../game/oil';
 import { makeWoodTexture } from './Environment';
 
+interface Vec3 {
+  x: number;
+  y: number;
+  z: number;
+}
+
 /**
  * 레인 바닥 + 양옆 거터(낮은 홈) + 바깥 벽 (도안 §3·§4.2).
  * 공이 레인 가장자리를 벗어나면 거터로 떨어져(낮아져) 핀을 못 건드림 → 자동 0점.
  * 바깥 벽은 공이 코스 밖으로 이탈하는 것만 막는다.
+ *
+ * 파워 스로(#4)는 표준 1.05m 레인이 안 맞아(거대 삼각 랙) PowerArena(와이드 바닥+벽)로 대체된다.
+ * setPowerMode(true)가 좁은 바닥·거터·벽·오일 비주얼을 레인 밑으로 치워 PowerArena와 겹치지 않게 한다.
  */
 export class Lane {
   private readonly floor: RAPIER.Collider;
+  private readonly floorBody: RAPIER.RigidBody;
+  private readonly floorMesh: THREE.Mesh;
   private readonly oilMesh: THREE.Mesh;
+  private readonly gutterMeshes: THREE.Mesh[] = [];
+  private readonly wallMeshes: THREE.Mesh[] = [];
+  private readonly wallBodies: RAPIER.RigidBody[] = [];
+  private readonly floorHome: Vec3;
+  private readonly wallHomes: Vec3[] = [];
+  private powerMode = false;
 
   constructor(engine: Engine) {
     const RAPIER = getRapier();
@@ -41,11 +58,13 @@ export class Lane {
     floor.position.set(0, -0.05, midZ);
     floor.receiveShadow = true;
     engine.addVisual(floor);
+    this.floorMesh = floor;
 
     // 물리 바닥은 전장 단일 콜라이더 — 오일/드라이로 2분할하면 이음새(z=OIL_END_Z)
     // 모서리에 공이 걸려 수십 cm 튀어오른다(CCD가 내부 엣지를 잡음).
     // 마찰 차등(레이트 훅)은 updateFriction()이 공 위치 기준으로 매 스텝 전환.
-    const floorBody = engine.world.createRigidBody(
+    this.floorHome = { x: 0, y: -0.05, z: midZ };
+    this.floorBody = engine.world.createRigidBody(
       RAPIER.RigidBodyDesc.fixed().setTranslation(0, -0.05, midZ),
     );
     // 마찰 결합 Min: 기본 Average면 공 마찰(0.1)과 평균돼 오일 존이 0.05 밑으로
@@ -55,7 +74,7 @@ export class Lane {
         .setFriction(LANE_FRICTION_OIL)
         .setFrictionCombineRule(RAPIER.CoefficientCombineRule.Min)
         .setRestitution(0),
-      floorBody,
+      this.floorBody,
     );
 
     // 오일 존 시각 힌트: 미세한 광택 시트 (어디서부터 꺾이는지 읽힌다)
@@ -83,6 +102,7 @@ export class Lane {
       gutter.position.set(gx, -0.18, midZ); // 레인보다 0.13 낮음 → 공이 빠지면 핀 못 닿음
       gutter.receiveShadow = true;
       engine.addVisual(gutter);
+      this.gutterMeshes.push(gutter);
 
       const gBody = engine.world.createRigidBody(
         RAPIER.RigidBodyDesc.fixed().setTranslation(gx, -0.18, midZ),
@@ -105,11 +125,14 @@ export class Lane {
       wall.position.set(wx, 0.1, midZ);
       wall.receiveShadow = true;
       engine.addVisual(wall);
+      this.wallMeshes.push(wall);
 
       const wBody = engine.world.createRigidBody(
         RAPIER.RigidBodyDesc.fixed().setTranslation(wx, 0.1, midZ),
       );
       engine.world.createCollider(RAPIER.ColliderDesc.cuboid(0.025, 0.15, len / 2), wBody);
+      this.wallBodies.push(wBody);
+      this.wallHomes.push({ x: wx, y: 0.1, z: midZ });
     }
   }
 
@@ -117,6 +140,7 @@ export class Lane {
    * 공 z 위치 기준 오일→드라이 마찰 전환 (hookFactor와 동일 램프). 매 물리 스텝 호출.
    * 핀도 같은 바닥을 쓰지만, 공이 오일 존에 있는 동안 핀은 정지(sleeping) 상태라
    * 마찰값이 낮아도 영향 없고, 공이 핀에 닿을 때(z>OIL_END_Z)는 항상 드라이 값이다.
+   * (파워 스로는 바닥을 치우므로 GameState가 호출을 건너뛴다.)
    */
   updateFriction(ballZ: number) {
     this.floor.setFriction(
@@ -131,5 +155,23 @@ export class Lane {
     this.oilMesh.geometry.dispose();
     this.oilMesh.geometry = new THREE.PlaneGeometry(LANE_WIDTH, ez - startZ);
     this.oilMesh.position.set(0, 0.0015, (startZ + ez) / 2);
+  }
+
+  /**
+   * 파워 스로(#4) 진입/이탈 — 표준 좁은 바닥·거터·벽·오일 비주얼을 레인 밑(−100)으로 치우고(또는 복귀),
+   * PowerArena(와이드 바닥+벽)가 대체한다. 거터 콜라이더는 와이드 바닥(y=0)보다 낮아 간섭이 없어 그대로 둔다.
+   * (멱등) 파워 중엔 updateFriction을 GameState가 호출하지 않으므로 바닥 마찰은 손대지 않는다.
+   */
+  setPowerMode(on: boolean) {
+    if (on === this.powerMode) return;
+    this.powerMode = on;
+    this.floorMesh.visible = !on;
+    this.oilMesh.visible = !on;
+    for (const m of this.gutterMeshes) m.visible = !on;
+    for (const m of this.wallMeshes) m.visible = !on;
+    const stow = (b: RAPIER.RigidBody, h: Vec3) =>
+      b.setTranslation(on ? { x: h.x, y: h.y - 100, z: h.z } : h, false);
+    stow(this.floorBody, this.floorHome);
+    this.wallBodies.forEach((b, i) => stow(b, this.wallHomes[i]));
   }
 }
