@@ -73,9 +73,15 @@ export class CameraRig {
         tx = 0; ty = 0.2; tz = 9;
         break;
       case 'AIMING':
-        // 낮고 가까운 1인칭 느낌 — 레인이 화면을 채우고 원근이 살도록
-        px = 0; py = 1.12; pz = -2.7;
-        tx = 0; ty = -0.05; tz = 7.5;
+        if (this.game.mode === 'obstacle') {
+          // 장애물 레인: 미드레인 배리어(z 10~16)가 한눈에 보이게 더 높고 뒤로 — 라인 계획용 하이앵글.
+          px = 0; py = 2.4; pz = -3.4;
+          tx = 0; ty = -0.1; tz = 11;
+        } else {
+          // 낮고 가까운 1인칭 느낌 — 레인이 화면을 채우고 원근이 살도록
+          px = 0; py = 1.12; pz = -2.7;
+          tx = 0; ty = -0.05; tz = 7.5;
+        }
         break;
       case 'ROLLING':
       case 'SETTLING': {

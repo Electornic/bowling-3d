@@ -193,6 +193,7 @@ export function evaluateAchievements(input: EvalInput, alreadyEarned: string[]):
   add('beat_han', beat('han'));
   add('beat_yoon', beat('yoon'));
   add('score_200', input.mode === 'full' && input.humanScore >= 200);
-  add('turkey', input.mode !== 'spare' && maxConsecutiveStrikes(input.rolls, input.frames) >= 3);
+  // 라운드형(스페어·장애물)은 rolls가 프레임 구조가 아니라 turkey 판정 제외 (오탐 방지).
+  add('turkey', input.mode !== 'spare' && input.mode !== 'obstacle' && maxConsecutiveStrikes(input.rolls, input.frames) >= 3);
   return fresh;
 }

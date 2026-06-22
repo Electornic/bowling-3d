@@ -1,5 +1,6 @@
 import { frameScores } from '../game/Scoreboard';
 import { SPARE_LEAVES, type GameStateName, type GameMode } from '../game/GameState';
+import { OBSTACLE_STAGES } from '../game/obstacles';
 import { css, NEON, FONT_UI, FONT_DIGITS, rgba, applyPanel, ensureNeonStyles } from './theme';
 
 // 점수판은 항상 한 줄(스크롤 0). 행 폭 = min(96vw, SHEET_MAX), 프레임·셀은 flex-basis:0 비례 분배 →
@@ -39,8 +40,9 @@ const STATE_LABEL: Record<string, string> = {
   GAME_OVER: '게임 종료',
 };
 
-// 스페어 챌린지 라운드 성공 판정용 (성공 = knocked가 그 라운드 리브 전부)
+// 라운드형(스페어·장애물) 성공 판정용 (성공 = knocked가 그 라운드 서 있던 핀 전부)
 const SPARE_LEAVE_SIZES = SPARE_LEAVES.map((l) => l.length);
+const OBSTACLE_STAGE_SIZES = OBSTACLE_STAGES.map((s) => s.pins.length);
 
 /** 투구 표기: 0 = '–', 10 = 'X' (스트라이크는 호출부에서 별도 처리) — 실제 볼링장 표준 표기 */
 const num = (r: number | undefined): string => (r === undefined ? '' : r === 0 ? '–' : String(r));
@@ -155,6 +157,8 @@ export class Hud {
       this.status.textContent = '🎳 게임 종료';
     } else if (d.mode === 'spare') {
       this.status.textContent = `스페어 ${cur.frame}/${d.frames} · 성공 ${cur.conversions}`;
+    } else if (d.mode === 'obstacle') {
+      this.status.textContent = `장애물 ${cur.frame}/${d.frames} · 클리어 ${cur.conversions}`;
     } else {
       // 중앙 업적 아일랜드와 공존하도록 컴팩트하게. 누구 차례인지는 점수판 골드 하이라이트 + 차례 배너로,
       // 선 핀 수는 3D 장면으로 보이므로 상태바에서는 생략(프레임·구·상태만).
@@ -172,7 +176,7 @@ export class Hud {
     // 스페어는 내용이 비지 않으니 내용폭(fit-content)으로 충분.
     // 멀티는 두 플레이어 모두 풀 시트로 쌓아 직관적 비교(active 행이 이미 폭을 정하므로 풀로 깔아도 폭 추가 0).
     const rowWidth =
-      d.mode === 'spare'
+      d.mode === 'spare' || d.mode === 'obstacle'
         ? 'fit-content'
         : `min(96vw, ${SHEET_MAX + (multi ? NAME_W : 0)}px)`;
     css(row, { display: 'flex', alignItems: 'center', gap: '6px', width: rowWidth, maxWidth: '96vw' });
@@ -203,12 +207,13 @@ export class Hud {
       font: FONT_DIGITS,
     });
 
-    if (d.mode === 'spare') {
-      // 스페어 챌린지: 라운드별 ✓/✗ + 성공 수
+    if (d.mode === 'spare' || d.mode === 'obstacle') {
+      // 라운드형(스페어·장애물): 라운드별 ✓/✗ + 성공 수. 클리어 = 그 라운드 핀 전부 픽업.
+      const leaveSizes = d.mode === 'obstacle' ? OBSTACLE_STAGE_SIZES : SPARE_LEAVE_SIZES;
       for (let f = 0; f < d.frames; f++) {
         const fr = p.rolls[f];
         const done = fr !== undefined && fr.length > 0;
-        const cleared = done && fr[0] === SPARE_LEAVE_SIZES[f];
+        const cleared = done && fr[0] === leaveSizes[f];
         const isCurrent = f === p.frame - 1 && d.state !== 'GAME_OVER';
         const box = document.createElement('div');
         css(box, {

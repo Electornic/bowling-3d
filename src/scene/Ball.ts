@@ -14,6 +14,11 @@ import {
   effectiveSpin,
   ROLL_RATIO,
   BALL_FRICTION,
+  CG_BALL,
+  CG_WORLD,
+  CG_PIN,
+  CG_BARRIER,
+  cgroups,
 } from '../game/constants';
 import { hookFactor } from '../game/oil';
 import type { BallSpec } from '../game/BallSpec';
@@ -81,6 +86,9 @@ export class Ball {
         .setMass(spec.massKg)
         .setRestitution(0.1)
         .setFriction(BALL_FRICTION)
+        // 충돌 그룹(장애물 레인 #3): 공은 레인·벽(WORLD)·핀(PIN)·배리어(BARRIER) 전부와 충돌.
+        // 기본값과 거동 동일하되, 배리어가 핀하고만 격리되도록 명시(constants.ts cgroups 주석).
+        .setCollisionGroups(cgroups(CG_BALL, CG_WORLD | CG_PIN | CG_BARRIER))
         .setActiveEvents(RAPIER.ActiveEvents.CONTACT_FORCE_EVENTS)
         .setContactForceEventThreshold(2),
       this.body,

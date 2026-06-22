@@ -1,6 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import { totalScore, frameScores, isNoTapStrike, rollStats } from '../src/game/Scoreboard';
 import { detectSplit, pinIndexByNumber, PIN_NUMBERS } from '../src/game/splits';
+import { OBSTACLE_STAGES } from '../src/game/obstacles';
+import { LANE_WIDTH } from '../src/game/constants';
 
 /** 핀 번호 목록 → standingMask */
 const mask = (standing: number[]): boolean[] =>
@@ -126,5 +128,48 @@ describe('노탭 (No-Tap) — isNoTapStrike 술어 + record-as-10 회귀', () =>
   it('record-as-10 결과를 frameScores가 일관 처리: F1 노탭스트라이크[10] + F2 스페어[1,9]', () => {
     // F1=10+(보너스 1,9)=20, F2 스페어=10+(다음1구 5)=15 → 누적 [20,35] (F3 미완)
     expect(frameScores([10, 1, 9, 5])).toEqual([20, 35]);
+  });
+});
+
+describe('장애물 레인 — OBSTACLE_STAGES 코스 데이터 검증', () => {
+  // 핀 x좌표 (splits.ts GEOM과 동일). 7·10(±0.457)은 표적이면 거터 직구로 우연히 맞을 수 있어 제외돼야 함.
+  const PIN_X: Record<number, number> = {
+    1: 0, 2: 0.1524, 3: -0.1524, 4: 0.3048, 5: 0, 6: -0.3048, 7: 0.4572, 8: 0.1524, 9: -0.1524, 10: -0.4572,
+  };
+
+  it('10 스테이지', () => {
+    expect(OBSTACLE_STAGES.length).toBe(10);
+  });
+
+  it('모든 스테이지: 핀 1개 이상 · 번호 1~10 · 중복 없음', () => {
+    OBSTACLE_STAGES.forEach((st, i) => {
+      expect(st.pins.length, `stage ${i + 1} pins`).toBeGreaterThan(0);
+      expect(new Set(st.pins).size, `stage ${i + 1} 중복`).toBe(st.pins.length);
+      for (const n of st.pins) {
+        expect(n, `stage ${i + 1} 핀번호`).toBeGreaterThanOrEqual(1);
+        expect(n, `stage ${i + 1} 핀번호`).toBeLessThanOrEqual(10);
+      }
+    });
+  });
+
+  it('모든 배리어: 레인 폭 안 · z는 오일 브레이크(9.5)~핀덱 사이', () => {
+    const half = LANE_WIDTH / 2;
+    OBSTACLE_STAGES.forEach((st, i) => {
+      expect(st.barriers.length, `stage ${i + 1} 배리어`).toBeGreaterThan(0);
+      for (const b of st.barriers) {
+        const w = b.w ?? 0.22; // Barrier.ts DEF_W
+        expect(Math.abs(b.x) + w / 2, `stage ${i + 1} 배리어 x폭`).toBeLessThanOrEqual(half + 1e-9);
+        expect(b.z, `stage ${i + 1} 배리어 z 하한`).toBeGreaterThan(9.5);
+        expect(b.z, `stage ${i + 1} 배리어 z 상한`).toBeLessThan(18);
+      }
+    });
+  });
+
+  it('표적 핀은 |x| ≤ 0.31 (외곽핀 7·10 직구 우연 픽업 방지 → 훅 필수 보존)', () => {
+    OBSTACLE_STAGES.forEach((st, i) => {
+      for (const n of st.pins) {
+        expect(Math.abs(PIN_X[n]), `stage ${i + 1} 표적 핀 ${n}`).toBeLessThanOrEqual(0.31);
+      }
+    });
   });
 });

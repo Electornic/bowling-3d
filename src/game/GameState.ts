@@ -18,9 +18,11 @@ import { detectSplit } from './splits';
 import { recordGame } from './Stats';
 import { resetOil, advanceOilDrying, type OilPattern } from './oil';
 import { CLASSIC_SKIN, type BallSkin } from './rewards';
+import { OBSTACLE_STAGES } from './obstacles';
+import type { BarrierSet } from '../scene/Barrier';
 
 export type GameStateName = 'MENU' | 'AIMING' | 'ROLLING' | 'SETTLING' | 'GAME_OVER';
-export type GameMode = 'full' | 'blitz' | 'spare';
+export type GameMode = 'full' | 'blitz' | 'spare' | 'obstacle';
 /** 예측선 난이도 (조준 보조) — P3. UI 전용, 점수·물리 무영향. */
 export type AimAid = 'easy' | 'normal' | 'pro';
 
@@ -72,6 +74,7 @@ export interface GameSummary {
 export type GameEvent =
   | { type: 'strike'; streak: number }
   | { type: 'spare' }
+  | { type: 'stageClear' } // 장애물 레인: 스테이지 전 핀 클리어 (전용 연출)
   | { type: 'gutter' }
   | { type: 'split'; label: string }
   | { type: 'splitConverted'; label: string }
@@ -126,6 +129,7 @@ export class GameState {
 
   private players: PlayerState[] = [];
   private settleTimer = 0;
+  private rollStuckTimer = 0; // ROLLING 중 공이 멈춘(<0.2m/s) 지속시간 — 배리어에 막혀 레인 위에 갇힌 공 정산용 (#3)
   private gutterSettled = false; // 이번 투구에서 거터 perch 보정을 1회 적용했는가 (재스냅 방지)
   private standingAtThrow = 10;
   private aiWait = 0;
@@ -141,6 +145,7 @@ export class GameState {
     private readonly pins: PinSet,
     private readonly hud: Hud,
     private readonly lane: Lane,
+    private readonly barriers: BarrierSet,
   ) {
     this.refreshHud();
   }
@@ -172,7 +177,14 @@ export class GameState {
   /** 새 매치 시작 — 리셋 체크리스트 (로드맵 P1) 전부 여기서 */
   startMatch(config: MatchConfig) {
     this.mode = config.mode;
-    this.frames = config.mode === 'full' ? 10 : config.mode === 'blitz' ? 3 : SPARE_LEAVES.length;
+    this.frames =
+      config.mode === 'full'
+        ? 10
+        : config.mode === 'blitz'
+          ? 3
+          : config.mode === 'obstacle'
+            ? OBSTACLE_STAGES.length
+            : SPARE_LEAVES.length;
     this.players = config.players.map((p) => ({
       name: p.name,
       ai: p.ai,
@@ -190,13 +202,23 @@ export class GameState {
     this.slowmoTimer = 0;
     this.slowmoUsed = false;
     this.inputLocked = false; // 핸드오프 잠금 초기화 (이전 매치 중도 이탈 대비)
-    this.aimAid = config.aimAid ?? 'easy'; // 예측선 난이도 (P3, UI 전용) — 기본 easy(§2.7)
-    this.noTap = this.mode === 'spare' ? 10 : (config.noTap ?? 10); // 노탭 (스페어는 라운드형이라 무의미 → 비활성)
-    const oilPattern = config.oilPattern ?? 'house';
+    const roundMode = this.mode === 'spare' || this.mode === 'obstacle';
+    // 장애물 레인: 훅 정밀이 필수라 예측선 풀 곡선(easy) 강제 (문서 §3 — aimAid는 UI 전용, 점수·물리 무영향).
+    this.aimAid = this.mode === 'obstacle' ? 'easy' : (config.aimAid ?? 'easy'); // 예측선 난이도 (P3) — 기본 easy(§2.7)
+    this.noTap = roundMode ? 10 : (config.noTap ?? 10); // 노탭 (라운드형은 무의미 → 비활성)
+    // 장애물 레인은 훅이 충분히 살게 short 오일 고정(드라이 존 길게 — 문서 §3). 그 외엔 선택 프리셋.
+    const oilPattern: OilPattern = this.mode === 'obstacle' ? 'short' : (config.oilPattern ?? 'house');
     resetOil(oilPattern); // 오일 프리셋 적용 + 마름 초기화 (P3)
     this.lane.applyOilVisual(oilPattern); // 광택 시트 길이를 프리셋에 맞춤 (읽기 단서)
-    if (this.mode === 'spare') this.pins.setLayout(SPARE_LEAVES[0]);
-    else this.pins.resetAll();
+    if (this.mode === 'spare') {
+      this.pins.setLayout(SPARE_LEAVES[0]);
+    } else if (this.mode === 'obstacle') {
+      this.pins.setLayout(OBSTACLE_STAGES[0].pins);
+      this.barriers.setLayout(OBSTACLE_STAGES[0].barriers); // 첫 스테이지 배리어
+    } else {
+      this.pins.resetAll();
+    }
+    if (this.mode !== 'obstacle') this.barriers.clear(); // 이전 매치 배리어 잔존 방지
     this.standingAtThrow = this.pins.standingCount();
     this.ballObj.reset();
     this.applyBallSpecForTurn();
@@ -210,6 +232,7 @@ export class GameState {
     this.state = 'MENU';
     this.players = [];
     this.pins.resetAll();
+    this.barriers.clear();
     this.ballObj.reset();
     this.slowmoTimer = 0;
     this.slowmoUsed = false;
@@ -237,6 +260,7 @@ export class GameState {
     this.ballObj.launch(aim, power, spin);
     this.state = 'ROLLING';
     this.settleTimer = 0;
+    this.rollStuckTimer = 0;
     this.slowmoUsed = false;
     this.slowmoTimer = 0;
     this.gutterSettled = false;
@@ -325,8 +349,13 @@ export class GameState {
       this.ballObj.applySpinForce(dt); // 훅 측면력 (도안 §4.1)
       const t = this.ballObj.body.translation();
       const inGutter = Math.abs(t.x) > LANE_WIDTH / 2 - BALL_RADIUS;
-      // 핀존 통과 / 거터 / 레인 밖 낙하 (도안 §4.2 전환 조건)
-      if (t.z > PIN_DECK_END || inGutter || t.y < -2) {
+      // 장애물 레인(#3): 배리어에 막혀 레인 위에 멈춘 공은 핀덱·거터·낙하 어디에도 안 닿아 ROLLING에
+      // 갇힌다(전환 조건 부재). 0.2m/s 미만이 0.5s 지속되면 멈춤으로 보고 SETTLING으로 — score()가
+      // 친 만큼(보통 0핀)으로 정산해 스테이지 진행. (일반 모드는 MIN_SPEED로 늘 핀덱에 닿아 오발동 없음.)
+      const v = this.ballObj.body.linvel();
+      this.rollStuckTimer = Math.hypot(v.x, v.y, v.z) < 0.2 ? this.rollStuckTimer + dt : 0;
+      // 핀존 통과 / 거터 / 레인 밖 낙하 (도안 §4.2 전환 조건) + 레인 위 멈춤
+      if (t.z > PIN_DECK_END || inGutter || t.y < -2 || this.rollStuckTimer > 0.5) {
         this.state = 'SETTLING';
         this.settleTimer = 0;
         this.refreshHud(); // 상태 표시 갱신 (없으면 ROLLING으로 멈춰 보임)
@@ -391,6 +420,10 @@ export class GameState {
 
     if (this.mode === 'spare') {
       this.scoreSpareMode(standing);
+      return;
+    }
+    if (this.mode === 'obstacle') {
+      this.scoreObstacleMode(standing);
       return;
     }
 
@@ -510,6 +543,32 @@ export class GameState {
     this.refreshHud();
   }
 
+  /**
+   * 장애물 레인(#3): 스페어 챌린지와 같은 라운드형(1구/스테이지, 클리어=전 핀 픽업)이되
+   * 스테이지마다 배리어 배치를 함께 갈아끼운다. 솔로 전용(scoreSpareMode와 동일 제약, §0).
+   */
+  private scoreObstacleMode(standing: number) {
+    const p = this.currentPlayer!;
+    if (standing === 0) {
+      p.conversions += 1;
+      this.emit({ type: 'stageClear' }); // 전용 연출 — 스페어와 구분
+    }
+    if (p.frame >= this.frames) {
+      this.gameOver();
+    } else {
+      p.frame += 1;
+      p.ball = 1;
+      p.rolls.push([]);
+      const stage = OBSTACLE_STAGES[p.frame - 1];
+      this.pins.setLayout(stage.pins);
+      this.barriers.setLayout(stage.barriers); // 다음 스테이지 배리어
+      this.ballObj.reset();
+      this.state = 'AIMING';
+      this.aiWait = 0;
+    }
+    this.refreshHud();
+  }
+
   /** 현재 플레이어의 프레임 종료 → 다음 플레이어/프레임 교대 (로드맵 P1.5) */
   private finishFrame() {
     const p = this.currentPlayer!;
@@ -545,7 +604,10 @@ export class GameState {
   }
 
   private playerScore(p: PlayerState): number {
-    return this.mode === 'spare' ? p.conversions : totalScore(p.rolls.flat(), this.frames);
+    // 라운드형(스페어·장애물)은 성공 스테이지 수가 점수. 그 외는 누적 점수.
+    return this.mode === 'spare' || this.mode === 'obstacle'
+      ? p.conversions
+      : totalScore(p.rolls.flat(), this.frames);
   }
 
   private gameOver() {

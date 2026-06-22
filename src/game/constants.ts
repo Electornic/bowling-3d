@@ -33,6 +33,23 @@ export const PIN_ROWS: readonly (readonly number[])[] = [
 export const PIN_RESTITUTION = 0.3;
 export const PIN_LINEAR_DAMPING = 0.7;
 
+// --- 충돌 그룹 (Rapier collision groups — 장애물 레인 #3) ---
+// Rapier collisionGroups = u32 = (membership<<16)|filter. 두 콜라이더 A·B는
+//   (A.mem & B.filter) != 0  AND  (B.mem & A.filter) != 0  일 때만 충돌한다(양방향 동의).
+// 기본값은 0xFFFFFFFF(모든 그룹 소속·모든 그룹과 충돌)라, 배리어만 그룹을 줘선 핀과 격리되지 않는다
+// (공·핀이 둘 다 0xFFFF면 배리어 필터가 둘을 구분 못 함). 그래서 공·핀·배리어 셋 다 비트를 부여:
+//   공      = BALL,    충돌 ↔ WORLD|PIN|BARRIER
+//   핀      = PIN,     충돌 ↔ WORLD|BALL|PIN          (배리어 제외 — 배리어가 핀 물리에 안 낌)
+//   배리어  = BARRIER, 충돌 ↔ BALL                    (공만 막음)
+// 레인·거터·벽은 기본값(0xFFFF) 유지 — 멤버십에 WORLD 비트를 포함하므로 공·핀과 그대로 충돌한다.
+export const CG_BALL = 0b0001;
+export const CG_PIN = 0b0010;
+export const CG_WORLD = 0b0100;
+export const CG_BARRIER = 0b1000;
+/** (membership, filter) → Rapier collisionGroups u32. ColliderDesc.setCollisionGroups에 넘긴다. */
+export const cgroups = (membership: number, filter: number): number =>
+  ((membership & 0xffff) << 16) | (filter & 0xffff);
+
 // --- 물리 (도안 §4.4 튜닝 시작값) ---
 export const GRAVITY = -9.81;
 export const TIMESTEP = 1 / 60;

@@ -5,6 +5,7 @@ import { Lane } from '../scene/Lane';
 import { Environment } from '../scene/Environment';
 import { Ball } from '../scene/Ball';
 import { PinSet } from '../scene/PinSet';
+import { BarrierSet } from '../scene/Barrier';
 import { GameState } from '../game/GameState';
 import { Hud } from '../ui/Hud';
 import { MenuUI } from '../ui/Menu';
@@ -147,9 +148,10 @@ function buildScene(engine: Engine): {
   const lane = new Lane(engine);
   const environment = new Environment(engine); // 볼링장 배경 (옆 레인·벽·천장·네온·전광판)
   const pins = new PinSet(engine);
+  const barriers = new BarrierSet(engine); // 장애물 레인(#3) — 비활성 풀로 시작, 모드 시작 시 배치
   const ball = new Ball(engine, makeBallSpec(10));
   const hud = new Hud();
-  const game = new GameState(ball, pins, hud, lane);
+  const game = new GameState(ball, pins, hud, lane, barriers);
   const controls = new Controls(engine, game, ball);
   const cameraRig = new CameraRig(engine, game, ball);
 
@@ -180,6 +182,9 @@ function buildScene(engine: Engine): {
       }
       case 'spare':
         environment.announce('SPARE!', '#22d3ee');
+        break;
+      case 'stageClear':
+        environment.announce('CLEAR!', '#4ade80'); // 장애물 스테이지 클리어 — 초록(성공)
         break;
       case 'gutter':
         environment.announce('GUTTER', '#9aa6bd'); // 탈색조 — 아쉬운 투구

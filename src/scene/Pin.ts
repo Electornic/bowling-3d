@@ -2,7 +2,16 @@ import * as THREE from 'three';
 import type RAPIER from '@dimforge/rapier3d-compat';
 import type { Engine } from '../core/Engine';
 import { getRapier } from '../core/Boot';
-import { PIN_HEIGHT, PIN_MASS, PIN_RESTITUTION, PIN_LINEAR_DAMPING } from '../game/constants';
+import {
+  PIN_HEIGHT,
+  PIN_MASS,
+  PIN_RESTITUTION,
+  PIN_LINEAR_DAMPING,
+  CG_PIN,
+  CG_WORLD,
+  CG_BALL,
+  cgroups,
+} from '../game/constants';
 
 export const PIN_RADIUS = 0.06; // 콜라이더 반경 (도안 §4.4: ≥0.06, 터널링 방지)
 
@@ -50,6 +59,9 @@ export class Pin {
         .setRestitution(PIN_RESTITUTION)
         .setFriction(0.3)
         .setFrictionCombineRule(RAPIER.CoefficientCombineRule.Max)
+        // 충돌 그룹(장애물 레인 #3): 핀은 레인(WORLD)·공(BALL)·핀끼리(PIN)만 충돌하고 배리어와는 안 닿는다.
+        // 배리어가 핀 물리·리스팟에 끼어들지 않게 격리(constants.ts cgroups 주석). 일반 모드 거동은 불변.
+        .setCollisionGroups(cgroups(CG_PIN, CG_WORLD | CG_BALL | CG_PIN))
         .setActiveEvents(RAPIER.ActiveEvents.CONTACT_FORCE_EVENTS)
         .setContactForceEventThreshold(2),
       this.body,

@@ -68,6 +68,7 @@ const MODES: { key: GameMode; label: string; desc: string }[] = [
   { key: 'full', label: '풀게임', desc: '10프레임 정식 룰' },
   { key: 'blitz', label: '블리츠', desc: '3프레임 스피드전' },
   { key: 'spare', label: '스페어 챌린지', desc: '클래식 리브 10연속 픽업 (솔로)' },
+  { key: 'obstacle', label: '장애물 레인', desc: '훅으로 장벽을 감아 도는 10코스 (솔로)' },
 ];
 
 const OIL_PATTERNS: { key: OilPattern; label: string; desc: string }[] = [
@@ -177,6 +178,11 @@ export class MenuUI {
     this.backdrop.style.display = 'none';
   }
 
+  /** 솔로 전용 모드(라운드형 — 스페어·장애물). 2인/AI 라이벌 불가(scoreSpareMode 기반, GameState §0). */
+  private isSoloMode(m: GameMode = this.mode): boolean {
+    return m === 'spare' || m === 'obstacle';
+  }
+
   /** 우상단 사운드 on/off 토글 (시작 메뉴). 끄면 메뉴 BGM·지속음까지 멎는다(SoundManager.enabled setter). */
   private soundToggle(): HTMLButtonElement {
     const b = document.createElement('button');
@@ -220,7 +226,7 @@ export class MenuUI {
     // 참조해야 함), DOM 배치는 상대 row 아래(아래에서 append). 모드가 스페어면 2인 불가라 자동 숨김.
     const nameWrap = this.buildNameInputs();
     const syncNameWrap = () => {
-      nameWrap.style.display = this.mode !== 'spare' && this.rivalKey === 'human' ? 'flex' : 'none';
+      nameWrap.style.display = !this.isSoloMode() && this.rivalKey === 'human' ? 'flex' : 'none';
     };
 
     // 모드 선택
@@ -232,7 +238,7 @@ export class MenuUI {
       const b = this.chipButton(`${m.label}`, m.desc);
       b.onclick = () => {
         this.mode = m.key;
-        if (m.key === 'spare') this.rivalKey = null; // 스페어 챌린지는 솔로만 (2인·AI 모두 불가)
+        if (this.isSoloMode(m.key)) this.rivalKey = null; // 라운드형(스페어·장애물)은 솔로만 (2인·AI 모두 불가)
         this.refreshChips(modeBtns, this.mode);
         this.refreshRivalChips(rivalBtns);
         syncNameWrap();
@@ -258,7 +264,7 @@ export class MenuUI {
     // 로컬 2인 교대전 (사람 vs 사람) — ai 없는 플레이어 2명으로 매치 구성(start). 한 기기 번갈아 투구.
     const human = this.chipButton('👥 2인', '한 기기 교대전 — 사람 vs 사람');
     human.onclick = () => {
-      if (this.mode === 'spare') return; // 스페어 챌린지는 솔로만
+      if (this.isSoloMode()) return; // 라운드형(스페어·장애물)은 솔로만
       this.rivalKey = 'human';
       this.refreshRivalChips(rivalBtns);
       syncNameWrap();
@@ -268,7 +274,7 @@ export class MenuUI {
     for (const p of AI_PROFILES) {
       const b = this.chipButton(p.name, p.tagline);
       b.onclick = () => {
-        if (this.mode === 'spare') return;
+        if (this.isSoloMode()) return;
         this.rivalKey = p.key;
         this.refreshRivalChips(rivalBtns);
         syncNameWrap();
@@ -432,7 +438,7 @@ export class MenuUI {
       font: '500 12px/1.7 system-ui, sans-serif',
       color: '#aab3c2',
     });
-    stats.innerHTML = `풀게임 — ${s.full}<br>블리츠 — ${s.blitz}<br>스페어 챌린지 — ${s.spare}`;
+    stats.innerHTML = `풀게임 — ${s.full}<br>블리츠 — ${s.blitz}<br>스페어 챌린지 — ${s.spare}<br>장애물 레인 — ${s.obstacle}`;
     this.panel.appendChild(stats);
 
     // 조작법
@@ -449,11 +455,11 @@ export class MenuUI {
   private start() {
     // 로컬 교대전: 사람 2명(ai 없음). 그 외: 사람 1명 + (AI 라이벌 선택 시) AI 1명. 이름 빈칸은 기본값.
     let players: MatchConfig['players'];
-    if (this.mode !== 'spare' && this.rivalKey === 'human') {
+    if (!this.isSoloMode() && this.rivalKey === 'human') {
       players = [{ name: this.p1Name.trim() || '1P' }, { name: this.p2Name.trim() || '2P' }];
     } else {
       players = [{ name: '나' }];
-      if (this.mode !== 'spare' && this.rivalKey) {
+      if (!this.isSoloMode() && this.rivalKey) {
         const profile = AI_PROFILES.find((p) => p.key === this.rivalKey);
         if (profile) players.push({ name: profile.name, ai: profile });
       }
@@ -471,6 +477,7 @@ export class MenuUI {
     const hotseat = summary.players.filter((p) => !p.ai).length > 1; // 사람 2인 교대전 — 'P1 시점' 문구 대신 이름
     let headline: string;
     if (summary.mode === 'spare') headline = `스페어 ${me.score}/10 성공!`;
+    else if (summary.mode === 'obstacle') headline = `장애물 ${me.score}/${summary.frames} 클리어!`;
     else if (solo) headline = `최종 ${me.score}점`;
     else if (summary.winner === -1) headline = '무승부!';
     else if (hotseat) headline = `🏆 ${summary.players[summary.winner].name} 승리!`;
@@ -488,7 +495,7 @@ export class MenuUI {
         gap: '24px',
         color: i === summary.winner ? '#ffd54a' : '#e8edf5',
       });
-      const unit = summary.mode === 'spare' ? `/10` : '점';
+      const unit = summary.mode === 'spare' ? '/10' : summary.mode === 'obstacle' ? `/${summary.frames}` : '점';
       row.innerHTML = `<span>${p.ai ? '🤖 ' : ''}${p.name}</span><span>${p.score}${unit}</span>`;
       list.appendChild(row);
     });
@@ -842,15 +849,15 @@ export class MenuUI {
   }
 
   private refreshRivalChips(map: Map<string | null, HTMLButtonElement>) {
-    const spareMode = this.mode === 'spare';
+    const soloMode = this.isSoloMode(); // 라운드형(스페어·장애물)이면 상대 칩 비활성
     for (const [k, b] of map) {
       const active = k === this.rivalKey;
       b.style.borderColor = active ? '#ffd54a' : 'rgba(255,255,255,0.18)';
       b.style.background = active ? 'rgba(255,213,74,0.14)' : 'rgba(255,255,255,0.05)';
       b.style.color = active ? '#ffd54a' : '#e8edf5';
       if (k !== null) {
-        b.style.opacity = spareMode ? '0.35' : '1';
-        b.style.cursor = spareMode ? 'not-allowed' : 'pointer';
+        b.style.opacity = soloMode ? '0.35' : '1';
+        b.style.cursor = soloMode ? 'not-allowed' : 'pointer';
       }
     }
   }
