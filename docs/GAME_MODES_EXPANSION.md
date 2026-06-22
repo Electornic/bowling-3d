@@ -8,6 +8,7 @@
 > **v2 (2026-06-22): 자체 검토 반영** — 노탭 점수 적용 지점(`score()`)·스플릿 가드·`scoreLastFrame` 다중 분기, 파워 스로 **레인폭 비호환**, 라운드형 모드 **솔로 한정**, 장애물 레인 **예측선 의존**, 핀 생성/제거 인프라 부재, 덕핀/캔들핀의 훅 무력화 트레이드오프를 보강. (검토 대조: 이 세션에서 실제 코드 읽고 확인.)
 > **v3 (2026-06-22): 오일 레퍼런스 + 보상/메뉴 정책 반영** — 하우스 vs 스포츠 패턴의 본질이 *길이*가 아니라 *오일 비율/퍼널*임을 서치로 확인(§2 재작성, 동물 패턴 실측 길이 반영) → PBA 오일의 "진짜 가치 = 퍼널 축 추가"로 격상. 새 모드의 **보상/업적·`Menu` 성장** 정책을 §0에 추가.
 > **v4 (2026-06-22): 코드 재검증 반영** — §1 노탭 변환 공식의 **풀랙 게이트 누락 버그** 수정(`standingAtThrow===10`이 없으면 일반 프레임 2구 스페어가 `[1,10]`으로 오기록 → `frameScores`가 11핀 오픈으로 읽어 점수가 깨짐). push·스플릿·`scoreNormalFrame`·`scoreLastFrame` 수정이 **단일 술어 "풀랙 + knocked≥임계 = 스트라이크"**로 통합됨을 명시. 스플릿 오감지 근거 정정(1핀은 `splits.ts`에서 이미 제외 → 8핀 한정). 오일 프리셋 예시 숫자를 기존 short/house/long과 정합. (재검증: 이 세션에서 `score()`·`splits.ts`·`oil.ts` 실측 대조.)
+> **v5 (2026-06-22): 독립 재검증 + 레퍼런스 보강.** 코드 라인 인용 2건 정정(push는 `score()` 내 :382, `earnedBonus`는 :464 — 기존 :387/:469는 약 5줄 드리프트). "Scoreboard 무수정"이 `frameScores`/`totalScore`(채점) 한정이고 `rollStats`(통계 집계)는 9핀을 스트라이크로 오집계하므로 **제외 대상**임을 §1에 명시. 레퍼런스 추가: 덕핀/캔들핀 **실측 공 지름·3구째=`ten`(보너스 없음)** 규칙(§5), 오일 비율 **USBC 공식(스포츠 4:1↓)·퍼널 메커니즘**(§2), 장애물 레인 **현행 사례(Nintendo Switch Sports 'Special' = Spin Control 후속, 배리어+슬로프)**(§3), 노탭 변형(수어사이드·3-6-9)(§1). (대조: 이 세션에서 `score()`·`splits.ts`·`oil.ts`·`Scoreboard.ts`·`PinSet.ts`·`constants.ts` 실측 + 웹서치.)
 > 5종은 전부 **신규 에셋 0**이고, 기존 시스템(스페어 챌린지 라운드 흐름 · `oil.ts` 가변 모듈 · 순수 점수함수) 위에 얹힌다.
 >
 > 관련 문서: [GAMEPLAY_ROADMAP.md](./GAMEPLAY_ROADMAP.md) (P1 경량 모드 · P3 오일) ·
@@ -61,10 +62,10 @@
 
 ### 구현 메모
 - **모드 아님 → 토글.** `MatchConfig`에 `noTap?: number`(기본 10=비활성, 9/8 선택). full·blitz와 직교. 스페어 챌린지는 제외(라운드형이라 무의미).
-- **핵심 트릭 — "10으로 기록".** 1구에 `knocked >= noTap`면 그 투구를 `rolls`에 **`10`(STRIKE)으로 기록**한다. 그러면 [Scoreboard.ts](../src/game/Scoreboard.ts)의 순수 점수함수·보너스 룩어헤드가 **무수정**으로 작동(보너스·스페어가 9→10으로 일관 처리). 실제 쓰러진 수를 보여주려면 HUD에만 부가 표기.
-- **⚠️ 기록·판정이 한 술어로 묶인다 — 풀랙 게이트가 핵심 (v4 정정).** 노탭 스트라이크의 정의는 **"풀랙(`standingAtThrow===10`)에서 `knocked >= noTap`"** 하나뿐이고, 아래가 모두 이 술어로 통일된다. ① *점수 기록*(rolls에 10): push는 상위 [GameState.ts](../src/game/GameState.ts) `score()`에서 `scoreNormalFrame`/`scoreLastFrame` **호출 전에** `p.rolls[...].push(knocked)`로 일어나므로([GameState.ts:387](../src/game/GameState.ts)), 변환은 그 지점에서 **`knocked >= noTap && this.standingAtThrow === 10 ? 10 : knocked`**. ⚠️ **`standingAtThrow===10`을 빼면 버그**: `standingAtThrow`는 투구 직전 갱신되므로([GameState.ts:233](../src/game/GameState.ts)), 1구 1핀 → 2구 9핀 정리(스페어)에서 2구의 `knocked=9 ≥ noTap(9)`가 되어 `rolls=[1,10]`으로 오기록 → `frameScores`가 스페어도 스트라이크도 아닌 **11핀 오픈으로 읽어 점수가 조용히 깨진다.** ② *스트라이크 판정*: `scoreNormalFrame`의 `const strike = p.ball===1 && standing===0`을 `standing <= (10 - noTap)`로(1구는 항상 풀랙이라 게이트 내포). **판정을 안 바꾸면 9핀에서 2구를 또 던지게 된다.**
+- **핵심 트릭 — "10으로 기록".** 1구에 `knocked >= noTap`면 그 투구를 `rolls`에 **`10`(STRIKE)으로 기록**한다. 그러면 [Scoreboard.ts](../src/game/Scoreboard.ts)의 **채점 함수**(`frameScores`/`totalScore`)·보너스 룩어헤드가 **무수정**으로 작동(보너스·스페어가 9→10으로 일관 처리). ⚠️ 단 "무수정"은 채점 함수 한정 — **같은 파일의 `rollStats`(통계 집계)는 예외**라 9핀이 스트라이크로 오집계되므로 별도 제외가 필요하다(↓ 난이도). 실제 쓰러진 수를 보여주려면 HUD에만 부가 표기.
+- **⚠️ 기록·판정이 한 술어로 묶인다 — 풀랙 게이트가 핵심 (v4 정정).** 노탭 스트라이크의 정의는 **"풀랙(`standingAtThrow===10`)에서 `knocked >= noTap`"** 하나뿐이고, 아래가 모두 이 술어로 통일된다. ① *점수 기록*(rolls에 10): push는 상위 [GameState.ts](../src/game/GameState.ts) `score()`에서 `scoreNormalFrame`/`scoreLastFrame` **호출 전에** `p.rolls[...].push(knocked)`로 일어나므로([GameState.ts:382](../src/game/GameState.ts)), 변환은 그 지점에서 **`knocked >= noTap && this.standingAtThrow === 10 ? 10 : knocked`**. ⚠️ **`standingAtThrow===10`을 빼면 버그**: `standingAtThrow`는 투구 직전 갱신되므로([GameState.ts:233](../src/game/GameState.ts)), 1구 1핀 → 2구 9핀 정리(스페어)에서 2구의 `knocked=9 ≥ noTap(9)`가 되어 `rolls=[1,10]`으로 오기록 → `frameScores`가 스페어도 스트라이크도 아닌 **11핀 오픈으로 읽어 점수가 조용히 깨진다.** ② *스트라이크 판정*: `scoreNormalFrame`의 `const strike = p.ball===1 && standing===0`을 `standing <= (10 - noTap)`로(1구는 항상 풀랙이라 게이트 내포). **판정을 안 바꾸면 9핀에서 2구를 또 던지게 된다.**
 - **⚠️ 스플릿 감지 가드 — 8핀 노탭 한정 (v4 정정).** `score()`의 스플릿 감지 `if (p.ball===1 && standingAtThrow===10 && standing>0)`는 **8핀 노탭에서만** 손대면 된다: 잔여 2핀이 7-10 등 스플릿을 이뤄 "스트라이크"에 스플릿 이벤트가 뜰 수 있다. **9핀 노탭(1핀)은 [splits.ts](../src/game/splits.ts)의 `if (pins.length < 2) return none`로 이미 스플릿이 아니다** — v2의 "1핀 오감지"는 부정확했다. ①의 풀랙 술어로 "노탭 스트라이크면 감지 건너뜀"을 깔면 8핀까지 함께 정리된다.
-- **⚠️ `scoreLastFrame` 다중 분기 — 단 `earnedBonus`는 공짜 (v4 보강).** 10프레임 채점은 strike/spare emit · `resetAll`/`respot`에 `standing === 0`을 **여러 분기**에서 쓴다 → 전부 ①의 풀랙 술어(`standing <= (10 - noTap)` + 풀랙)로 통일. **단 보너스 투구 판정 `earnedBonus = f[0]===10 || ...`([GameState.ts:469](../src/game/GameState.ts))은 record-as-10이면 `f[0]`가 이미 10이라 무수정으로 맞는다** — "Scoreboard 무수정"이 보너스 로직까지 확장된다(①의 풀랙 게이트가 전제).
+- **⚠️ `scoreLastFrame` 다중 분기 — 단 `earnedBonus`는 공짜 (v4 보강).** 10프레임 채점은 strike/spare emit · `resetAll`/`respot`에 `standing === 0`을 **여러 분기**에서 쓴다 → 전부 ①의 풀랙 술어(`standing <= (10 - noTap)` + 풀랙)로 통일. **단 보너스 투구 판정 `earnedBonus = f[0]===10 || ...`([GameState.ts:464](../src/game/GameState.ts))은 record-as-10이면 `f[0]`가 이미 10이라 무수정으로 맞는다** — "Scoreboard 무수정"이 보너스 로직까지 확장된다(①의 풀랙 게이트가 전제).
 - **UI:** `Menu`에 "노탭" 칩(끔/9핀/8핀). `Hud`에 모드 라벨.
 
 ### 난이도·리스크
@@ -74,6 +75,7 @@
 ### 열린 질문
 - 8/7핀까지 줄 것인가, 9핀만 줄 것인가.
 - 노탭 칩이 켜졌을 때 결과 화면에 "비공식 기록(노탭)" 배지를 보여줄지.
+- (참고) 토너먼트 변형: **수어사이드 노탭**(10핀 다 쓰러뜨리면 0점, 1~9핀만 득점)·**3-6-9 잭팟**(3·6·9프레임 스트라이크 보너스) — 캐주얼 재미 옵션 후보([bowlingforbeginners](https://bowlingforbeginners.com/what-is-no-tap-bowling/)).
 
 ---
 
@@ -97,7 +99,7 @@
 - **UI:** 오일 선택 UI가 이미 있음(house/short/long) → 패턴 추가만.
 
 ### ⚠️ 모델 한계 & 핵심 결정 (v3 — 오일 레퍼런스 반영)
-**실제 패턴은 두 축이다: ① 길이(오일 거리) · ② 오일 비율/모양(=관용도).** 난이도를 가르는 건 주로 ②다 ([BowlersMart](https://www.bowlersmart.com/tournaments/understanding-oil-patterns/) · [thesportofbowling](https://www.thesportofbowling.com/oil-patterns/)):
+**실제 패턴은 두 축이다: ① 길이(오일 거리) · ② 오일 비율/모양(=관용도).** 난이도를 가르는 건 주로 ②다 ([BowlersMart](https://www.bowlersmart.com/tournaments/understanding-oil-patterns/) · [thesportofbowling](https://www.thesportofbowling.com/oil-patterns/) · [USBC Sport Bowling](https://bowl.com/sport-bowling/information) — 스포츠 패턴 공식 비율 **4:1 이하**):
 - **하우스 샷** = 비율 ~8:1\~10:1, 가운데 많고 바깥 마른 "역삼각" → **퍼널 효과**(바깥으로 빠진 공이 마른 보드를 만나 포켓으로 되감김) → 관용적 → 고득점.
 - **스포츠/동물 패턴** = 비율 3:1\~4:1 이하, **평평** → 퍼널 없음 → 미스 = 거터. 리그 평균이 25\~35핀 떨어진다.
 
@@ -119,7 +121,7 @@
 
 ## 3. 장애물 레인 (Spin Control) — *훅 물리를 콘텐츠로*
 
-**레퍼런스:** [Wii Sports Club *Spin Control*](https://strategywiki.org/wiki/Wii_Sports/Bowling_Training) — 레인에 배리어를 놓아 특정 스핀을 강요. [Wii Sports Bowling(Fandom)](https://wiisports.fandom.com/wiki/Bowling_(sport)).
+**레퍼런스:** [Wii Sports Club *Spin Control*](https://strategywiki.org/wiki/Wii_Sports/Bowling_Training) · [Nintendo Switch Sports — Bowling 'Special'](https://switchsports.fandom.com/wiki/Bowling)(Spin Control 후속작: 1~9프레임에 **배리어+슬로프** 장애물) — 레인에 장벽을 놓아 특정 스핀을 강요. [Wii Sports Bowling(Fandom)](https://wiisports.fandom.com/wiki/Bowling_(sport)).
 
 ### 룰
 레인 위 **장벽(배리어)**을 훅으로 감아 돌아 핀을 친다. 직구로는 막히고 **스핀이 필수**가 되게 스테이지를 설계. 스페어 챌린지처럼 **코스(10스테이지)**로.
@@ -137,7 +139,7 @@
 ### 난이도·열린 질문
 **중간.** 배리어 오브젝트 + 스테이지 데이터 + 코스 흐름(스페어 모드 복제).
 - "직구로는 못 풀린다"를 어떻게 **보장**하나 → 스테이지를 sim/플레이테스트로 설계. 배리어 위치 자동 검증 스크립트(`sim-carry` 확장) 후보.
-- 배리어 충돌 손맛(공이 튕기나 vs 막히나).
+- 배리어 충돌 손맛(공이 튕기나 vs 막히나). 배리어 외 **슬로프(경사)**도 장애물 타입 후보(Switch Sports 'Special'이 둘을 병용).
 - **솔로 전용**(scoreSpareMode 기반, §0) — vs AI/2인 지원 여부 결정.
 - 별도 모드 vs 스페어 챌린지 안의 "장애물 코스".
 
@@ -176,9 +178,9 @@
 프레임당 **3구**. **덕핀** = 작은 공(손가락 구멍 없음)·작고 통통한 핀. **캔들핀** = 얇은 원통(양끝 동일)·작은 공, 게다가 **쓰러진 핀(데드우드)을 안 치움**(다음 구의 장애물·도구로 남김 — 가장 어려움).
 
 ### 구현 메모
-- **3구 점수(공통 선행):** [Scoreboard.ts](../src/game/Scoreboard.ts) `frameScores`는 **2구/프레임 가정**. 덕핀/캔들핀 스코어링(스트라이크=1구 전멸→10+다음 2구, 스페어=프레임 내 전멸→10+다음 1구, 오픈=3구 합)을 위해 **ball-per-frame 파라미터화 또는 별도 스코어러**. 가장 큰 점수 변경.
+- **3구 점수(공통 선행):** [Scoreboard.ts](../src/game/Scoreboard.ts) `frameScores`는 **2구/프레임 가정**. 덕핀/캔들핀 스코어링(스트라이크=1구 전멸→10+다음 2구, 스페어=2구 내 전멸→10+다음 1구, **3구째 전멸=`ten`(10점·보너스 없음)**, 오픈=3구 합)을 위해 **ball-per-frame 파라미터화 또는 별도 스코어러**. 가장 큰 점수 변경.
 - **핀 형상(절차적이라 가능):** [Pin.ts](../src/scene/Pin.ts)의 `LatheGeometry` 프로파일 교체 — 캔들핀=거의 균일 반경 원통, 덕핀=땅딸막. 콜라이더(`cylinder(PIN_HEIGHT/2, PIN_RADIUS)`)·질량·반발도 모드별로.
-- **공 지름(전역 상수 분리):** [constants.ts](../src/game/constants.ts) `BALL_RADIUS = 0.109`가 전역(거터 perch 보정 등 곳곳 참조). 덕핀/캔들핀은 더 작은 공 → **`BALL_RADIUS`를 모드/스펙 가변으로** 빼야 함([BallSpec.ts](../src/game/BallSpec.ts) 확장). 파급 큼.
+- **공 지름(전역 상수 분리):** [constants.ts](../src/game/constants.ts) `BALL_RADIUS = 0.109`가 전역(거터 perch 보정 등 곳곳 참조). 덕핀/캔들핀은 더 작은 공 → **`BALL_RADIUS`를 모드/스펙 가변으로** 빼야 함([BallSpec.ts](../src/game/BallSpec.ts) 확장). 파급 큼. **실측 목표값(v5):** 우리 공 지름 21.8cm 대비 **덕핀 ≈12.1~12.7cm(약 0.55×) · 캔들핀 ≈11.4cm(약 0.52×, 북미 최소 볼)** — 둘 다 손가락 구멍 없음.
 - **물리 재튜닝:** 가벼운 공·핀 → 캐리 전면 재튜닝([sim-carry.mjs](../sim-carry.mjs) 재측정).
 - **캔들핀 데드우드 유지:** `PinSet.respot`(선 핀 리셋 + 데드우드 치움)을 **스킵**하고 쓰러진 핀을 그대로 둠 → 다음 구의 장애물. 별도 분기.
 - **⚠️ HUD 재작업 (v2):** [Hud.ts](../src/ui/Hud.ts)는 2구 프레임 가정으로 점수판을 그린다(~295줄) → 3구 프레임 표시는 실작업.
@@ -214,8 +216,9 @@
 ## 7. 레퍼런스 (서치 출처)
 
 - [PBA Pro Bowling 2026 — Steam](https://store.steampowered.com/app/3127230/PBA_Pro_Bowling_2026/) / [리뷰(Pure Xbox)](https://www.purexbox.com/news/2025/12/pba-pro-bowling-2026-reviews-suggest-its-one-of-the-best-bowling-games-ever-on-xbox)
-- [Wii Sports Bowling — Fandom](https://wiisports.fandom.com/wiki/Bowling_(sport)) / [Training(StrategyWiki)](https://strategywiki.org/wiki/Wii_Sports/Bowling_Training) — Spin Control · Power Throws · 100-Pin Pro
+- [Wii Sports Bowling — Fandom](https://wiisports.fandom.com/wiki/Bowling_(sport)) / [Training(StrategyWiki)](https://strategywiki.org/wiki/Wii_Sports/Bowling_Training) — Spin Control · Power Throws · 100-Pin Pro · [Nintendo Switch Sports — Bowling(Fandom)](https://switchsports.fandom.com/wiki/Bowling) (현행 'Special' 모드 = Spin Control 후속, 배리어+슬로프)
 - [BOWL.com — Alternate Bowling Games](https://bowl.com/welcome/alternate-bowling-games) — Baker · No-Tap · Duckpin · Candlepin
-- [Brunswick — No-Tap](https://brunswickbowling.com/bowling-centers/equipment-parts-supplies/center-operations/sync/scoring/games/no-tap) / [No-Tap 스코어링(LiveAbout)](https://www.liveabout.com/no-tap-bowling-scoring-420894)
+- [Brunswick — No-Tap](https://brunswickbowling.com/bowling-centers/equipment-parts-supplies/center-operations/sync/scoring/games/no-tap) / [No-Tap 스코어링(LiveAbout)](https://www.liveabout.com/no-tap-bowling-scoring-420894) / [No-Tap 변형·수어사이드·3-6-9(bowlingforbeginners)](https://bowlingforbeginners.com/what-is-no-tap-bowling/)
 - [Best Bowling Games — Bananatic](https://www.bananatic.com/blog/the-best-bowling-games-of-all-time) (Galaxy Bowling 3D: 텐핀/캔들핀/덕핀)
-- **오일 패턴(v3):** [BowlersMart — Understanding Oil Patterns](https://www.bowlersmart.com/tournaments/understanding-oil-patterns/) · [The Sport of Bowling — Oil Patterns](https://www.thesportofbowling.com/oil-patterns/) · [BOWL.com — PBA 패턴 뱅크](https://bowl.com/oil-pattern-bank/pba) · [PBA — Oil Patterns](https://www.pba.com/player-resources/oil-patterns) — 하우스 vs 스포츠 비율·퍼널, 동물 패턴 길이(Cheetah 33 / Viper 37 / Chameleon 39 / Scorpion 42 / Shark 48 ft)
+- **덕핀/캔들핀 규격·스코어링(v5):** [Duckpin(Wikipedia)](https://en.wikipedia.org/wiki/Duckpin_bowling) (공 4¾~5인치·핑거홀 없음·3구/프레임) · [Candlepin(Wikipedia)](https://en.wikipedia.org/wiki/Candlepin_bowling) (공 4½인치·북미 최소·데드우드 유지) · [Candlepins(Britannica)](https://www.britannica.com/sports/candlepins)
+- **오일 패턴(v3·v5):** [BowlersMart — Understanding Oil Patterns](https://www.bowlersmart.com/tournaments/understanding-oil-patterns/) · [The Sport of Bowling — Oil Patterns](https://www.thesportofbowling.com/oil-patterns/) · [USBC Sport Bowling](https://bowl.com/sport-bowling/information) (스포츠 패턴 공식 비율 4:1↓) · [Sport bowling(Wikipedia)](https://en.wikipedia.org/wiki/Sport_bowling) · [퍼널 메커니즘(ExpertBowler)](https://expertbowler.com/how-to-read-bowling-lane-conditions/) · [BOWL.com — PBA 패턴 뱅크](https://bowl.com/oil-pattern-bank/pba) · [PBA — Oil Patterns](https://www.pba.com/player-resources/oil-patterns) — 하우스 vs 스포츠 비율·퍼널, 동물 패턴 길이(Cheetah 33 / Viper 37 / Chameleon 39 / Scorpion 42 / Shark 48 ft)
