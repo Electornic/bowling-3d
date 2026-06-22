@@ -11,7 +11,7 @@ import {
   SLOWMO_SCALE,
   SLOWMO_REAL_SEC,
 } from './constants';
-import { totalScore } from './Scoreboard';
+import { totalScore, isNoTapStrike } from './Scoreboard';
 import { makeBallSpec, type BallSpec } from './BallSpec';
 import { computeAiThrow, type AiProfile } from './ai';
 import { detectSplit } from './splits';
@@ -34,6 +34,7 @@ export interface MatchConfig {
   players: MatchPlayerConfig[]; // [0] = 사람 (스페어 챌린지는 솔로만)
   oilPattern?: OilPattern; // 오일 패턴 (기본 'house') — P3 라인 읽기 숙련
   aimAid?: AimAid; // 예측선 난이도 (기본 'easy' — §2.7 스마트 기본값) — P3, UI 전용
+  noTap?: number; // 노탭: 풀랙에서 이 수 이상이면 스트라이크 (기본 10=비활성, 9/8). full·blitz에 직교, spare 제외
 }
 
 interface PlayerState {
@@ -110,6 +111,7 @@ export class GameState {
   frames = 10;
   current = 0;
   aimAid: AimAid = 'easy'; // 예측선 난이도 (Controls가 읽음) — P3, UI 전용. 기본 easy(§2.7 스마트 기본값)
+  noTap = 10; // 노탭 임계 (10=비활성, 9/8). startMatch에서 config로 설정 — Scoreboard.isNoTapStrike 인자
   /** 핸드오프 오버레이 중 입력 잠금 (로컬 교대전 — Controls가 읽어 발사/스핀/조준선 차단) */
   inputLocked = false;
 
@@ -189,6 +191,7 @@ export class GameState {
     this.slowmoUsed = false;
     this.inputLocked = false; // 핸드오프 잠금 초기화 (이전 매치 중도 이탈 대비)
     this.aimAid = config.aimAid ?? 'easy'; // 예측선 난이도 (P3, UI 전용) — 기본 easy(§2.7)
+    this.noTap = this.mode === 'spare' ? 10 : (config.noTap ?? 10); // 노탭 (스페어는 라운드형이라 무의미 → 비활성)
     const oilPattern = config.oilPattern ?? 'house';
     resetOil(oilPattern); // 오일 프리셋 적용 + 마름 초기화 (P3)
     this.lane.applyOilVisual(oilPattern); // 광택 시트 길이를 프리셋에 맞춤 (읽기 단서)
@@ -379,7 +382,9 @@ export class GameState {
     const p = this.currentPlayer!;
     const standing = this.pins.standingCount();
     const knocked = Math.max(0, this.standingAtThrow - standing);
-    p.rolls[p.frame - 1].push(knocked);
+    // 노탭: 풀랙에서 임계 이상이면 STRIKE(10)로 기록 → frameScores·보너스 룩어헤드가 무수정 동작.
+    const recorded = isNoTapStrike(standing, this.standingAtThrow, this.noTap) ? 10 : knocked;
+    p.rolls[p.frame - 1].push(recorded);
 
     // 거터(쓰러뜨린 핀 0) — 스트라이크/스페어처럼 메인 배너 연출 (모드 무관)
     if (knocked === 0) this.emit({ type: 'gutter' });
@@ -390,7 +395,12 @@ export class GameState {
     }
 
     // 스플릿 감지: 프레임 1구(풀랙) 후 (로드맵 P1)
-    if (p.ball === 1 && this.standingAtThrow === 10 && standing > 0) {
+    if (
+      p.ball === 1 &&
+      this.standingAtThrow === 10 &&
+      standing > 0 &&
+      !isNoTapStrike(standing, this.standingAtThrow, this.noTap) // 노탭 스트라이크면 잔여 핀이 있어도 스플릿 아님
+    ) {
       const info = detectSplit(this.pins.standingMask());
       if (info.isSplit) {
         this.pendingSplit = info.label;
@@ -409,7 +419,7 @@ export class GameState {
   /** 일반 프레임: 스트라이크(1구 전멸) 또는 2구 완료 시 프레임 종료 */
   private scoreNormalFrame(standing: number) {
     const p = this.currentPlayer!;
-    const strike = p.ball === 1 && standing === 0;
+    const strike = p.ball === 1 && isNoTapStrike(standing, this.standingAtThrow, this.noTap);
     if (strike) {
       p.strikeStreak += 1;
       this.emit({ type: 'strike', streak: p.strikeStreak });
@@ -437,13 +447,15 @@ export class GameState {
   private scoreLastFrame(standing: number) {
     const p = this.currentPlayer!;
     const f = p.rolls[this.frames - 1];
+    const noTapStrike = isNoTapStrike(standing, this.standingAtThrow, this.noTap);
+    const freshRack = noTapStrike || standing === 0; // 풀랙 스트라이크(노탭 포함) 또는 잔여 정리(스페어) → 새 랙
 
-    // 이벤트: 풀랙을 한 구에 전멸 = 스트라이크, 잔여 핀 정리 = 스페어
-    if (standing === 0) {
-      if (this.standingAtThrow === 10) {
-        p.strikeStreak += 1;
-        this.emit({ type: 'strike', streak: p.strikeStreak });
-      } else if (this.pendingSplit) {
+    // 이벤트: 풀랙을 한 구에 전멸(노탭 포함) = 스트라이크, 잔여 핀 정리 = 스페어
+    if (noTapStrike) {
+      p.strikeStreak += 1;
+      this.emit({ type: 'strike', streak: p.strikeStreak });
+    } else if (standing === 0) {
+      if (this.pendingSplit) {
         this.emit({ type: 'splitConverted', label: this.pendingSplit });
         this.pendingSplit = null;
       } else {
@@ -454,16 +466,16 @@ export class GameState {
     }
 
     if (p.ball === 1) {
-      if (standing === 0) this.pins.resetAll();
+      if (freshRack) this.pins.resetAll();
       else this.pins.respot();
       p.ball = 2;
       this.ballObj.reset();
       this.state = 'AIMING';
       this.aiWait = 0;
     } else if (p.ball === 2) {
-      const earnedBonus = f[0] === 10 || f[0] + f[1] === 10; // 1구 스트라이크 또는 스페어
+      const earnedBonus = f[0] === 10 || f[0] + f[1] === 10; // 1구 스트라이크(노탭=10 기록 포함) 또는 스페어
       if (earnedBonus) {
-        if (standing === 0) this.pins.resetAll();
+        if (freshRack) this.pins.resetAll();
         else this.pins.respot();
         p.ball = 3;
         this.ballObj.reset();
@@ -548,7 +560,8 @@ export class GameState {
     // 소유자 개인 기록(localStorage)을 오염시키지 않게 저장 생략 — 업적 평가도 Boot에서 같은 기준으로 건너뜀.
     let newBest = false;
     let best = 0;
-    if (!this.isHotseat) {
+    if (!this.isHotseat && this.noTap >= 10) {
+      // 노탭(noTap<10)은 9핀을 10으로 기록 → rollStats가 스트라이크로 오집계 + 정식 기록이 아님 → 통계/하이스코어 제외(핫시트와 동일)
       const r = recordGame(this.mode, scores[0], this.players[0].rolls, this.frames);
       newBest = r.newBest;
       best = r.best;
@@ -584,6 +597,7 @@ export class GameState {
     this.hud.update({
       state: this.state,
       mode: this.mode,
+      noTap: this.noTap,
       frames: this.frames,
       current: this.current,
       standing: this.pins.standingCount(),

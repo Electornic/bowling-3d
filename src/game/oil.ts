@@ -14,7 +14,7 @@
  * 덕분에 sim-carry.mjs의 --oilEnd / --hookRamp 만으로 프리셋·마름을 그대로 검증할 수 있다.
  */
 
-export type OilPattern = 'house' | 'short' | 'long';
+export type OilPattern = 'house' | 'short' | 'long' | 'cheetah' | 'scorpion' | 'shark';
 
 /**
  * 오일 프리셋 — 훅이 "꺾이기 시작하는 지점"(endZ)을 옮겨 라인 읽기를 강요한다. house가 기준.
@@ -29,6 +29,12 @@ export const OIL_PRESETS: Record<OilPattern, { endZ: number; ramp: number }> = {
   house: { endZ: 10.5, ramp: 3.5 },
   short: { endZ: 9.5, ramp: 3.5 },
   long: { endZ: 12.5, ramp: 3.5 },
+  // PBA "동물 시리즈" 길이 변형 (GAME_MODES_EXPANSION §2). endZ=길이 프록시(짧을수록 일찍 깨짐), 기존 3종과 단조 정합.
+  // ⚠️ 길이 축만 모델 — 본격 난이도(스포츠=평평·저관용·퍼널 없음)는 좌우 퍼널 축 f(z,x) 별도 작업(§2 본판).
+  // ⚠️ 'PBA'·동물명은 PBA 상표 — 공개 배포 시 오리지널 테마명으로 교체 권장. 실수치는 sim-carry --oilEnd 재측정.
+  cheetah: { endZ: 9.0, ramp: 3.5 }, // 33ft 최단 — 외곽 직진·일찍 꺾임 (short보다 더 일찍)
+  scorpion: { endZ: 11.5, ramp: 3.5 }, // 42ft — house~long 사이
+  shark: { endZ: 13.5, ramp: 3.5 }, // 48ft 최장 — 직진 강요·포켓각 난해 (long보다 더 늦게)
 };
 
 // 현재 유효 오일 geometry (가변). 기본 = house. resetOil / advanceOilDrying 이 갱신한다.

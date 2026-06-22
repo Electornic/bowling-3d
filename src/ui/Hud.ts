@@ -25,6 +25,7 @@ export interface HudPlayerView {
 export interface HudView {
   state: GameStateName;
   mode: GameMode;
+  noTap?: number; // 노탭 임계 (10/undefined=비활성) — 상태바 배지용
   frames: number;
   current: number;
   standing: number;
@@ -157,7 +158,8 @@ export class Hud {
     } else {
       // 중앙 업적 아일랜드와 공존하도록 컴팩트하게. 누구 차례인지는 점수판 골드 하이라이트 + 차례 배너로,
       // 선 핀 수는 3D 장면으로 보이므로 상태바에서는 생략(프레임·구·상태만).
-      this.status.textContent = `${cur.frame}F · ${cur.ball}구 · ${STATE_LABEL[d.state] ?? d.state}`;
+      const noTapBadge = d.noTap && d.noTap < 10 ? ` · 노탭${d.noTap}` : '';
+      this.status.textContent = `${cur.frame}F · ${cur.ball}구 · ${STATE_LABEL[d.state] ?? d.state}${noTapBadge}`;
     }
   }
 

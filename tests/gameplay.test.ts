@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { totalScore, frameScores, rollStats } from '../src/game/Scoreboard';
+import { totalScore, frameScores, isNoTapStrike, rollStats } from '../src/game/Scoreboard';
 import { detectSplit, pinIndexByNumber, PIN_NUMBERS } from '../src/game/splits';
 
 /** 핀 번호 목록 → standingMask */
@@ -98,5 +98,33 @@ describe('detectSplit (인접 그래프 판정)', () => {
     // 뒷줄(인덱스 6~9)은 x 내림차순으로 7,8,9,10 — 인덱스 6은 x가 가장 작음(화면 오른쪽) = 10번
     expect(PIN_NUMBERS[6]).toBe(10);
     expect(PIN_NUMBERS[9]).toBe(7);
+  });
+});
+
+describe('노탭 (No-Tap) — isNoTapStrike 술어 + record-as-10 회귀', () => {
+  it('9핀 노탭: 풀랙 9핀↑ = 스트라이크, 8핀 = 아님', () => {
+    expect(isNoTapStrike(1, 10, 9)).toBe(true); // 9개 쓰러뜨림 → 스트라이크
+    expect(isNoTapStrike(2, 10, 9)).toBe(false); // 8개 → 아님
+    expect(isNoTapStrike(0, 10, 9)).toBe(true); // 클린 스트라이크
+  });
+
+  it('8핀 노탭: 풀랙 8핀↑ = 스트라이크', () => {
+    expect(isNoTapStrike(2, 10, 8)).toBe(true);
+    expect(isNoTapStrike(3, 10, 8)).toBe(false);
+  });
+
+  it('⚠️ 1-then-9 버그 가드: 2구는 풀랙(standingAtThrow=10) 아니라 변환 안 됨', () => {
+    expect(isNoTapStrike(9, 10, 9)).toBe(false); // 1구 1핀(standing 9) → record 1
+    expect(isNoTapStrike(0, 9, 9)).toBe(false); // 2구 9핀 정리(throw 9) → record 9 → [1,9] 스페어 유지
+  });
+
+  it('noTap=10(기본)은 비활성 — 일반 스트라이크와 동일', () => {
+    expect(isNoTapStrike(0, 10, 10)).toBe(true); // 풀랙 전멸만 스트라이크
+    expect(isNoTapStrike(1, 10, 10)).toBe(false); // 9핀은 스트라이크 아님(노탭 꺼짐)
+  });
+
+  it('record-as-10 결과를 frameScores가 일관 처리: F1 노탭스트라이크[10] + F2 스페어[1,9]', () => {
+    // F1=10+(보너스 1,9)=20, F2 스페어=10+(다음1구 5)=15 → 누적 [20,35] (F3 미완)
+    expect(frameScores([10, 1, 9, 5])).toEqual([20, 35]);
   });
 });

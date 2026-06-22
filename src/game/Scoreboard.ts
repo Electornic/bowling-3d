@@ -45,6 +45,21 @@ export function totalScore(rolls: number[], frames = 10): number {
   return s.length ? s[s.length - 1] : 0;
 }
 
+/**
+ * 노탭(No-Tap): 풀랙에서 임계 핀(noTap) 이상을 쓰러뜨리면 스트라이크로 취급(점수 기록 10 + 프레임 종료).
+ * 통상 9핀 노탭(9개↑=스트라이크), 더 쉬운 8핀도. noTap=10(기본)이면 비활성 — 항상 false라 기존 동작과 동일.
+ *
+ * ⚠️ `standingAtThrow===10`(풀랙) 게이트가 핵심이다. 1구는 항상 풀랙이라 통과하지만 2구 이후엔 막혀,
+ * 일반 프레임의 정상 스페어가 스트라이크로 오기록되는 버그를 방지한다.
+ *   예) 1구 1핀 → 2구 9핀 정리: 2구는 standingAtThrow=9라 false → rolls=[1,9] 스페어 유지(✓).
+ *   게이트가 없으면 [1,10]으로 오기록 → frameScores가 11핀 오픈으로 읽어 점수가 조용히 깨진다.
+ *
+ * record-as-10 호출부(GameState.score)는 이 술어 하나로 점수 기록·스트라이크 판정·스플릿 가드를 통일한다.
+ */
+export function isNoTapStrike(standing: number, standingAtThrow: number, noTap: number): boolean {
+  return standingAtThrow === 10 && standing <= 10 - noTap;
+}
+
 export interface RollStats {
   strikes: number;
   strikeChances: number;

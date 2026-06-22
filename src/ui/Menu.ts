@@ -74,6 +74,16 @@ const OIL_PATTERNS: { key: OilPattern; label: string; desc: string }[] = [
   { key: 'house', label: '하우스', desc: '표준 — 훅이 가장 잘 통하는 친화적 패턴' },
   { key: 'short', label: '숏', desc: '일찍 깨짐 — 풀스핀은 과훅이라 라인을 다시 읽어야' },
   { key: 'long', label: '롱', desc: '늦게 깨짐 — 스키드 길고 훅 약함, 직진 강요' },
+  { key: 'cheetah', label: '치타', desc: 'PBA 33ft — 최단, 일찍 꺾임·외곽 정밀' },
+  { key: 'scorpion', label: '스콜피온', desc: 'PBA 42ft — 하우스보다 늦게 깨짐' },
+  { key: 'shark', label: '샤크', desc: 'PBA 48ft — 최장, 직진 강요·포켓각 난해' },
+];
+
+/** 노탭 옵션 (풀랙에서 value개 이상 = 스트라이크). 10=끔. 결과는 비공식이라 통계 제외. */
+const NOTAP_OPTIONS: { value: number; label: string; desc: string }[] = [
+  { value: 10, label: '끔', desc: '표준 — 10핀 다 쓰러뜨려야 스트라이크' },
+  { value: 9, label: '9핀', desc: '9개↑ = 스트라이크 (가장 흔한 노탭)' },
+  { value: 8, label: '8핀', desc: '8개↑ = 스트라이크 (더 쉬움·캐주얼)' },
 ];
 
 const AIM_AIDS: { key: AimAid; label: string; desc: string }[] = [
@@ -109,6 +119,7 @@ export class MenuUI {
   private difficulty: Difficulty = 'beginner'; // 난이도 프리셋 (P3 §2.7) — 오일+예측선 큐레이션
   private oilPattern: OilPattern = 'house'; // 오일 패턴 (P3) — 초급 프리셋과 일치
   private aimAid: AimAid = 'easy'; // 예측선 난이도 (P3, UI 전용) — 기본 easy(§2.7)
+  private noTap = 10; // 노탭 임계 (10=끔, 9/8) — 결과가 비공식이라 통계/하이스코어 제외 모드
   private selectedSkin: string = loadRewards().selectedSkin; // 장착 볼 스킨 (보상)
 
   constructor(
@@ -317,6 +328,23 @@ export class MenuUI {
     }
     customWrap.appendChild(oilRow);
 
+    // 커스텀 — 노탭 (풀랙에서 임계 핀↑ = 스트라이크). 비공식이라 통계/하이스코어 제외.
+    customWrap.appendChild(this.sectionLabel('노탭 (비공식)'));
+    const noTapRow = document.createElement('div');
+    css(noTapRow, { display: 'flex', gap: '8px', marginBottom: '14px' });
+    const noTapBtns = new Map<number, HTMLButtonElement>();
+    for (const nt of NOTAP_OPTIONS) {
+      const b = this.chipButton(nt.label, nt.desc);
+      b.onclick = () => {
+        this.noTap = nt.value;
+        this.refreshChips(noTapBtns, this.noTap);
+      };
+      noTapBtns.set(nt.value, b);
+      noTapRow.appendChild(b);
+    }
+    this.refreshChips(noTapBtns, this.noTap);
+    customWrap.appendChild(noTapRow);
+
     // 커스텀 — 조준 보조 (예측선 난이도, 점수·물리 무영향)
     customWrap.appendChild(this.sectionLabel('조준 보조'));
     const aimRow = document.createElement('div');
@@ -431,7 +459,7 @@ export class MenuUI {
       }
     }
     this.hide();
-    this.onStart({ mode: this.mode, players, oilPattern: this.oilPattern, aimAid: this.aimAid });
+    this.onStart({ mode: this.mode, players, oilPattern: this.oilPattern, aimAid: this.aimAid, noTap: this.noTap });
   }
 
   // --- 결과 화면 ---
