@@ -39,6 +39,14 @@ export class CameraRig {
     this.lobbyAvatar = o;
   }
 
+  /**
+   * 외부 연출(리플레이 §12.2)이 카메라를 직접 몰고 난 뒤 호출 — 다음 update가 현재 카메라
+   * 위치(basePos)부터 다시 스무딩하도록 리셋해, 리플레이 종료 시 위치 점프(snap)를 없앤다.
+   */
+  resync() {
+    this.inited = false;
+  }
+
   /** 임팩트 신호 (Boot에서 engine.onContact 배선). contact force → 셰이크 누적. */
   addShake(magnitude: number) {
     if (!SHAKE_ENABLED) return; // 셰이크 OFF — 슬로모+사운드만으로 손맛 검증 중

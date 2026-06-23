@@ -267,7 +267,10 @@ export class GameState {
    * 트리거 빈도를 줄이려면: PIN_CONTACT_Z 상향, ball===1 게이트 추가, 또는 magnitude 임계 추가.
    */
   notifyImpact() {
-    if (this.slowmoUsed || this.state !== 'ROLLING') return;
+    // ROLLING뿐 아니라 SETTLING도 허용 — 사이드/코너 핀(7·10 등)은 공이 거터 진입·핀덱 통과로
+    // 이미 SETTLING이 된 뒤 늦게 맞는 일이 많아, ROLLING 전용 게이트에 막혀 크래시 사운드·슬로모가
+    // 통째로 누락되던 버그 보정. (순수 거터볼은 핀이 안 움직여 hit=false → 여전히 무음, 의도 유지.)
+    if (this.slowmoUsed || (this.state !== 'ROLLING' && this.state !== 'SETTLING')) return;
     // 실제로 핀이 맞아 움직이기 시작한 순간에만 발동. 거터·빗나감·핀 옆 통과(어떤 핀도
     // 안 움직임)엔 사운드·슬로모 둘 다 없음. z평면 통과 기준은 핀이 이미 치워진 자리(2구)나
     // 핀을 안 건드리고 지나가도 헛발동했다 → 핀 실제 움직임으로 판정(가장 견고).

@@ -417,7 +417,7 @@ AI=[GameState.ts:336](../src/game/GameState.ts) `update` AIMING case→throwBall
 - **⚠️ 구현 함의 (RELEASING 상태):** 스윙 비주얼용으로 추가한 `RELEASING`([GameState.ts](../src/game/GameState.ts) `GameStateName` · `beginRelease` · `RELEASE_SWING_SEC`)은 **보여줄 액터가 사라진다.** → 권장: `throwBall`을 즉시 `ROLLING` flip으로 되돌리고 `RELEASING` 코스메틱 제거(§11② M1의 역작업). 카메라 `AIMING`/`RELEASING` 공유 case도 정리. ⚠️ **"릴리스 타이밍"(파워밴드 골드 구간, [Controls.ts](../src/input/Controls.ts))은 별개 메커닉 — 유지**(§5.1 용어 구분).
 - **임베디드 연속성 (열린 질문):** 로비는 아바타로 걷는데 레인에서 몸이 사라지는 끊김. 현재는 **궤적 가독 우선**으로 수용. 후속에 "정적 프레즌스(서 있는 실루엣, 스윙 없음, 공 안 가리는 위치)"로 보완 가능.
 
-### 12.2 특별샷 리플레이 — 스냅샷 방식 ("비싼 버전"이지만 싸다)
+### 12.2 특별샷 리플레이 — 스냅샷 방식 ("비싼 버전"이지만 싸다) ✅ (구현됨)
 
 - **결정:** `strike` · `spare` · `splitConverted` 에만 짧은 리플레이. **매 투구 금지**(PBA 실증 + juice 절제). 트리거는 이미 있는 [Boot.ts](../src/core/Boot.ts) `game.onEvent`.
 - **두 방식:**
@@ -431,6 +431,8 @@ AI=[GameState.ts:336](../src/game/GameState.ts) `update` AIMING case→throwBall
 - **인프라 재활용:** [Engine.ts](../src/core/Engine.ts)가 보간용으로 이미 매 스텝 `curPos`/`curQuat`를 추적 → 리플레이 레코더 = "그 값을 링버퍼에 push" + 재생 시 보간. 신규 인프라 최소.
 - **프리즈 프레임:** 라이브 흐름엔 넣지 않음(과함). **리플레이 안에서만** 핀 산개 프레임에 1~2프레임 프리즈 — 스냅샷이 탐색 가능이라 자연히 됨.
 - **Rapier 로컬 결정론:** WASM 빌드는 같은 기기·같은 입력이면 동일 결과(`enhanced-determinism`이면 크로스플랫폼 bit-level). 같은 기기 즉시 재생엔 로컬 결정론으로 충분 → 릴리스 파라미터만 기록해 재시뮬하는 초경량 옵션도 열림. 단 고정 dt·비RNG 전제라 취약 → **스냅샷 우선, 재시뮬은 후속 최적화.**
+
+- **구현 메모 (v4.1):** [Replay.ts](../src/scene/Replay.ts) — ROLLING/SETTLING 동안 2 물리스텝마다(30/s) 공+핀 11개 transform을 `Float32Array(77)` 링버퍼에 녹화(상한 360, ~수십KB). 트리거는 [Boot.ts](../src/core/Boot.ts) `game.onEvent`의 strike·spare·splitConverted. 재생 중 [Loop.ts](../src/core/Loop.ts) `paused`로 물리·sync 정지(누적기 동결 → 재개 폭주 없음), 메시·카메라를 리플레이가 직접 소유(측면 3/4 트래킹, 게임플레이 후방 로우와 대비). 0.8배 슬로모 + 마지막 프레임 0.7s 프리즈. 종료 시 [Engine.ts](../src/core/Engine.ts) `snapToBodies()`로 라이브(리셋된 랙)에 즉시 일치 + [CameraRig.ts](../src/camera/CameraRig.ts) `resync()`로 카메라 스무딩 인계 → 점프 없는 복귀. 전체화면 스킵 레이어(z25, 버튼 아래)로 탭 시 건너뛰기. 마지막 프레임 결정타는 `gameOver`에서 `cancel()`로 접어 결과화면과 겹치지 않게 함. ⚠️ **실기 비주얼 미확인**(tsc·테스트 통과) — 카메라 각도·재생 속도·스킵 UX는 눈으로 보고 튜닝 필요.
 
 ### 12.3 로비 리얼리즘 튜닝
 

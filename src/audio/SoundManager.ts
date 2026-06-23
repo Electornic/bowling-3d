@@ -411,8 +411,8 @@ export class SoundManager {
   private musicStep = 0;
   private musicNextTime = 0;
   private musicOn = false;
-  private readonly musicVol = 0.5; // 메뉴/결과 풀 레벨 (배경이라 작게)
-  private readonly musicMatchVol = 0.14; // 매치 중 잔잔한 배경 레벨 — 굴림·크래시 SFX와 안 싸울 만큼 죽임
+  private readonly musicVol = 0.6; // 메뉴/결과 풀 레벨 (배경이라 작게)
+  private readonly musicMatchVol = 0.2; // 매치 중 잔잔한 배경 레벨 — 굴림·크래시 SFX와 안 싸울 만큼 죽임
   // I–V–vi–IV (C장조) — 보편적으로 듣기 좋은 진행. 코드당 8스텝(16분음표)×4코드 = 32스텝 루프.
   // arp=아르페지오 노트(MIDI), bass=루트 저음(MIDI).
   private readonly MUSIC_PROG = [

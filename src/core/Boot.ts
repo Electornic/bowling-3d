@@ -7,6 +7,7 @@ import { Lobby } from '../scene/Lobby';
 import { Transition, type LogSeg } from '../ui/Transition';
 import { Ball } from '../scene/Ball';
 import { PinSet } from '../scene/PinSet';
+import { Replay } from '../scene/Replay';
 import { GameState } from '../game/GameState';
 import { Hud } from '../ui/Hud';
 import { MenuUI } from '../ui/Menu';
@@ -41,12 +42,22 @@ export async function boot() {
   document.documentElement.style.setProperty('--col-edge', 'max(0px, calc((100vw - 1440px) / 2))');
 
   const engine = new Engine();
-  const { game, controls, cameraRig, environment, sound, exitBtn, island, refreshIsland, lobby, lobbyEnterBtn, lobbyExitBtn } = buildScene(engine);
+  const { game, controls, cameraRig, environment, sound, exitBtn, island, refreshIsland, lobby, lobbyEnterBtn, lobbyExitBtn, replay } = buildScene(engine);
   let shadowMoving = true; // 그림자 정적화 상태 추적 (§6)
   const loop = new Loop(
     engine,
-    (dt) => game.update(dt), // 물리 스텝마다 상태머신 (+레인 마찰 전환)
     (dt) => {
+      replay.record(game.state); // update 전 캡처 — SETTLING 종료 프레임까지 녹화 (§12.2)
+      game.update(dt); // 물리 스텝마다 상태머신 (+레인 마찰 전환)
+    },
+    (dt) => {
+      // 리플레이 재생 중: 메시·카메라를 리플레이가 소유 → 컨트롤/카메라릭 스킵, 전광판만 유지.
+      // (물리·sync는 loop.paused로 정지. 종료 시 Engine.snapToBodies + cameraRig.resync로 라이브 인계.)
+      if (replay.active) {
+        replay.update(dt);
+        environment.update(dt);
+        return;
+      }
       controls.update(dt); // 렌더 프레임마다 UI(조준선·게이지) — dt 기반 파워 차징(프레임레이트 독립)
       if (game.state === 'LOBBY') lobby.update(dt); // 로비 아바타 이동(비물리) — 카메라가 따라붙기 전에
       cameraRig.update(dt); // 상태별 카메라 연출
@@ -72,6 +83,9 @@ export async function boot() {
   );
   game.setTimeScale = (s) => {
     loop.timeScale = s; // AI 턴 빨리감기 (P2 슬로모도 같은 인프라)
+  };
+  replay.setPaused = (p) => {
+    loop.paused = p; // 리플레이 재생 중 라이브 물리·sync 정지 (§12.2)
   };
   loop.start();
 
@@ -149,6 +163,7 @@ function buildScene(engine: Engine): {
   lobby: Lobby;
   lobbyEnterBtn: HTMLButtonElement;
   lobbyExitBtn: HTMLButtonElement;
+  replay: Replay;
 } {
   const settings = loadSettings();
   engine.setQuality(settings.quality === 'high'); // 저장된 그래픽 품질 적용 (기본 high)
@@ -164,6 +179,9 @@ function buildScene(engine: Engine): {
   const lobby = new Lobby(engine);
   cameraRig.setLobbyAvatar(lobby.avatar); // §11 M4 — LOBBY 팔로우 대상 주입
   const transition = new Transition(); // 로비↔레인 로딩 전환 (터미널 로더 톤)
+  // 특별샷 리플레이 (§12.2) — onStep에서 녹화, onEvent(strike/spare/splitConverted)에서 재생.
+  // 종료 후 cameraRig.resync로 라이브 카메라가 현재 위치부터 부드럽게 인계받는다.
+  const replay = new Replay(engine, ball, pins, () => cameraRig.resync());
 
   // 매치 시작 출처 — 결과 후 복귀처 결정(로비 경유=로비로, 메뉴 직접=메뉴로). hotseat는 로비 미경유라 항상 menu(§11 H3).
   let matchOrigin: 'menu' | 'lobby' = 'menu';
@@ -290,21 +308,27 @@ function buildScene(engine: Engine): {
       case 'strike': {
         const label =
           e.streak >= 4 ? `${e.streak} BAGGER!!` : e.streak === 3 ? 'TURKEY!!' : e.streak === 2 ? 'DOUBLE!' : 'STRIKE!';
-        environment.announce(label, '#ff2d78');
+        // 전광판은 리플레이의 핀 임팩트 순간에 맞춰 띄운다(싱크, §12.2). 리플레이 미발동 시 즉시.
+        const announce = () => environment.announce(label, '#ff2d78');
+        if (!replay.start(label, announce)) announce();
         break;
       }
-      case 'spare':
-        environment.announce('SPARE!', '#22d3ee');
+      case 'spare': {
+        const announce = () => environment.announce('SPARE!', '#22d3ee');
+        if (!replay.start('SPARE!', announce)) announce();
         break;
+      }
       case 'gutter':
         environment.announce('GUTTER', '#9aa6bd'); // 탈색조 — 아쉬운 투구
         break;
       case 'split':
         environment.announce(`${e.label} 스플릿!`, '#ef6a6a');
         break;
-      case 'splitConverted':
-        environment.announce(`${e.label} 변환!`, '#4ade80');
+      case 'splitConverted': {
+        const announce = () => environment.announce(`${e.label} 변환!`, '#4ade80');
+        if (!replay.start(`${e.label} 변환`, announce)) announce();
         break;
+      }
       case 'turn':
         // AI 차례: 전광판 배너. 사람 차례 + 로컬 교대전(isHotseat): 기기 핸드오프 차단 오버레이 +
         // 입력 잠금. (vs AI에서 사람으로 돌아오는 건 같은 사람이라 핸드오프 불필요 → isHotseat 게이트.)
@@ -318,6 +342,7 @@ function buildScene(engine: Engine): {
         }
         break;
       case 'gameOver': {
+        replay.cancel(); // 마지막 결정타(스트라이크/스페어) 리플레이가 결과화면과 겹치지 않게 즉시 접음
         const sm = e.summary;
         // 로컬 교대전(사람 2인)은 파티 모드 — 소유자 업적/하이스코어를 건드리지 않는다
         // (GameState.gameOver의 통계 생략과 동일 기준). 솔로·vs AI만 업적 평가.
@@ -474,6 +499,7 @@ function buildScene(engine: Engine): {
     __sound?: SoundManager;
     __enterLobby?: () => void;
     __lobby?: Lobby;
+    __replay?: Replay;
     __unlockAllRewards?: () => void;
     __resetRewards?: () => void;
   };
@@ -485,6 +511,7 @@ function buildScene(engine: Engine): {
   w.__sound = sound;
   w.__enterLobby = enterLobby; // [DEV] 콘솔에서 로비 진입 (검증용)
   w.__lobby = lobby; // [DEV] 로비 인스턴스 (검증용)
+  w.__replay = replay; // [DEV] 리플레이 인스턴스 (검증용)
   // [DEV] 보상 디버그 — 콘솔에서 호출 후 새로고침
   w.__unlockAllRewards = () => {
     recordRewards(ACHIEVEMENTS.map((a) => a.id));
@@ -495,5 +522,5 @@ function buildScene(engine: Engine): {
     console.log('[rewards] 초기화 완료 — 새로고침하세요');
   };
 
-  return { game, controls, cameraRig, environment, sound, exitBtn, island, refreshIsland, lobby, lobbyEnterBtn, lobbyExitBtn };
+  return { game, controls, cameraRig, environment, sound, exitBtn, island, refreshIsland, lobby, lobbyEnterBtn, lobbyExitBtn, replay };
 }
