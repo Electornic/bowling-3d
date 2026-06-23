@@ -26,12 +26,18 @@ export class CameraRig {
   private push = 0; // 현재 push-in 진행도 0..1 (실시간 이징)
   private pushHold = 0; // 남은 최대근접 유지 시간 (실시간 s)
   private menuTime = 0; // MENU 카메라 슬로우 스웨이용
+  private lobbyAvatar?: THREE.Object3D; // LOBBY 팔로우 대상 (Boot가 주입, §11 M4)
 
   constructor(
     private readonly engine: Engine,
     private readonly game: GameState,
     private readonly ball: Ball,
   ) {}
+
+  /** 로비 아바타 주입 (§11 M4) — LOBBY 상태의 3인칭 팔로우 대상. */
+  setLobbyAvatar(o: THREE.Object3D) {
+    this.lobbyAvatar = o;
+  }
 
   /** 임팩트 신호 (Boot에서 engine.onContact 배선). contact force → 셰이크 누적. */
   addShake(magnitude: number) {
@@ -72,6 +78,16 @@ export class CameraRig {
         pz = -3.4;
         tx = 0; ty = 0.2; tz = 9;
         break;
+      case 'LOBBY': {
+        // 3인칭 팔로우 — 아바타 뒤(−z)에서 레인(+z)을 보는 체이스캠. 월드축 고정(facing 무관)이라
+        // 조작이 화면 직관과 일치. 스무딩(k)이 따라붙음을 부드럽게 흡수. (§4 권장 계수대 정합)
+        const a = this.lobbyAvatar?.position;
+        if (a) {
+          px = a.x; py = 2.4; pz = a.z - 3.8;
+          tx = a.x; ty = 0.9; tz = a.z + 2.5;
+        }
+        break;
+      }
       case 'AIMING':
         // 낮고 가까운 1인칭 느낌 — 레인이 화면을 채우고 원근이 살도록
         px = 0; py = 1.12; pz = -2.7;

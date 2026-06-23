@@ -487,7 +487,8 @@ export class Controls {
     }
 
     // 메뉴/AI 턴/핸드오프(교대전)엔 입력 UI 전체 숨김 (로드맵 P1/P1.5/P4)
-    const inGame = this.game.state !== 'MENU' && this.game.isHumanTurn() && !this.game.inputLocked;
+    const inGame =
+      this.game.state !== 'MENU' && this.game.state !== 'LOBBY' && this.game.isHumanTurn() && !this.game.inputLocked;
     this.spinWrap.style.display = inGame ? '' : 'none';
     this.powerWrap.style.display = inGame ? '' : 'none';
 

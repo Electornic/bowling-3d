@@ -39,6 +39,9 @@ interface Tracked extends PhysicsObject {
 export class Engine {
   readonly renderer: THREE.WebGLRenderer;
   readonly scene: THREE.Scene;
+  /** 로비(대기실) 전용 씬 — 레인 씬과 분리해 렌더 (OPEN_WORLD_LOBBY 슬라이스 2: 별도 공간). */
+  readonly lobbyScene: THREE.Scene;
+  private rendered!: THREE.Scene; // 현재 렌더 대상 (기본 레인 씬, setScreen으로 스왑)
   readonly camera: THREE.PerspectiveCamera;
   readonly world: RAPIER.World;
   private readonly eventQueue: RAPIER.EventQueue;
@@ -80,6 +83,18 @@ export class Engine {
     const pmrem = new THREE.PMREMGenerator(this.renderer);
     this.scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
     this.scene.environmentIntensity = 0.4; // 환경 반사 톤 다운 (레인 과노출 방지)
+
+    // --- 로비 씬 (별도 공간, 슬라이스 2) --- 레인 씬과 분리 → 자체 배경·조명, 환경맵은 공유.
+    this.lobbyScene = new THREE.Scene();
+    this.lobbyScene.background = new THREE.Color(0x0a0814);
+    this.lobbyScene.fog = new THREE.Fog(0x0a0814, 11, 34);
+    this.lobbyScene.environment = this.scene.environment;
+    this.lobbyScene.environmentIntensity = 0.5;
+    this.lobbyScene.add(new THREE.AmbientLight(0xffffff, 0.55));
+    const lobbyDir = new THREE.DirectionalLight(0xffffff, 1.0);
+    lobbyDir.position.set(3, 10, -4);
+    this.lobbyScene.add(lobbyDir);
+    this.rendered = this.scene; // 기본 = 레인 씬 (MENU 시네마틱 배경도 레인)
 
     // --- 카메라 ---
     this.camera = new THREE.PerspectiveCamera(
@@ -154,6 +169,16 @@ export class Engine {
     this.scene.add(mesh);
   }
 
+  /** 로비 씬에 시각 객체 추가 (레인 씬과 분리, 슬라이스 2). */
+  addLobby(obj: THREE.Object3D) {
+    this.lobbyScene.add(obj);
+  }
+
+  /** 렌더 대상 화면 전환 — 'lobby'면 로비 씬, 아니면 레인 씬. 전환 순간은 로딩 오버레이가 덮는다. */
+  setScreen(which: 'lane' | 'lobby') {
+    this.rendered = which === 'lobby' ? this.lobbyScene : this.scene;
+  }
+
   /** 고정 timestep 물리 진행 + 보간용 prev/cur 갱신. 충돌 이벤트 drain (§10). */
   step(dt: number) {
     for (const o of this.objects) {
@@ -190,6 +215,6 @@ export class Engine {
   }
 
   render() {
-    this.renderer.render(this.scene, this.camera);
+    this.renderer.render(this.rendered, this.camera);
   }
 }

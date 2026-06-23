@@ -3,7 +3,7 @@
 > 작성: 2026-06-23 (오픈월드 개조 논의 세션). 현재 **"유령 볼러 + 레일 카메라 + DOM 메뉴"**
 > 구조 위에, **"걸어다니는 대기실 → 레인 접근 → 게임장(볼러 모션이 보이는)"** 흐름을 얹는 개조.
 >
-> **상태: 설계만(미구현).** 이 세션에서 실제 코드를 읽고 확인:
+> **상태: 슬라이스 1·2 구현됨 (develop, 미커밋) — 아래 "## 구현 현황" 참조.** 설계 시 실제 코드를 읽고 확인:
 > [Engine.ts](../src/core/Engine.ts) · [CameraRig.ts](../src/camera/CameraRig.ts) ·
 > [GameState.ts](../src/game/GameState.ts) · [ai.ts](../src/game/ai.ts) ·
 > [Environment.ts](../src/scene/Environment.ts) · [Lane.ts](../src/scene/Lane.ts) ·
@@ -25,6 +25,32 @@
 > [GAME_DESIGN.md](./GAME_DESIGN.md) (좌표·상태머신·카메라 연출) ·
 > [REWARDS.md](./REWARDS.md) (스킨 불변식) · [GAMEPLAY_ROADMAP.md](./GAMEPLAY_ROADMAP.md) ·
 > [APP_PACKAGING.md](./APP_PACKAGING.md) (Tauri 데스크탑/모바일).
+
+---
+
+## 구현 현황 (2026-06-23, develop · **미커밋**)
+
+이 문서는 설계서지만 아래가 **실제 구현·검증됨**. ⚠️ **중요 변경**: §2/§5는 로비→레인을 *한 씬 연속
+walk-in*으로 묘사하나, 사용자 요구로 **로비/레인 두 개의 별도 씬 + 터미널 로딩 전환**으로 구현됨.
+
+- **슬라이스 1 (로비 루프)** ✅ — `LOBBY` 상태 + `toLobby()`([GameState.ts](../src/game/GameState.ts)),
+  비물리 아바타 이동(WASD/방향키 + 터치 조이스틱), 3인칭 팔로우캠([CameraRig.ts](../src/camera/CameraRig.ts)
+  `setLobbyAvatar` + `LOBBY` case), 입장 포털 도달 → `startMatch`.
+- **슬라이스 2 (NPC)** ✅ — [ai.ts](../src/game/ai.ts) `kim/yoon/han`을 로비 캐릭터로(이름 라벨 Sprite +
+  근접 대사 버블 + `E`/탭 대결 → vs AI 매치).
+- **2-씬 아키텍처** ✅ — [Engine.ts](../src/core/Engine.ts) `lobbyScene`(레인 씬과 분리, 환경맵 공유) +
+  `setScreen('lane'|'lobby')` 렌더 스왑 + `addLobby()`. 로비 = 네온 그리드 라운지(레인·핀 안 보임).
+  전환은 [Transition.ts](../src/ui/Transition.ts) 터미널 로더 톤 오버레이가 **불투명 구간에 씬 스왑**해 가림.
+  로비 객체는 [Lobby.ts](../src/scene/Lobby.ts)가 `engine.addLobby`로 구축. 4경로 배선은 [Boot.ts](../src/core/Boot.ts).
+- 흐름: **메뉴 →(로딩)→ 로비 라운지 → 걷기 → 포털/NPC →(로딩)→ 레인 게임**. (`__enterLobby` DEV 글로벌로 진입)
+
+**다음 (문서 순서):** 슬라이스 3 — 볼러 모션(§7). 단 §5.1 "씬 3분할 금지"는 게임플레이(굴림→임팩트) 한정 —
+로비/레인 분리와는 무관(확인됨). 후속거리: 매치 종료 후 결과 "메뉴로" → 현재 MENU 복귀를 **로비 복귀**로
+바꾸면 더 자연스러움(Menu 결과 버튼 소폭 수정). 슬라이스 0 가로 락은 `tauri android/ios init` 후 매니페스트.
+
+> ⚠️ **검증 주의:** 헤드리스 프리뷰는 `document.hidden`이라 앱의 `visibilitychange → loop.stop()`로 RAF 루프가
+> 멈춘다(아바타가 안 움직여 보이는 등은 버그 아님). preview 검증 시 `__game`/`__engine`/`__cameraRig`/`__lobby`
+> 전역으로 `update()`·`render()`를 **수동 구동**해야 최신 프레임이 잡힌다.
 
 ---
 

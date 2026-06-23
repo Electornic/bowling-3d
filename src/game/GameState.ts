@@ -19,7 +19,7 @@ import { recordGame } from './Stats';
 import { resetOil, advanceOilDrying, type OilPattern } from './oil';
 import { CLASSIC_SKIN, type BallSkin } from './rewards';
 
-export type GameStateName = 'MENU' | 'AIMING' | 'ROLLING' | 'SETTLING' | 'GAME_OVER';
+export type GameStateName = 'MENU' | 'LOBBY' | 'AIMING' | 'ROLLING' | 'SETTLING' | 'GAME_OVER';
 export type GameMode = 'full' | 'blitz' | 'spare';
 /** 예측선 난이도 (조준 보조) — P3. UI 전용, 점수·물리 무영향. */
 export type AimAid = 'easy' | 'normal' | 'pro';
@@ -215,6 +215,24 @@ export class GameState {
     this.refreshHud();
   }
 
+  /**
+   * 로비로 진입/복귀 (메뉴 → 로비, 또는 매치 종료 후) — toMenu와 같은 리셋 +
+   * 오일/레인 시각을 기본값(house)으로 복원(§11 M3). 매치가 없어 update()는 LOBBY를 early-return.
+   */
+  toLobby() {
+    this.state = 'LOBBY';
+    this.players = [];
+    this.pins.resetAll();
+    this.ballObj.reset();
+    this.slowmoTimer = 0;
+    this.slowmoUsed = false;
+    this.inputLocked = false;
+    resetOil('house'); // M3: 직전 매치의 오일/마름 상태를 기본으로 되돌림
+    this.lane.applyOilVisual('house'); // 레인 광택 시트 기본 길이
+    this.setTimeScale?.(1);
+    this.refreshHud();
+  }
+
   /** BallPicker → 사람 공 스펙. AI 턴엔 저장만 하고 사람 차례에 적용. */
   setHumanBallSpec(spec: BallSpec) {
     this.humanSpec = spec;
@@ -266,7 +284,7 @@ export class GameState {
 
   /** Loop의 물리 스텝마다 호출 */
   update(dt: number) {
-    if (this.state === 'MENU' || this.state === 'GAME_OVER' || !this.players.length) return;
+    if (this.state === 'MENU' || this.state === 'LOBBY' || this.state === 'GAME_OVER' || !this.players.length) return;
 
     // 오일/드라이 마찰 전환 (단일 바닥 콜라이더, Lane.updateFriction 참고).
     // Loop가 아니라 여기 두는 이유: 수동 스텝 디버그(__engine.step + __game.update)에서도 동작해야 함

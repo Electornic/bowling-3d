@@ -3,6 +3,8 @@ import { Engine } from './Engine';
 import { Loop } from './Loop';
 import { Lane } from '../scene/Lane';
 import { Environment } from '../scene/Environment';
+import { Lobby } from '../scene/Lobby';
+import { Transition, type LogSeg } from '../ui/Transition';
 import { Ball } from '../scene/Ball';
 import { PinSet } from '../scene/PinSet';
 import { GameState } from '../game/GameState';
@@ -39,13 +41,14 @@ export async function boot() {
   document.documentElement.style.setProperty('--col-edge', 'max(0px, calc((100vw - 1440px) / 2))');
 
   const engine = new Engine();
-  const { game, controls, cameraRig, environment, sound, exitBtn, island, refreshIsland } = buildScene(engine);
+  const { game, controls, cameraRig, environment, sound, exitBtn, island, refreshIsland, lobby, lobbyEnterBtn, lobbyExitBtn } = buildScene(engine);
   let shadowMoving = true; // 그림자 정적화 상태 추적 (§6)
   const loop = new Loop(
     engine,
     (dt) => game.update(dt), // 물리 스텝마다 상태머신 (+레인 마찰 전환)
     (dt) => {
       controls.update(dt); // 렌더 프레임마다 UI(조준선·게이지) — dt 기반 파워 차징(프레임레이트 독립)
+      if (game.state === 'LOBBY') lobby.update(dt); // 로비 아바타 이동(비물리) — 카메라가 따라붙기 전에
       cameraRig.update(dt); // 상태별 카메라 연출
       environment.update(dt); // 전광판 애니메이션
       // 그림자 정적화: 공·핀이 멈춘 상태(AIMING/MENU/GAME_OVER)엔 셰도우맵 재렌더 중단,
@@ -57,11 +60,14 @@ export async function boot() {
         if (!moving) engine.renderer.shadowMap.needsUpdate = true; // 정지 직전 1회 갱신
       }
       // 인게임 '메뉴로' 버튼 + 상단 업적 아일랜드: 매치 중(MENU/GAME_OVER 외)에만 노출.
-      const inMatch = game.state !== 'MENU' && game.state !== 'GAME_OVER';
+      // 로비는 매치가 아니다 — 메뉴/아일랜드 숨김 + 메뉴 BGM 유지. 로비 전용 버튼은 상태로 토글.
+      const inMatch = game.state !== 'MENU' && game.state !== 'GAME_OVER' && game.state !== 'LOBBY';
       if (inMatch && exitBtn.style.display === 'none') refreshIsland(); // 매치 진입 시 진행도 1회 갱신
       exitBtn.style.display = inMatch ? 'block' : 'none';
       island.style.display = inMatch ? 'block' : 'none';
-      sound.setMenuMusic(!inMatch); // 메뉴·결과 화면에서만 배경음악 (매치 시작하면 페이드아웃). 멱등.
+      lobbyEnterBtn.style.display = game.state === 'MENU' ? 'block' : 'none';
+      lobbyExitBtn.style.display = game.state === 'LOBBY' ? 'block' : 'none';
+      sound.setMenuMusic(!inMatch); // 메뉴·로비·결과 화면에서 배경음악 (매치 시작하면 페이드아웃). 멱등.
     },
   );
   game.setTimeScale = (s) => {
@@ -140,6 +146,9 @@ function buildScene(engine: Engine): {
   exitBtn: HTMLButtonElement;
   island: HTMLButtonElement;
   refreshIsland: () => void;
+  lobby: Lobby;
+  lobbyEnterBtn: HTMLButtonElement;
+  lobbyExitBtn: HTMLButtonElement;
 } {
   const settings = loadSettings();
   engine.setQuality(settings.quality === 'high'); // 저장된 그래픽 품질 적용 (기본 high)
@@ -152,6 +161,9 @@ function buildScene(engine: Engine): {
   const game = new GameState(ball, pins, hud, lane);
   const controls = new Controls(engine, game, ball);
   const cameraRig = new CameraRig(engine, game, ball);
+  const lobby = new Lobby(engine);
+  cameraRig.setLobbyAvatar(lobby.avatar); // §11 M4 — LOBBY 팔로우 대상 주입
+  const transition = new Transition(); // 로비↔레인 로딩 전환 (터미널 로더 톤)
 
   // 메뉴/결과 화면 (로드맵 P1) — 시작 시 메뉴부터
   const menu = new MenuUI(
@@ -168,6 +180,92 @@ function buildScene(engine: Engine): {
   );
   game.setBallSkin(resolveSkin(loadRewards().selectedSkin)); // 저장된 장착 스킨 초기 적용
   menu.showMenu();
+
+  // --- 오픈월드 로비 (docs/OPEN_WORLD_LOBBY.md 슬라이스 1) — 비침투적: 기존 메뉴/결과 흐름 유지 ---
+  // 메뉴 '로비 둘러보기' → 걸어다님 → 레인 트리거 → startMatch. 종료 후 결과화면 '메뉴로'는 기존대로.
+  // 전환 로딩 로그 (터미널 톤) — swap()이 불투명 구간에 실행돼 씬 교체를 가린다.
+  const LANE_LINES: LogSeg[][] = [
+    [['> ', 'dim'], ['entering lane... ', ''], ['OK', 'ok']],
+    [['> ', 'dim'], ['racking pins ', ''], ['[||||||||||]', 'ac'], [' 10/10', '']],
+  ];
+  const LOBBY_LINES: LogSeg[][] = [
+    [['> ', 'dim'], ['entering lobby... ', ''], ['OK', 'ok']],
+    [['> ', 'dim'], ['NEON LANES', 'ac']],
+  ];
+  const MENU_LINES: LogSeg[][] = [[['> ', 'dim'], ['returning to menu... ', ''], ['OK', 'ok']]];
+  const enterLobby = () => {
+    transition.play(LOBBY_LINES, () => {
+      menu.hide();
+      game.toLobby();
+      engine.setScreen('lobby');
+      lobby.setActive(true);
+    });
+  };
+  const exitLobby = () => {
+    transition.play(MENU_LINES, () => {
+      lobby.setActive(false);
+      game.toMenu();
+      engine.setScreen('lane'); // 메뉴는 레인 시네마틱 배경
+      menu.showMenu();
+    });
+  };
+  lobby.onEnterLane = () => {
+    // 포털 진입 = 빠른 솔로 풀게임 (슬라이스 1 기본값; §6.1 레인 앞 시작 패널은 후속)
+    transition.play(LANE_LINES, () => {
+      lobby.setActive(false);
+      engine.setScreen('lane');
+      game.startMatch({ mode: 'full', players: [{ name: '나' }] });
+    });
+  };
+  lobby.onChallenge = (profile) => {
+    // NPC 대결 = vs AI 풀게임 (§6 "NPC 선택 = 상대 선택").
+    transition.play(LANE_LINES, () => {
+      lobby.setActive(false);
+      engine.setScreen('lane');
+      game.startMatch({ mode: 'full', players: [{ name: '나' }, { name: profile.name, ai: profile }] });
+    });
+  };
+  const lobbyEnterBtn = document.createElement('button');
+  lobbyEnterBtn.textContent = '🚶 로비 둘러보기';
+  lobbyEnterBtn.style.cssText = [
+    'position:fixed',
+    'left:50%',
+    'bottom:calc(28px + env(safe-area-inset-bottom))',
+    'transform:translateX(-50%)',
+    'z-index:60', // 메뉴 백드롭(z=40) 위로
+    'display:none',
+    'padding:12px 22px',
+    'border-radius:999px',
+    'border:1px solid rgba(34,211,238,0.5)',
+    'background:rgba(14,17,27,0.9)',
+    'color:#e8edf5',
+    'font:800 15px/1 system-ui, sans-serif',
+    'letter-spacing:0.02em',
+    'cursor:pointer',
+    'box-shadow:0 0 20px rgba(34,211,238,0.3)',
+  ].join(';');
+  lobbyEnterBtn.onclick = enterLobby;
+  document.body.appendChild(lobbyEnterBtn);
+  const lobbyExitBtn = document.createElement('button');
+  lobbyExitBtn.textContent = '← 메뉴';
+  lobbyExitBtn.style.cssText = [
+    'position:fixed',
+    'top:calc(8px + env(safe-area-inset-top))',
+    'left:calc(var(--col-edge, 0px) + 8px + env(safe-area-inset-left))',
+    'z-index:30',
+    'display:none',
+    'padding:8px 12px',
+    'min-height:40px',
+    'border-radius:10px',
+    'border:1px solid rgba(255,255,255,0.2)',
+    'background:rgba(14,17,27,0.82)',
+    'color:#e8edf5',
+    'font:700 13px/1 system-ui, sans-serif',
+    'cursor:pointer',
+    'backdrop-filter:blur(4px)',
+  ].join(';');
+  lobbyExitBtn.onclick = exitLobby;
+  document.body.appendChild(lobbyExitBtn);
 
   // 게임 이벤트 → 연출. 모든 이벤트 텍스트는 전광판(diegetic)에만 표시 — HUD 중앙 배너 중복 제거.
   game.onEvent = (e) => {
@@ -277,7 +375,7 @@ function buildScene(engine: Engine): {
   const forfeit = () => {
     // 핸드오프 오버레이 중엔 일시정지 진입 금지 — pause가 핸드오프를 덮으면 inputLocked가 안 풀린 채
     // 게임으로 복귀하는 교착이 생긴다(핸드오프는 '내 차례 시작' 버튼으로만 닫힘).
-    if (game.state === 'MENU' || game.state === 'GAME_OVER' || game.inputLocked) return;
+    if (game.state === 'MENU' || game.state === 'LOBBY' || game.state === 'GAME_OVER' || game.inputLocked) return;
     // 인게임 일시정지 모달: 계속하기 + 안전 설정(사운드·햅틱·그래픽) + 포기. 토글은 즉시 적용 후 저장.
     // (네이티브 confirm()은 iOS 웹뷰/시뮬레이터에서 안 떠 못 씀 — 앱 내부 오버레이로 처리.)
     menu.showPause({
@@ -306,7 +404,9 @@ function buildScene(engine: Engine): {
   exitBtn.onclick = forfeit;
   document.body.appendChild(exitBtn);
   window.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape') forfeit();
+    if (e.key !== 'Escape') return;
+    if (game.state === 'LOBBY') exitLobby(); // 로비에선 Esc = 메뉴로
+    else forfeit();
   });
 
   // 인게임 상단 중앙 '업적 아일랜드' (Dynamic Island 느낌의 알약 pill) — 탭하면 컬렉션(업적+스킨) 모달.
@@ -355,6 +455,8 @@ function buildScene(engine: Engine): {
     __game?: GameState;
     __cameraRig?: CameraRig;
     __sound?: SoundManager;
+    __enterLobby?: () => void;
+    __lobby?: Lobby;
     __unlockAllRewards?: () => void;
     __resetRewards?: () => void;
   };
@@ -364,6 +466,8 @@ function buildScene(engine: Engine): {
   w.__game = game;
   w.__cameraRig = cameraRig;
   w.__sound = sound;
+  w.__enterLobby = enterLobby; // [DEV] 콘솔에서 로비 진입 (검증용)
+  w.__lobby = lobby; // [DEV] 로비 인스턴스 (검증용)
   // [DEV] 보상 디버그 — 콘솔에서 호출 후 새로고침
   w.__unlockAllRewards = () => {
     recordRewards(ACHIEVEMENTS.map((a) => a.id));
@@ -374,5 +478,5 @@ function buildScene(engine: Engine): {
     console.log('[rewards] 초기화 완료 — 새로고침하세요');
   };
 
-  return { game, controls, cameraRig, environment, sound, exitBtn, island, refreshIsland };
+  return { game, controls, cameraRig, environment, sound, exitBtn, island, refreshIsland, lobby, lobbyEnterBtn, lobbyExitBtn };
 }
