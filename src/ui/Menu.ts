@@ -435,7 +435,7 @@ export class MenuUI {
   }
 
   // --- 결과 화면 ---
-  showResult(summary: GameSummary, fresh: string[] = []) {
+  showResult(summary: GameSummary, fresh: string[] = [], returnLabel = '메뉴로') {
     this.panel.replaceChildren();
     const solo = summary.players.length === 1;
     const me = summary.players[0];
@@ -544,7 +544,7 @@ export class MenuUI {
     });
     again.onclick = () => this.start(); // 같은 설정으로 재시작
     const menu = document.createElement('button');
-    menu.textContent = '메뉴로';
+    menu.textContent = returnLabel;
     css(menu, {
       flex: '1',
       padding: '11px',
@@ -556,8 +556,8 @@ export class MenuUI {
       cursor: 'pointer',
     });
     menu.onclick = () => {
+      // 복귀처(메뉴/로비)는 Boot의 onMenu(returnFromMatch)가 origin 기준으로 결정 — 여기서 화면을 직접 띄우지 않는다
       this.onMenu();
-      this.showMenu();
     };
     btnRow.appendChild(again);
     btnRow.appendChild(menu);
