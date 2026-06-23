@@ -89,9 +89,7 @@ export class CameraRig {
         break;
       }
       case 'AIMING':
-      case 'RELEASING':
         // 낮고 가까운 1인칭 느낌 — 레인이 화면을 채우고 원근이 살도록.
-        // (RELEASING: 스윙 중 같은 구도 유지 — 볼러 클로즈업 분리는 3c, §11 M2/M4)
         px = 0; py = 1.12; pz = -2.7;
         tx = 0; ty = -0.05; tz = 7.5;
         break;

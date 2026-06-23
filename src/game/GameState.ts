@@ -19,7 +19,7 @@ import { recordGame } from './Stats';
 import { resetOil, advanceOilDrying, type OilPattern } from './oil';
 import { CLASSIC_SKIN, type BallSkin } from './rewards';
 
-export type GameStateName = 'MENU' | 'LOBBY' | 'AIMING' | 'RELEASING' | 'ROLLING' | 'SETTLING' | 'GAME_OVER';
+export type GameStateName = 'MENU' | 'LOBBY' | 'AIMING' | 'ROLLING' | 'SETTLING' | 'GAME_OVER';
 export type GameMode = 'full' | 'blitz' | 'spare';
 /** 예측선 난이도 (조준 보조) — P3. UI 전용, 점수·물리 무영향. */
 export type AimAid = 'easy' | 'normal' | 'pro';
@@ -93,8 +93,6 @@ export const SPARE_LEAVES: number[][] = [
 
 const AI_THINK_TIME = 0.9; // AI 투구 전 대기 (s, 시뮬 시간)
 const AI_FAST_FORWARD = 1; // AI 턴 ROLLING/SETTLING 빨리감기 배속 (1=실시간, 공 굴림을 그대로 봄. 빨리감기 원하면 2~3)
-/** 볼러 스윙(백스윙→다운스윙→릴리스) 길이 (sim s). 릴리스 프레임에 Ball.launch (M1/§7). 3b에서 비주얼 키프레임과 동기. */
-const RELEASE_SWING_SEC = 0.55;
 
 /**
  * 투구 루프 상태머신 (도안 §6 + 로드맵 P1/P1.5).
@@ -135,11 +133,6 @@ export class GameState {
   private slowmoTimer = 0; // 남은 슬로모 시간 (sim s) — Loop.timeScale로 환산 적용
   private slowmoTotal = 1; // 발동 시점 timer 값 (진행도 0..1 산출 → 복원 이징)
   private slowmoUsed = false; // 투구당 1회 (매 throwBall 리셋)
-  // 릴리스(볼러 스윙, M1) — throwBall이 즉시 발사 대신 RELEASING으로 들어가 스윙 후 launch
-  private releaseAim = 0;
-  private releasePower = 0;
-  private releaseSpin = 0;
-  private releaseTimer = 0; // 남은 스윙 시간 (sim s); 0 도달 프레임에 launch + ROLLING
 
   constructor(
     private readonly ballObj: Ball,
@@ -162,11 +155,6 @@ export class GameState {
   }
   get currentPlayer(): PlayerState | undefined {
     return this.players[this.current];
-  }
-
-  /** RELEASING 스윙 진행도 0→1 (Bowler 동기용, 3b). 그 외 상태에선 0. */
-  get releaseProgress(): number {
-    return this.state === 'RELEASING' ? 1 - this.releaseTimer / RELEASE_SWING_SEC : 0;
   }
 
   /** 입력(Controls/BallPicker)이 사람 차례인지 확인 */
@@ -258,29 +246,18 @@ export class GameState {
   }
 
   /**
-   * 입력에서 호출: 발사 시퀀스 시작 (spin ∈ [-1,1] 좌/우 훅). M1 — 즉시 launch 대신 RELEASING으로
-   * 들어가 볼러 스윙(RELEASE_SWING_SEC) 후, 다운스윙 릴리스 프레임에 실제 발사한다(update RELEASING case).
-   * 사람·AI·마지막프레임 보너스 투구가 전부 이 단일 통로를 지난다(H1 — 매 AIMING→발사마다 스윙).
+   * 입력에서 호출: 즉시 발사 → ROLLING (spin ∈ [-1,1] 좌/우 훅).
+   * 사람·AI·마지막프레임 보너스 투구가 전부 이 단일 통로를 지난다.
    */
   throwBall(aim: number, power: number, spin = 0) {
     if (this.state !== 'AIMING' || !this.players.length) return;
     this.standingAtThrow = this.pins.standingCount();
-    this.releaseAim = aim;
-    this.releasePower = power;
-    this.releaseSpin = spin;
-    this.releaseTimer = RELEASE_SWING_SEC;
-    this.state = 'RELEASING';
     this.slowmoUsed = false;
     this.slowmoTimer = 0;
     this.gutterSettled = false;
-    this.refreshHud();
-  }
-
-  /** RELEASING 종료(스윙 릴리스 프레임) — 보관한 파라미터로 실제 발사 → ROLLING. */
-  private releaseBall() {
-    this.ballObj.launch(this.releaseAim, this.releasePower, this.releaseSpin);
-    this.state = 'ROLLING';
+    this.ballObj.launch(aim, power, spin);
     this.settleTimer = 0;
+    this.state = 'ROLLING';
     this.refreshHud();
   }
 
@@ -362,12 +339,6 @@ export class GameState {
           this.throwBall(t.aim, t.power, t.spin);
         }
       }
-    } else if (this.state === 'RELEASING') {
-      // 볼러 스윙 진행 — 타이머 만료(릴리스 프레임)에 실제 발사. RELEASING은 슬로모(ROLLING 이후)·
-      // AI 빨리감기(ROLLING/SETTLING 한정) 둘 다와 시간상 안 겹쳐 dt=실시간 (M2). AI 빨리감기 상향 시
-      // 스윙 동반 가속은 3c에서.
-      this.releaseTimer -= dt;
-      if (this.releaseTimer <= 0) this.releaseBall();
     } else if (this.state === 'ROLLING') {
       this.ballObj.applySpinForce(dt); // 훅 측면력 (도안 §4.1)
       const t = this.ballObj.body.translation();

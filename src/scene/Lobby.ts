@@ -291,6 +291,10 @@ export class Lobby {
       mx += this.joy.x;
       mz += this.joy.y;
     }
+    // 로비 체이스캠이 +z(포털)를 바라봐 월드 +x가 화면 왼쪽이다(우핸드 좌표계) — 입력 x를 뒤집어
+    // A=화면 왼쪽 · D=화면 오른쪽으로 맞춘다. 키보드·조이스틱·facing이 모두 이 mx를 쓰므로 한 줄로 일괄 교정.
+    // (후속: docs/OPEN_WORLD_LOBBY.md §12.4 카메라 시점 조절이 들어오면 카메라 yaw 기반 이동으로 일반화.)
+    mx = -mx;
     const len = Math.hypot(mx, mz);
     if (len > 1) {
       mx /= len;

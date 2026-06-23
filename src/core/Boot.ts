@@ -4,7 +4,6 @@ import { Loop } from './Loop';
 import { Lane } from '../scene/Lane';
 import { Environment } from '../scene/Environment';
 import { Lobby } from '../scene/Lobby';
-import { Bowler } from '../scene/Bowler';
 import { Transition, type LogSeg } from '../ui/Transition';
 import { Ball } from '../scene/Ball';
 import { PinSet } from '../scene/PinSet';
@@ -42,7 +41,7 @@ export async function boot() {
   document.documentElement.style.setProperty('--col-edge', 'max(0px, calc((100vw - 1440px) / 2))');
 
   const engine = new Engine();
-  const { game, controls, cameraRig, environment, sound, exitBtn, island, refreshIsland, lobby, bowler, lobbyEnterBtn, lobbyExitBtn } = buildScene(engine);
+  const { game, controls, cameraRig, environment, sound, exitBtn, island, refreshIsland, lobby, lobbyEnterBtn, lobbyExitBtn } = buildScene(engine);
   let shadowMoving = true; // 그림자 정적화 상태 추적 (§6)
   const loop = new Loop(
     engine,
@@ -51,15 +50,6 @@ export async function boot() {
       controls.update(dt); // 렌더 프레임마다 UI(조준선·게이지) — dt 기반 파워 차징(프레임레이트 독립)
       if (game.state === 'LOBBY') lobby.update(dt); // 로비 아바타 이동(비물리) — 카메라가 따라붙기 전에
       cameraRig.update(dt); // 상태별 카메라 연출
-      // 슬라이스 3b: 절차적 볼러 — 레인 매치 중 표시, RELEASING에 스윙 동기(progress=1=launch 프레임).
-      {
-        const st = game.state;
-        const onLane = st === 'AIMING' || st === 'RELEASING' || st === 'ROLLING' || st === 'SETTLING';
-        bowler.setVisible(onLane);
-        if (st === 'AIMING') bowler.setSwing(0); // 준비 자세
-        else if (st === 'RELEASING') bowler.setSwing(game.releaseProgress); // 백→다운→릴리스
-        else if (onLane) bowler.update(dt); // 팔로스루 → idle 복귀
-      }
       environment.update(dt); // 전광판 애니메이션
       // 그림자 정적화: 공·핀이 멈춘 상태(AIMING/MENU/GAME_OVER)엔 셰도우맵 재렌더 중단,
       // ROLLING/SETTLING에만 갱신 (시간 대부분이 조준이라 이득 큼).
@@ -157,7 +147,6 @@ function buildScene(engine: Engine): {
   island: HTMLButtonElement;
   refreshIsland: () => void;
   lobby: Lobby;
-  bowler: Bowler;
   lobbyEnterBtn: HTMLButtonElement;
   lobbyExitBtn: HTMLButtonElement;
 } {
@@ -174,7 +163,6 @@ function buildScene(engine: Engine): {
   const cameraRig = new CameraRig(engine, game, ball);
   const lobby = new Lobby(engine);
   cameraRig.setLobbyAvatar(lobby.avatar); // §11 M4 — LOBBY 팔로우 대상 주입
-  const bowler = new Bowler(engine); // 슬라이스 3b — 레인 절차적 볼러 (스윙은 onFrame에서 state 동기)
   const transition = new Transition(); // 로비↔레인 로딩 전환 (터미널 로더 톤)
 
   // 매치 시작 출처 — 결과 후 복귀처 결정(로비 경유=로비로, 메뉴 직접=메뉴로). hotseat는 로비 미경유라 항상 menu(§11 H3).
@@ -486,7 +474,6 @@ function buildScene(engine: Engine): {
     __sound?: SoundManager;
     __enterLobby?: () => void;
     __lobby?: Lobby;
-    __bowler?: Bowler;
     __unlockAllRewards?: () => void;
     __resetRewards?: () => void;
   };
@@ -498,7 +485,6 @@ function buildScene(engine: Engine): {
   w.__sound = sound;
   w.__enterLobby = enterLobby; // [DEV] 콘솔에서 로비 진입 (검증용)
   w.__lobby = lobby; // [DEV] 로비 인스턴스 (검증용)
-  w.__bowler = bowler; // [DEV] 볼러 인스턴스 (검증용)
   // [DEV] 보상 디버그 — 콘솔에서 호출 후 새로고침
   w.__unlockAllRewards = () => {
     recordRewards(ACHIEVEMENTS.map((a) => a.id));
@@ -509,5 +495,5 @@ function buildScene(engine: Engine): {
     console.log('[rewards] 초기화 완료 — 새로고침하세요');
   };
 
-  return { game, controls, cameraRig, environment, sound, exitBtn, island, refreshIsland, lobby, bowler, lobbyEnterBtn, lobbyExitBtn };
+  return { game, controls, cameraRig, environment, sound, exitBtn, island, refreshIsland, lobby, lobbyEnterBtn, lobbyExitBtn };
 }
