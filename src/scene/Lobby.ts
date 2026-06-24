@@ -201,6 +201,12 @@ export class Lobby {
   onOpenBoard?: () => void;
   /** NPC 대결 (근접 + E/탭) — Boot가 로딩 전환 + startMatch(vs AI)로 연결 */
   onChallenge?: (profile: AiProfile) => void;
+  /** 로비 카메라 오르빗 드래그 → CameraRig.addLobbyYaw (§12.4, Boot 배선). */
+  onOrbit?: (deltaRad: number) => void;
+  /** 현재 카메라 yaw 조회 — 카메라상대 이동 변환용 (§12.4, Boot 배선). */
+  getCameraYaw?: () => number;
+  /** 로비 재진입 시 카메라 yaw를 정면으로 리셋 (§12.4, Boot 배선). */
+  onResetYaw?: () => void;
 
   constructor(engine: Engine) {
     // --- 라운지 환경 (별도 공간, 레인·핀 없음) → engine.lobbyScene ---
@@ -422,6 +428,34 @@ export class Lobby {
       const hit = this.raycaster.intersectObject(this.consoleScreen, false)[0];
       if (hit?.uv) this.handleConsoleHit(hit.uv.x, 1 - hit.uv.y); // uv 원점=좌하단 → 캔버스 v(상단=0)로 뒤집기
     });
+
+    // 로비 카메라 오르빗 드래그 (§12.4) — 데스크탑 우클릭 / 모바일 우측 화면(좌하단 조이스틱과 분리).
+    // 콘솔 도킹 중·비활성 중엔 무시. 드래그 deltaX → onOrbit(CameraRig.addLobbyYaw).
+    const canvas = engine.renderer.domElement;
+    let orbitId: number | null = null;
+    let orbitLastX = 0;
+    const ORBIT_SENS = 0.006; // px → rad
+    canvas.addEventListener('pointerdown', (e) => {
+      if (!this.active || this._consoleActive || this.suspended) return;
+      const rightClick = e.button === 2; // 데스크탑 우클릭 드래그
+      const touchRight = e.pointerType === 'touch' && e.clientX > window.innerWidth * 0.5; // 모바일 우측 절반
+      if (!rightClick && !touchRight) return;
+      orbitId = e.pointerId;
+      orbitLastX = e.clientX;
+      canvas.setPointerCapture(e.pointerId);
+      e.preventDefault();
+    });
+    canvas.addEventListener('pointermove', (e) => {
+      if (e.pointerId !== orbitId) return;
+      const dx = e.clientX - orbitLastX;
+      orbitLastX = e.clientX;
+      this.onOrbit?.(-dx * ORBIT_SENS); // 오른쪽 드래그 → 카메라가 아바타 둘레를 도는 자연스러운 궤도
+    });
+    const endOrbit = (e: PointerEvent) => {
+      if (e.pointerId === orbitId) orbitId = null;
+    };
+    canvas.addEventListener('pointerup', endOrbit);
+    canvas.addEventListener('pointercancel', endOrbit);
   }
 
   /** 로비 진입/이탈 — 위치 리셋 + 입력/아바타·NPC·UI 토글 (로비 씬은 setScreen으로 렌더 제어). */
@@ -446,6 +480,7 @@ export class Lobby {
       this.avatar.position.set(0, 0, START_Z);
       this.avatar.rotation.y = 0;
       this.facing = 0;
+      this.onResetYaw?.(); // 카메라 오르빗 각도도 정면으로 (§12.4)
     }
   }
 
@@ -644,21 +679,24 @@ export class Lobby {
       mx += this.joy.x;
       mz += this.joy.y;
     }
-    // 로비 체이스캠이 +z(포털)를 바라봐 월드 +x가 화면 왼쪽이다(우핸드 좌표계) — 입력 x를 뒤집어
-    // A=화면 왼쪽 · D=화면 오른쪽으로 맞춘다. 키보드·조이스틱·facing이 모두 이 mx를 쓰므로 한 줄로 일괄 교정.
-    // (후속: docs/OPEN_WORLD_LOBBY.md §12.4 카메라 시점 조절이 들어오면 카메라 yaw 기반 이동으로 일반화.)
-    mx = -mx;
-    const len = Math.hypot(mx, mz);
+    // 카메라상대 이동 (§12.4) — 입력(mx=좌우, mz=전후)을 카메라 yaw로 회전해 월드 변위로 변환.
+    // W=카메라 정면, D=화면 오른쪽. yaw=0이면 fwd=(0,+z)·right=(−x,0)이라 구 `mx=-mx` 보정과 정확히
+    // 일치(하드코딩 제거 → 오르빗 각도와 자동 정합). CameraRig LOBBY 오르빗과 같은 부호 규약.
+    const yaw = this.getCameraYaw?.() ?? 0;
+    const s = Math.sin(yaw), c = Math.cos(yaw);
+    let wx = -(mz * s + mx * c);
+    let wz = mz * c - mx * s;
+    const len = Math.hypot(wx, wz);
     if (len > 1) {
-      mx /= len;
-      mz /= len;
+      wx /= len;
+      wz /= len;
     }
 
     const p = this.avatar.position;
-    p.x = THREE.MathUtils.clamp(p.x + mx * SPEED * dt, -WALK_X, WALK_X);
-    p.z = THREE.MathUtils.clamp(p.z + mz * SPEED * dt, WALK_Z_BACK, WALK_Z_FRONT);
+    p.x = THREE.MathUtils.clamp(p.x + wx * SPEED * dt, -WALK_X, WALK_X);
+    p.z = THREE.MathUtils.clamp(p.z + wz * SPEED * dt, WALK_Z_BACK, WALK_Z_FRONT);
     if (len > 0.01) {
-      this.facing = Math.atan2(mx, mz);
+      this.facing = Math.atan2(wx, wz);
       this.avatar.rotation.y = this.facing;
     }
 

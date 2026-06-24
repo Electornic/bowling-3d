@@ -28,6 +28,7 @@ export class CameraRig {
   private menuTime = 0; // MENU 카메라 슬로우 스웨이용
   private lobbyAvatar?: THREE.Object3D; // LOBBY 팔로우 대상 (Boot가 주입, §11 M4)
   private consoleDock: { pos: THREE.Vector3; target: THREE.Vector3 } | null = null; // 시작 콘솔 도킹 (§13 A2.2)
+  private lobbyYaw = 0; // 로비 오르빗 azimuth (0 = 아바타 뒤에서 레인을 보는 기존 체이스캠, §12.4)
 
   constructor(
     private readonly engine: Engine,
@@ -48,6 +49,21 @@ export class CameraRig {
   /** 콘솔 도킹 해제 (§13 A2.2) — 체이스캠으로 복귀 (lerp 스무딩). */
   undockConsole() {
     this.consoleDock = null;
+  }
+
+  /** 로비 카메라 오르빗 (§12.4) — 드래그 delta(rad)로 아바타 중심 azimuth를 누적 회전. */
+  addLobbyYaw(deltaRad: number) {
+    this.lobbyYaw += deltaRad;
+  }
+
+  /** 현재 로비 오르빗 yaw — Lobby가 카메라상대 이동(입력 벡터 회전)에 사용 (§12.4). */
+  get lobbyYawValue(): number {
+    return this.lobbyYaw;
+  }
+
+  /** 로비 재진입 시 정면(아바타 뒤)으로 yaw 리셋 (Lobby.setActive 경유). */
+  resetLobbyYaw() {
+    this.lobbyYaw = 0;
   }
 
   /**
@@ -104,12 +120,16 @@ export class CameraRig {
           tx = this.consoleDock.target.x; ty = this.consoleDock.target.y; tz = this.consoleDock.target.z;
           break;
         }
-        // 3인칭 팔로우 — 아바타 뒤(−z)에서 레인(+z)을 보는 체이스캠. 월드축 고정(facing 무관)이라
-        // 조작이 화면 직관과 일치. 스무딩(k)이 따라붙음을 부드럽게 흡수. (§4 권장 계수대 정합)
+        // 3인칭 오르빗 팔로우 — 아바타 중심 azimuth(lobbyYaw)로 카메라를 돌린다(§12.4 드래그 시점).
+        // yaw=0이면 아바타 뒤(−z)에서 레인(+z)을 보는 기존 체이스캠과 완전히 동일(회귀 없음).
+        // 스무딩(k)이 회전·따라붙음을 부드럽게 흡수. (§4 권장 계수대 정합)
         const a = this.lobbyAvatar?.position;
         if (a) {
-          px = a.x; py = 2.4; pz = a.z - 3.8;
-          tx = a.x; ty = 0.9; tz = a.z + 2.5;
+          const R = 3.8;
+          const s = Math.sin(this.lobbyYaw), c = Math.cos(this.lobbyYaw);
+          px = a.x + s * R; py = 2.4; pz = a.z - c * R;
+          const look = 2.5; // 아바타 너머 정면을 살짝 앞서 봄(전방 시야 유지)
+          tx = a.x - s * look; ty = 0.9; tz = a.z + c * look;
         }
         break;
       }

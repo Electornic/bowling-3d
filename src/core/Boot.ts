@@ -269,6 +269,9 @@ function buildScene(engine: Engine): {
   };
   lobby.onDockConsole = (pos, target) => cameraRig.dockConsole(pos, target);
   lobby.onUndockConsole = () => cameraRig.undockConsole();
+  lobby.onOrbit = (d) => cameraRig.addLobbyYaw(d); // §12.4 로비 카메라 오르빗(드래그 시점)
+  lobby.getCameraYaw = () => cameraRig.lobbyYawValue; // 카메라상대 이동 변환용
+  lobby.onResetYaw = () => cameraRig.resetLobbyYaw(); // 재진입 시 정면 리셋
   lobby.onChallenge = (profile) => {
     // NPC 대결 = vs AI 풀게임 (§6 "NPC 선택 = 상대 선택"). 빠른 시작 — 판 세팅은 콘솔에서.
     startLaneMatch({ mode: 'full', players: [{ name: '나' }, { name: profile.name, ai: profile }] });
