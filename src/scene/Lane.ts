@@ -11,6 +11,7 @@ import {
 } from '../game/constants';
 import { hookFactor, oilEndZ, OIL_PRESETS, type OilPattern } from '../game/oil';
 import { makeWoodTexture } from './Environment';
+import { resolveLaneSkin, loadLaneSkinId, type LaneSkin } from '../game/laneSkins';
 
 /**
  * 레인 바닥 + 양옆 거터(낮은 홈) + 바깥 벽 (도안 §3·§4.2).
@@ -20,6 +21,8 @@ import { makeWoodTexture } from './Environment';
 export class Lane {
   private readonly floor: RAPIER.Collider;
   private readonly oilMesh: THREE.Mesh;
+  private readonly floorMat: THREE.MeshStandardMaterial; // 레인 스킨 교체 대상 (§8 슬라이스 4)
+  private floorTex: THREE.CanvasTexture; // 절차 나무 텍스처 — setSkin이 dispose 후 재생성
 
   constructor(engine: Engine) {
     const RAPIER = getRapier();
@@ -32,15 +35,15 @@ export class Lane {
     const gw = GUTTER_WIDTH;
 
     // --- 레인 바닥 (윗면 y=0, 오일 먹인 나무 보드) ---
-    const wood = makeWoodTexture('#c89048', '#96682c');
-    wood.repeat.set(1, 7);
-    const floor = new THREE.Mesh(
-      new THREE.BoxGeometry(LANE_WIDTH, 0.1, len),
-      new THREE.MeshStandardMaterial({ map: wood, roughness: 0.48, metalness: 0.05 }),
-    );
+    // 머티리얼/텍스처를 멤버로 보관 — setSkin이 런타임 교체(§8 레인 스킨). 색은 곧 초기 스킨으로 덮임.
+    this.floorTex = makeWoodTexture('#c89048', '#96682c');
+    this.floorTex.repeat.set(1, 7);
+    this.floorMat = new THREE.MeshStandardMaterial({ map: this.floorTex, roughness: 0.48, metalness: 0.05 });
+    const floor = new THREE.Mesh(new THREE.BoxGeometry(LANE_WIDTH, 0.1, len), this.floorMat);
     floor.position.set(0, -0.05, midZ);
     floor.receiveShadow = true;
     engine.addVisual(floor);
+    this.setSkin(resolveLaneSkin(loadLaneSkinId())); // 저장된 레인 스킨 초기 적용
 
     // 물리 바닥은 전장 단일 콜라이더 — 오일/드라이로 2분할하면 이음새(z=OIL_END_Z)
     // 모서리에 공이 걸려 수십 cm 튀어오른다(CCD가 내부 엣지를 잡음).
@@ -131,5 +134,16 @@ export class Lane {
     this.oilMesh.geometry.dispose();
     this.oilMesh.geometry = new THREE.PlaneGeometry(LANE_WIDTH, ez - startZ);
     this.oilMesh.position.set(0, 0.0015, (startZ + ez) / 2);
+  }
+
+  /** 레인 스킨 교체 (§8 슬라이스 4) — 외형만(나무 톤·광택). 물리(마찰/오일/훅)는 불변. */
+  setSkin(skin: LaneSkin) {
+    this.floorTex.dispose();
+    this.floorTex = makeWoodTexture(skin.light, skin.dark);
+    this.floorTex.repeat.set(1, 7);
+    this.floorMat.map = this.floorTex;
+    this.floorMat.roughness = skin.roughness;
+    this.floorMat.metalness = skin.metalness;
+    this.floorMat.needsUpdate = true;
   }
 }

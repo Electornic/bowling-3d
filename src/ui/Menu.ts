@@ -6,6 +6,7 @@ import { isCoarsePointer } from '../core/device';
 import { SKINS, ACHIEVEMENTS, loadRewards, saveSelectedSkin, unlockedSkinIds, resolveSkin, achievementForSkin } from '../game/rewards';
 import type { BallSkin, SkinFinish } from '../game/rewards';
 import type { Settings, Quality } from '../game/settings';
+import { LANE_SKINS, loadLaneSkinId, saveLaneSkinId, resolveLaneSkin, type LaneSkin } from '../game/laneSkins';
 
 const css = (el: HTMLElement, style: Partial<CSSStyleDeclaration>) => Object.assign(el.style, style);
 
@@ -118,6 +119,7 @@ export class MenuUI {
   private difficulty: Difficulty = 'beginner'; // 난이도 프리셋 (P3 §2.7) — 오일+예측선 큐레이션
   private oilPattern: OilPattern = 'house'; // 오일 패턴 (P3) — 초급 프리셋과 일치
   private aimAid: AimAid = 'easy'; // 예측선 난이도 (P3, UI 전용) — 기본 easy(§2.7)
+  private laneSkin = loadLaneSkinId(); // 레인 스킨 id (§8 슬라이스 4) — 외형 전용, localStorage
   private selectedSkin: string = loadRewards().selectedSkin; // 장착 볼 스킨 (보상)
 
   constructor(
@@ -230,16 +232,17 @@ export class MenuUI {
   }
 
   /** A2.2 in-world 콘솔 상태 — getConfigSummary + 조준보조 라벨 + custom 플래그(오일·조준 행 노출 판단). */
-  getConsoleState(): { mode: string; opponent: string; difficulty: string; oil: string; aim: string; weight: string; custom: boolean } {
+  getConsoleState(): { mode: string; opponent: string; difficulty: string; oil: string; aim: string; weight: string; lane: string; custom: boolean } {
     return {
       ...this.getConfigSummary(),
       aim: AIM_AIDS.find((a) => a.key === this.aimAid)?.label ?? this.aimAid,
+      lane: LANE_SKINS.find((s) => s.id === this.laneSkin)?.label ?? this.laneSkin,
       custom: this.difficulty === 'custom',
     };
   }
 
   /** A2.2 in-world 콘솔 — 축별 사이클(탭 1회 = 다음 값). DOM 칩 onclick과 동일 규칙(스페어=솔로, 프리셋=오일+조준 큐레이션). */
-  cycleConsole(axis: 'mode' | 'opponent' | 'difficulty' | 'oil' | 'aim') {
+  cycleConsole(axis: 'mode' | 'opponent' | 'difficulty' | 'oil' | 'aim' | 'lane') {
     if (axis === 'mode') {
       const order: GameMode[] = ['full', 'blitz', 'spare'];
       this.mode = order[(order.indexOf(this.mode) + 1) % order.length];
@@ -259,6 +262,10 @@ export class MenuUI {
     } else if (axis === 'aim') {
       const order: AimAid[] = ['easy', 'normal', 'pro'];
       this.aimAid = order[(order.indexOf(this.aimAid) + 1) % order.length];
+    } else if (axis === 'lane') {
+      const ids = LANE_SKINS.map((s) => s.id);
+      this.laneSkin = ids[(ids.indexOf(this.laneSkin) + 1) % ids.length];
+      saveLaneSkinId(this.laneSkin); // 레인 스킨은 매치 무관 즉시 저장(취향)
     }
   }
 
@@ -281,6 +288,11 @@ export class MenuUI {
       }
     }
     return { mode: this.mode, players, oilPattern: this.oilPattern, aimAid: this.aimAid };
+  }
+
+  /** 현재 레인 스킨 (§8 슬라이스 4) — Boot가 매치 시작 시 lane.setSkin에 적용(외형 전용). */
+  getLaneSkin(): LaneSkin {
+    return resolveLaneSkin(this.laneSkin);
   }
 
   // --- 시작 메뉴 ---

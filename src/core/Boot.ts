@@ -233,6 +233,7 @@ function buildScene(engine: Engine): {
     transition.play(LANE_LINES, () => {
       lobby.setActive(false);
       engine.setScreen('lane');
+      lane.setSkin(menu.getLaneSkin()); // §8 슬라이스 4 — 선택한 레인 스킨 적용(전환 불투명 구간에 가려짐)
       game.startMatch(cfg);
     });
   };

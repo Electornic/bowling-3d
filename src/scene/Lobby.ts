@@ -64,6 +64,7 @@ export interface ConsoleSummary {
 /** A2.2 in-world 콘솔의 전체 상태 (요약 + 조준 + custom 플래그) — Menu.getConsoleState()와 구조 호환. */
 export interface ConsoleState extends ConsoleSummary {
   aim: string;
+  lane: string; // 레인 스킨 라벨 (§8 슬라이스 4)
   custom: boolean; // true면 오일·조준 행을 인터랙티브 화면에 추가 노출
 }
 
@@ -72,7 +73,7 @@ export interface ConsoleState extends ConsoleSummary {
  * Lobby는 설정 상태를 직접 들지 않고 이 콜백으로만 만진다(단일 소스 = Menu).
  */
 export interface ConsoleController {
-  cycle(axis: 'mode' | 'opponent' | 'difficulty' | 'oil' | 'aim'): void;
+  cycle(axis: 'mode' | 'opponent' | 'difficulty' | 'oil' | 'aim' | 'lane'): void;
   weight(delta: number): void;
   state(): ConsoleState;
   start(): void; // 현재 설정으로 매치 시작 (씬 전환 = Boot)
@@ -584,6 +585,7 @@ export class Lobby {
       rows.push({ id: 'aim', label: '조준', value: st.aim });
     }
     rows.push({ id: 'weight', label: '무게', value: st.weight });
+    rows.push({ id: 'lane', label: '레인', value: st.lane }); // 레인 스킨 (§8 슬라이스 4) — 난이도 무관 항상 노출
     const rowsTop = 0.18; // 타이틀 아래
     const rowsBottom = 0.82; // 게임시작 위
     const bandH = (rowsBottom - rowsTop) / rows.length;
@@ -660,7 +662,7 @@ export class Lobby {
       return;
     }
     if (band.id === 'weight') this.consoleCtrl?.weight(u < 0.5 ? -1 : 1); // 좌=−1 / 우=+1
-    else this.consoleCtrl?.cycle(band.id as 'mode' | 'opponent' | 'difficulty' | 'oil' | 'aim');
+    else this.consoleCtrl?.cycle(band.id as 'mode' | 'opponent' | 'difficulty' | 'oil' | 'aim' | 'lane');
     this.drawConsoleActive();
   }
 
