@@ -19,6 +19,15 @@ export interface PauseConfig {
   onForfeit: () => void;
 }
 
+/** 로비 설정 패널 설정 (§13 스텝5) — 일시정지 모달의 설정부만 떼어 로비 기어에서 재사용. */
+export interface SettingsConfig {
+  settings: Settings;
+  onSound: (v: boolean) => void;
+  onHaptics: (v: boolean) => void;
+  onQuality: (q: Quality) => void;
+  onBack: () => void;
+}
+
 const COARSE = isCoarsePointer(); // 터치 환경: 버튼/칩 히트영역 ≥44px (MOBILE_SUPPORT.md §3.1)
 
 const hex6 = (n: number) => `#${n.toString(16).padStart(6, '0')}`;
@@ -118,6 +127,7 @@ export class MenuUI {
     private readonly onSkinChange: (id: string) => void,
     private readonly settings: Settings, // 시작 메뉴 사운드 토글이 읽는 현재 설정 (pause 모달과 동일 객체)
     private readonly onSound: (v: boolean) => void, // 토글 시 적용+저장 (Boot 주입)
+    private readonly onBack?: () => void, // 로비로 돌아가기 (다이제틱 시작 콘솔, §13) — 설정 시 showMenu에 '← 로비' 노출
   ) {
     this.backdrop = document.createElement('div');
     css(this.backdrop, {
@@ -199,9 +209,102 @@ export class MenuUI {
     return b;
   }
 
+  /**
+   * 시작 콘솔 라이브 프리뷰(§13 A2)용 — 현재 선택된 레인 설정을 표시 문자열로 반환.
+   * 로비 콘솔 스크린(CanvasTexture)이 읽어 다이제틱하게 비춘다. showMenu 칩과 동일 상태 소스(this.mode 등).
+   */
+  getConfigSummary(): { mode: string; opponent: string; difficulty: string; oil: string; weight: string } {
+    const opponent =
+      this.rivalKey === null
+        ? '혼자'
+        : this.rivalKey === 'human'
+          ? '2인 교대전'
+          : (AI_PROFILES.find((p) => p.key === this.rivalKey)?.name ?? this.rivalKey);
+    return {
+      mode: MODES.find((m) => m.key === this.mode)?.label ?? this.mode,
+      opponent,
+      difficulty: DIFFICULTY_PRESETS.find((d) => d.key === this.difficulty)?.label ?? this.difficulty,
+      oil: OIL_PATTERNS.find((o) => o.key === this.oilPattern)?.label ?? this.oilPattern,
+      weight: `${this.weight} lb`,
+    };
+  }
+
+  /** A2.2 in-world 콘솔 상태 — getConfigSummary + 조준보조 라벨 + custom 플래그(오일·조준 행 노출 판단). */
+  getConsoleState(): { mode: string; opponent: string; difficulty: string; oil: string; aim: string; weight: string; custom: boolean } {
+    return {
+      ...this.getConfigSummary(),
+      aim: AIM_AIDS.find((a) => a.key === this.aimAid)?.label ?? this.aimAid,
+      custom: this.difficulty === 'custom',
+    };
+  }
+
+  /** A2.2 in-world 콘솔 — 축별 사이클(탭 1회 = 다음 값). DOM 칩 onclick과 동일 규칙(스페어=솔로, 프리셋=오일+조준 큐레이션). */
+  cycleConsole(axis: 'mode' | 'opponent' | 'difficulty' | 'oil' | 'aim') {
+    if (axis === 'mode') {
+      const order: GameMode[] = ['full', 'blitz', 'spare'];
+      this.mode = order[(order.indexOf(this.mode) + 1) % order.length];
+      if (this.mode === 'spare') this.rivalKey = null; // 스페어 챌린지는 솔로만
+    } else if (axis === 'opponent') {
+      if (this.mode === 'spare') { this.rivalKey = null; return; } // 스페어=솔로 고정
+      const order: (string | null)[] = [null, 'human', ...AI_PROFILES.map((p) => p.key)];
+      this.rivalKey = order[(order.indexOf(this.rivalKey) + 1) % order.length];
+    } else if (axis === 'difficulty') {
+      const order: Difficulty[] = ['beginner', 'intermediate', 'advanced', 'custom'];
+      this.difficulty = order[(order.indexOf(this.difficulty) + 1) % order.length];
+      const preset = DIFFICULTY_PRESETS.find((d) => d.key === this.difficulty);
+      if (preset?.oil && preset?.aim) { this.oilPattern = preset.oil; this.aimAid = preset.aim; } // 프리셋이 오일+조준 큐레이션 (custom 제외)
+    } else if (axis === 'oil') {
+      const order: OilPattern[] = ['house', 'short', 'long'];
+      this.oilPattern = order[(order.indexOf(this.oilPattern) + 1) % order.length];
+    } else if (axis === 'aim') {
+      const order: AimAid[] = ['easy', 'normal', 'pro'];
+      this.aimAid = order[(order.indexOf(this.aimAid) + 1) % order.length];
+    }
+  }
+
+  /** A2.2 in-world 콘솔 — 볼 무게 ±1 (6~16lb 클램프). 즉시 게임에 적용(DOM 슬라이더와 동일 onWeight). */
+  adjustWeight(delta: number) {
+    this.weight = Math.min(16, Math.max(6, this.weight + delta));
+    this.onWeight(this.weight);
+  }
+
+  /** 현재 선택으로 MatchConfig 조립 (DOM start()·in-world 콘솔 시작 공용). */
+  buildMatchConfig(): MatchConfig {
+    let players: MatchConfig['players'];
+    if (this.mode !== 'spare' && this.rivalKey === 'human') {
+      players = [{ name: this.p1Name.trim() || '1P' }, { name: this.p2Name.trim() || '2P' }];
+    } else {
+      players = [{ name: '나' }];
+      if (this.mode !== 'spare' && this.rivalKey) {
+        const profile = AI_PROFILES.find((p) => p.key === this.rivalKey);
+        if (profile) players.push({ name: profile.name, ai: profile });
+      }
+    }
+    return { mode: this.mode, players, oilPattern: this.oilPattern, aimAid: this.aimAid };
+  }
+
   // --- 시작 메뉴 ---
   showMenu() {
     this.panel.replaceChildren();
+    // 로비 시작 콘솔로 열렸을 때(§13 A1)만 '← 로비' 백버튼 — 메뉴 게이트가 아니라 로비가 홈이므로 빠져나갈 길.
+    if (this.onBack) {
+      const back = document.createElement('button');
+      back.textContent = '← 로비';
+      css(back, {
+        display: 'inline-block',
+        margin: '0 0 12px',
+        padding: COARSE ? '9px 14px' : '7px 12px',
+        minHeight: COARSE ? '40px' : '',
+        borderRadius: '10px',
+        border: '1px solid rgba(255,255,255,0.18)',
+        background: 'rgba(255,255,255,0.05)',
+        color: '#aab3c2',
+        font: '700 13px/1 system-ui, sans-serif',
+        cursor: 'pointer',
+      });
+      back.onclick = () => this.onBack!();
+      this.panel.appendChild(back);
+    }
     this.panel.appendChild(this.title('🎳 BOWLING 3D'));
     this.panel.appendChild(this.soundToggle()); // 우상단 사운드 토글
 
@@ -419,19 +522,8 @@ export class MenuUI {
   }
 
   private start() {
-    // 로컬 교대전: 사람 2명(ai 없음). 그 외: 사람 1명 + (AI 라이벌 선택 시) AI 1명. 이름 빈칸은 기본값.
-    let players: MatchConfig['players'];
-    if (this.mode !== 'spare' && this.rivalKey === 'human') {
-      players = [{ name: this.p1Name.trim() || '1P' }, { name: this.p2Name.trim() || '2P' }];
-    } else {
-      players = [{ name: '나' }];
-      if (this.mode !== 'spare' && this.rivalKey) {
-        const profile = AI_PROFILES.find((p) => p.key === this.rivalKey);
-        if (profile) players.push({ name: profile.name, ai: profile });
-      }
-    }
     this.hide();
-    this.onStart({ mode: this.mode, players, oilPattern: this.oilPattern, aimAid: this.aimAid });
+    this.onStart(this.buildMatchConfig());
   }
 
   // --- 결과 화면 ---
@@ -604,6 +696,52 @@ export class MenuUI {
       onReady();
     };
     this.panel.appendChild(go);
+
+    this.backdrop.style.display = 'flex';
+  }
+
+  // --- 설정 (§13 스텝5) — 로비 상주 기어 버튼. 일시정지 모달의 설정부(settingRow) 재사용, 계속/포기 없이 '← 로비'만. ---
+  showSettings(cfg: SettingsConfig) {
+    const s = cfg.settings;
+    this.panel.replaceChildren();
+    this.panel.appendChild(this.title('⚙️ 설정'));
+    const list = document.createElement('div');
+    css(list, { display: 'flex', flexDirection: 'column', gap: '7px', marginBottom: '16px' });
+    list.appendChild(
+      this.settingRow('🔊 사운드', s.sound ? '켜짐' : '꺼짐', s.sound, () => {
+        cfg.onSound(!s.sound);
+        this.showSettings(cfg);
+      }),
+    );
+    list.appendChild(
+      this.settingRow('📳 햅틱', s.haptics ? '켜짐' : '꺼짐', s.haptics, () => {
+        cfg.onHaptics(!s.haptics);
+        this.showSettings(cfg);
+      }),
+    );
+    list.appendChild(
+      this.settingRow('🖼️ 그래픽', s.quality === 'high' ? '고품질' : '성능', s.quality === 'high', () => {
+        cfg.onQuality(s.quality === 'high' ? 'perf' : 'high');
+        this.showSettings(cfg);
+      }),
+    );
+    this.panel.appendChild(list);
+
+    const back = document.createElement('button');
+    back.textContent = '← 로비';
+    css(back, {
+      width: '100%',
+      padding: '11px',
+      minHeight: COARSE ? '44px' : '',
+      borderRadius: '10px',
+      border: '1px solid rgba(255,255,255,0.25)',
+      background: 'transparent',
+      color: '#e8edf5',
+      font: '700 14px/1 system-ui, sans-serif',
+      cursor: 'pointer',
+    });
+    back.onclick = cfg.onBack;
+    this.panel.appendChild(back);
 
     this.backdrop.style.display = 'flex';
   }
@@ -831,6 +969,57 @@ export class MenuUI {
   // 인게임 상단 '업적 아일랜드' 탭으로 열 때: 닫으면 메뉴가 아니라 게임으로 복귀.
   showCollection(onBack: () => void) {
     this.showSkins(onBack, '← 게임으로');
+  }
+
+  // --- 스킨 락커 (§13 스텝3) — 로비 락커 오브젝트 근접 시. 컬렉션 시트를 '← 로비' 백버튼으로 연다. ---
+  showSkinLocker(onBack: () => void) {
+    this.showSkins(onBack, '← 로비');
+  }
+
+  // --- 통계 보드 (§13 스텝4) — 로비 보드 오브젝트 근접 시. 모드별 기록(Stats.statsSummary)을 패널로. ---
+  showStats(onBack: () => void) {
+    this.panel.replaceChildren();
+    this.panel.appendChild(this.title('📊 통계'));
+    const s = statsSummary();
+    const rows: [string, string][] = [
+      ['풀게임', s.full],
+      ['블리츠', s.blitz],
+      ['스페어 챌린지', s.spare],
+    ];
+    const wrap = document.createElement('div');
+    css(wrap, { display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '20px' });
+    for (const [label, val] of rows) {
+      const row = document.createElement('div');
+      css(row, { padding: '11px 13px', borderRadius: '10px', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)' });
+      const h = document.createElement('div');
+      h.textContent = label;
+      css(h, { font: '800 13px/1.2 system-ui, sans-serif', color: '#22d3ee', marginBottom: '4px' });
+      const v = document.createElement('div');
+      v.textContent = val;
+      css(v, { font: '500 12px/1.5 system-ui, sans-serif', color: '#aab3c2' });
+      row.appendChild(h);
+      row.appendChild(v);
+      wrap.appendChild(row);
+    }
+    this.panel.appendChild(wrap);
+
+    const back = document.createElement('button');
+    back.textContent = '← 로비';
+    css(back, {
+      width: '100%',
+      padding: '11px',
+      minHeight: COARSE ? '44px' : '',
+      borderRadius: '10px',
+      border: '1px solid rgba(255,255,255,0.25)',
+      background: 'transparent',
+      color: '#e8edf5',
+      font: '700 14px/1 system-ui, sans-serif',
+      cursor: 'pointer',
+    });
+    back.onclick = onBack;
+    this.panel.appendChild(back);
+
+    this.backdrop.style.display = 'flex';
   }
 
   private showSkins(onBack: () => void = () => this.showMenu(), backLabel = '← 메뉴로') {

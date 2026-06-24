@@ -27,6 +27,7 @@ export class CameraRig {
   private pushHold = 0; // 남은 최대근접 유지 시간 (실시간 s)
   private menuTime = 0; // MENU 카메라 슬로우 스웨이용
   private lobbyAvatar?: THREE.Object3D; // LOBBY 팔로우 대상 (Boot가 주입, §11 M4)
+  private consoleDock: { pos: THREE.Vector3; target: THREE.Vector3 } | null = null; // 시작 콘솔 도킹 (§13 A2.2)
 
   constructor(
     private readonly engine: Engine,
@@ -37,6 +38,16 @@ export class CameraRig {
   /** 로비 아바타 주입 (§11 M4) — LOBBY 상태의 3인칭 팔로우 대상. */
   setLobbyAvatar(o: THREE.Object3D) {
     this.lobbyAvatar = o;
+  }
+
+  /** 시작 콘솔 도킹 (§13 A2.2) — LOBBY에서 콘솔 활성화 시 카메라를 스크린 정면 고정 포즈로. 기존 lerp가 전환을 부드럽게. */
+  dockConsole(pos: THREE.Vector3, target: THREE.Vector3) {
+    this.consoleDock = { pos: pos.clone(), target: target.clone() };
+  }
+
+  /** 콘솔 도킹 해제 (§13 A2.2) — 체이스캠으로 복귀 (lerp 스무딩). */
+  undockConsole() {
+    this.consoleDock = null;
   }
 
   /**
@@ -87,6 +98,12 @@ export class CameraRig {
         tx = 0; ty = 0.2; tz = 9;
         break;
       case 'LOBBY': {
+        if (this.consoleDock) {
+          // 시작 콘솔 도킹 (§13 A2.2) — 스크린 정면 고정 포즈. lerp가 도킹 진입/해제를 부드럽게 흡수.
+          px = this.consoleDock.pos.x; py = this.consoleDock.pos.y; pz = this.consoleDock.pos.z;
+          tx = this.consoleDock.target.x; ty = this.consoleDock.target.y; tz = this.consoleDock.target.z;
+          break;
+        }
         // 3인칭 팔로우 — 아바타 뒤(−z)에서 레인(+z)을 보는 체이스캠. 월드축 고정(facing 무관)이라
         // 조작이 화면 직관과 일치. 스무딩(k)이 따라붙음을 부드럽게 흡수. (§4 권장 계수대 정합)
         const a = this.lobbyAvatar?.position;

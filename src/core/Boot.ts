@@ -8,7 +8,7 @@ import { Transition, type LogSeg } from '../ui/Transition';
 import { Ball } from '../scene/Ball';
 import { PinSet } from '../scene/PinSet';
 import { Replay } from '../scene/Replay';
-import { GameState } from '../game/GameState';
+import { GameState, type MatchConfig } from '../game/GameState';
 import { Hud } from '../ui/Hud';
 import { MenuUI } from '../ui/Menu';
 import { Controls } from '../input/Controls';
@@ -42,7 +42,7 @@ export async function boot() {
   document.documentElement.style.setProperty('--col-edge', 'max(0px, calc((100vw - 1440px) / 2))');
 
   const engine = new Engine();
-  const { game, controls, cameraRig, environment, sound, exitBtn, island, refreshIsland, lobby, lobbyEnterBtn, lobbyExitBtn, replay } = buildScene(engine);
+  const { game, controls, cameraRig, environment, sound, exitBtn, island, gearBtn, refreshIsland, lobby, replay } = buildScene(engine);
   let shadowMoving = true; // 그림자 정적화 상태 추적 (§6)
   const loop = new Loop(
     engine,
@@ -76,8 +76,7 @@ export async function boot() {
       if (inMatch && exitBtn.style.display === 'none') refreshIsland(); // 매치 진입 시 진행도 1회 갱신
       exitBtn.style.display = inMatch ? 'block' : 'none';
       island.style.display = inMatch ? 'block' : 'none';
-      lobbyEnterBtn.style.display = game.state === 'MENU' ? 'block' : 'none';
-      lobbyExitBtn.style.display = game.state === 'LOBBY' ? 'block' : 'none';
+      gearBtn.style.display = game.state === 'LOBBY' && !lobby.consoleActive ? 'block' : 'none'; // 로비에서만, 콘솔 도킹 중엔 숨김 (§13 스텝5·A2.2)
       sound.setMenuMusic(!inMatch); // 메뉴·로비·결과 화면에서 배경음악 (매치 시작하면 페이드아웃). 멱등.
     },
   );
@@ -159,10 +158,9 @@ function buildScene(engine: Engine): {
   sound: SoundManager;
   exitBtn: HTMLButtonElement;
   island: HTMLButtonElement;
+  gearBtn: HTMLButtonElement;
   refreshIsland: () => void;
   lobby: Lobby;
-  lobbyEnterBtn: HTMLButtonElement;
-  lobbyExitBtn: HTMLButtonElement;
   replay: Replay;
 } {
   const settings = loadSettings();
@@ -183,16 +181,11 @@ function buildScene(engine: Engine): {
   // 종료 후 cameraRig.resync로 라이브 카메라가 현재 위치부터 부드럽게 인계받는다.
   const replay = new Replay(engine, ball, pins, () => cameraRig.resync());
 
-  // 매치 시작 출처 — 결과 후 복귀처 결정(로비 경유=로비로, 메뉴 직접=메뉴로). hotseat는 로비 미경유라 항상 menu(§11 H3).
-  let matchOrigin: 'menu' | 'lobby' = 'menu';
-
-  // 메뉴/결과 화면 (로드맵 P1) — 시작 시 메뉴부터
+  // 결과/시작 콘솔 (로드맵 P1). 다이제틱 메뉴 A1(§13): 메뉴는 이제 로비 시작 콘솔로만 열린다 —
+  // 부팅은 로비 직행, 모든 매치는 로비(콘솔/NPC)에서 출발하므로 결과 복귀는 항상 로비.
   const menu = new MenuUI(
-    (cfg) => {
-      matchOrigin = 'menu'; // 메뉴 시작·'다시 하기'는 이 경로 → 결과 후 메뉴 복귀
-      game.startMatch(cfg);
-    },
-    () => returnFromMatch(), // 결과 '메뉴로/로비로' — origin 기반 복귀 (아래 정의)
+    (cfg) => startLaneMatch(cfg), // 콘솔 '게임 시작' → 레인 전환 + startMatch (config-bypass 해소)
+    () => returnFromMatch(), // 결과 '🚶 로비로' (아래 정의)
     (lb) => game.setHumanBallSpec(makeBallSpec(lb)), // 볼 무게 (인게임 HUD 대신 메뉴에서 선택)
     (id) => game.setBallSkin(resolveSkin(id)), // 볼 스킨 (보상, 외형 전용)
     settings, // 시작 메뉴 사운드 토글이 읽는 현재 설정 (pause 모달과 동일 객체)
@@ -201,12 +194,18 @@ function buildScene(engine: Engine): {
       sound.enabled = v; // setter가 끄면 BGM·럼블 즉시 정지, 켜면 다음 프레임에 BGM 재개
       saveSettings(settings);
     },
+    () => closeLobbyPanel(), // '← 로비' 백버튼 → 로비 패널 닫고 로비로 (아래 정의)
   );
   game.setBallSkin(resolveSkin(loadRewards().selectedSkin)); // 저장된 장착 스킨 초기 적용
-  menu.showMenu();
+  // 시작 콘솔 스크린 라이브 프리뷰 갱신 (§13 A2) — 로비 진입·패널 닫기 시 현재 레인 설정으로 다시 그린다.
+  const refreshConsole = () => lobby.setConsoleSummary(menu.getConfigSummary());
+  // 부팅 → 로비 직행 (§13 A1). 로더 불투명 구간에 로비 활성화 (DOM 메뉴 게이트 폐기).
+  game.toLobby();
+  engine.setScreen('lobby');
+  lobby.setActive(true);
+  refreshConsole();
 
-  // --- 오픈월드 로비 (docs/OPEN_WORLD_LOBBY.md 슬라이스 1) — 비침투적: 기존 메뉴/결과 흐름 유지 ---
-  // 메뉴 '로비 둘러보기' → 걸어다님 → 레인 트리거 → startMatch. 종료 후 결과화면 '메뉴로'는 기존대로.
+  // --- 오픈월드 로비 (docs/OPEN_WORLD_LOBBY.md) — 다이제틱 메뉴 A1(§13): 로비가 홈, 콘솔/NPC가 진입점 ---
   // 전환 로딩 로그 (터미널 톤) — swap()이 불투명 구간에 실행돼 씬 교체를 가린다.
   const LANE_LINES: LogSeg[][] = [
     [['> ', 'dim'], ['entering lane... ', ''], ['OK', 'ok']],
@@ -216,91 +215,64 @@ function buildScene(engine: Engine): {
     [['> ', 'dim'], ['entering lobby... ', ''], ['OK', 'ok']],
     [['> ', 'dim'], ['NEON LANES', 'ac']],
   ];
-  const MENU_LINES: LogSeg[][] = [[['> ', 'dim'], ['returning to menu... ', ''], ['OK', 'ok']]];
+  let lobbyPanelOpen = false; // 로비 패널(콘솔 showMenu / 락커 showSkinLocker) 열림 — Esc·중복 오픈 가드
+  // 로비로 복귀 (전환 경유) — 결과/포기 후 + DEV 진입. 부팅 직행은 위에서 transition 없이 처리.
   const enterLobby = () => {
     transition.play(LOBBY_LINES, () => {
       menu.hide();
+      lobbyPanelOpen = false;
       game.toLobby();
       engine.setScreen('lobby');
       lobby.setActive(true);
+      refreshConsole(); // 매치 결과/포기 후 복귀 — 콘솔 프리뷰를 현재 설정으로 (§13 A2)
     });
   };
-  const exitLobby = () => {
-    transition.play(MENU_LINES, () => {
-      lobby.setActive(false);
-      game.toMenu();
-      engine.setScreen('lane'); // 메뉴는 레인 시네마틱 배경
-      menu.showMenu();
-    });
-  };
-  // 매치 종료 후 복귀: 로비에서 시작한 매치면 로비로(transition), 아니면 메뉴로. hotseat는 menu(§11 H3).
-  const returnFromMatch = () => {
-    if (matchOrigin === 'lobby' && !game.isHotseat) {
-      enterLobby(); // toLobby + setScreen('lobby') + setActive — 결과 오버레이는 전환 불투명 구간에 hide
-    } else {
-      game.toMenu();
-      menu.showMenu();
-    }
-  };
-  lobby.onEnterLane = () => {
-    // 포털 진입 = 빠른 솔로 풀게임 (슬라이스 1 기본값; §6.1 레인 앞 시작 패널은 후속)
-    matchOrigin = 'lobby'; // 결과 후 로비로 복귀
+  // 레인 매치 시작 (로비 콘솔 '게임 시작' + NPC 대결 공용) — 로비 출발이라 결과는 항상 로비 복귀.
+  const startLaneMatch = (cfg: MatchConfig) => {
+    lobbyPanelOpen = false;
     transition.play(LANE_LINES, () => {
       lobby.setActive(false);
       engine.setScreen('lane');
-      game.startMatch({ mode: 'full', players: [{ name: '나' }] });
+      game.startMatch(cfg);
     });
   };
+  // 매치 종료/포기 후 복귀 — 항상 로비 (게이트 폐기로 솔로·vs AI·hotseat 단일화, §13.4).
+  const returnFromMatch = () => enterLobby();
+  // 로비 다이제틱 패널 (§13) — 락커·보드는 근접 E/탭 → DOM 패널(공용 lobbyPanelOpen 가드). 패널 동안 이동/프롬프트 정지.
+  // ⚠️ 시작 콘솔은 A2.2부터 DOM이 아니라 in-world(레이캐스트·카메라 도킹) — lobby.enterConsole()이 직접 처리(아래 배선).
+  const closeLobbyPanel = () => {
+    lobbyPanelOpen = false;
+    menu.hide();
+    lobby.suspend(false);
+    refreshConsole(); // 락커/보드에서 무게·스킨 등이 바뀌었을 수 있으니 콘솔 유휴 프리뷰 갱신 (§13 A2)
+  };
+  const openLocker = () => {
+    if (lobbyPanelOpen) return;
+    lobbyPanelOpen = true;
+    lobby.suspend(true);
+    menu.showSkinLocker(closeLobbyPanel); // '← 로비' 백버튼 = 패널 닫기
+  };
+  const openBoard = () => {
+    if (lobbyPanelOpen) return;
+    lobbyPanelOpen = true;
+    lobby.suspend(true);
+    menu.showStats(closeLobbyPanel); // 통계 보드 (§13 스텝4)
+  };
+  lobby.onOpenLocker = openLocker;
+  lobby.onOpenBoard = openBoard;
+  // 시작 콘솔 = in-world (§13 A2.2) — 근접 E/탭은 lobby.enterConsole()이 직접 호출. 여기선 컨트롤러·카메라 도킹만 배선.
+  lobby.consoleCtrl = {
+    cycle: (axis) => menu.cycleConsole(axis),
+    weight: (d) => menu.adjustWeight(d),
+    state: () => menu.getConsoleState(),
+    start: () => startLaneMatch(menu.buildMatchConfig()), // in-world 선택으로 매치 시작 (config-bypass 해소 유지)
+  };
+  lobby.onDockConsole = (pos, target) => cameraRig.dockConsole(pos, target);
+  lobby.onUndockConsole = () => cameraRig.undockConsole();
   lobby.onChallenge = (profile) => {
-    // NPC 대결 = vs AI 풀게임 (§6 "NPC 선택 = 상대 선택").
-    matchOrigin = 'lobby'; // 결과 후 로비로 복귀
-    transition.play(LANE_LINES, () => {
-      lobby.setActive(false);
-      engine.setScreen('lane');
-      game.startMatch({ mode: 'full', players: [{ name: '나' }, { name: profile.name, ai: profile }] });
-    });
+    // NPC 대결 = vs AI 풀게임 (§6 "NPC 선택 = 상대 선택"). 빠른 시작 — 판 세팅은 콘솔에서.
+    startLaneMatch({ mode: 'full', players: [{ name: '나' }, { name: profile.name, ai: profile }] });
   };
-  const lobbyEnterBtn = document.createElement('button');
-  lobbyEnterBtn.textContent = '🚶 로비 둘러보기';
-  lobbyEnterBtn.style.cssText = [
-    'position:fixed',
-    'left:50%',
-    'bottom:calc(28px + env(safe-area-inset-bottom))',
-    'transform:translateX(-50%)',
-    'z-index:60', // 메뉴 백드롭(z=40) 위로
-    'display:none',
-    'padding:12px 22px',
-    'border-radius:999px',
-    'border:1px solid rgba(34,211,238,0.5)',
-    'background:rgba(14,17,27,0.9)',
-    'color:#e8edf5',
-    'font:800 15px/1 system-ui, sans-serif',
-    'letter-spacing:0.02em',
-    'cursor:pointer',
-    'box-shadow:0 0 20px rgba(34,211,238,0.3)',
-  ].join(';');
-  lobbyEnterBtn.onclick = enterLobby;
-  document.body.appendChild(lobbyEnterBtn);
-  const lobbyExitBtn = document.createElement('button');
-  lobbyExitBtn.textContent = '← 메뉴';
-  lobbyExitBtn.style.cssText = [
-    'position:fixed',
-    'top:calc(8px + env(safe-area-inset-top))',
-    'left:calc(var(--col-edge, 0px) + 8px + env(safe-area-inset-left))',
-    'z-index:30',
-    'display:none',
-    'padding:8px 12px',
-    'min-height:40px',
-    'border-radius:10px',
-    'border:1px solid rgba(255,255,255,0.2)',
-    'background:rgba(14,17,27,0.82)',
-    'color:#e8edf5',
-    'font:700 13px/1 system-ui, sans-serif',
-    'cursor:pointer',
-    'backdrop-filter:blur(4px)',
-  ].join(';');
-  lobbyExitBtn.onclick = exitLobby;
-  document.body.appendChild(lobbyExitBtn);
 
   // 게임 이벤트 → 연출. 모든 이벤트 텍스트는 전광판(diegetic)에만 표시 — HUD 중앙 배너 중복 제거.
   game.onEvent = (e) => {
@@ -364,7 +336,7 @@ function buildScene(engine: Engine): {
           recordRewards(fresh);
           sound.playUnlock();
         }
-        menu.showResult(sm, fresh, matchOrigin === 'lobby' && !hotseat ? '🚶 로비로' : '메뉴로');
+        menu.showResult(sm, fresh, '🚶 로비로'); // 게이트 폐기 — 복귀는 항상 로비 (§13.4)
         break;
       }
     }
@@ -414,40 +386,43 @@ function buildScene(engine: Engine): {
     'cursor:pointer',
     'backdrop-filter:blur(4px)',
   ].join(';');
+  // 설정 적용+저장 핸들러 (사운드·햅틱·그래픽) — 인게임 일시정지 모달과 로비 설정 기어(§13 스텝5)가 공유.
+  // 토글은 즉시 적용 후 저장 (물리·점수·기록 무영향).
+  const applySound = (v: boolean) => {
+    settings.sound = v;
+    sound.enabled = v; // setter가 끄면 BGM·럼블 즉시 정지, 켜면 다음 프레임 BGM 재개
+    saveSettings(settings);
+  };
+  const applyHaptics = (v: boolean) => {
+    settings.haptics = v;
+    saveSettings(settings);
+  };
+  const applyQuality = (q: typeof settings.quality) => {
+    settings.quality = q;
+    engine.setQuality(q === 'high');
+    saveSettings(settings);
+  };
   const forfeit = () => {
     // 핸드오프 오버레이 중엔 일시정지 진입 금지 — pause가 핸드오프를 덮으면 inputLocked가 안 풀린 채
     // 게임으로 복귀하는 교착이 생긴다(핸드오프는 '내 차례 시작' 버튼으로만 닫힘).
     if (game.state === 'MENU' || game.state === 'LOBBY' || game.state === 'GAME_OVER' || game.inputLocked) return;
-    // 인게임 일시정지 모달: 계속하기 + 안전 설정(사운드·햅틱·그래픽) + 포기. 토글은 즉시 적용 후 저장.
+    // 인게임 일시정지 모달: 계속하기 + 안전 설정(사운드·햅틱·그래픽) + 포기.
     // (네이티브 confirm()은 iOS 웹뷰/시뮬레이터에서 안 떠 못 씀 — 앱 내부 오버레이로 처리.)
     menu.showPause({
       settings,
-      onSound: (v) => {
-        settings.sound = v;
-        sound.enabled = v;
-        saveSettings(settings);
-      },
-      onHaptics: (v) => {
-        settings.haptics = v;
-        saveSettings(settings);
-      },
-      onQuality: (q) => {
-        settings.quality = q;
-        engine.setQuality(q === 'high');
-        saveSettings(settings);
-      },
+      onSound: applySound,
+      onHaptics: applyHaptics,
+      onQuality: applyQuality,
       onResume: () => menu.hide(),
-      onForfeit: () => {
-        game.toMenu();
-        menu.showMenu();
-      },
+      onForfeit: () => returnFromMatch(), // 포기 → 로비 복귀 (게이트 폐기, §13.4)
     });
   };
   exitBtn.onclick = forfeit;
   document.body.appendChild(exitBtn);
   window.addEventListener('keydown', (e) => {
     if (e.key !== 'Escape') return;
-    if (game.state === 'LOBBY') exitLobby(); // 로비에선 Esc = 메뉴로
+    if (lobbyPanelOpen) closeLobbyPanel(); // 로비 패널 열림 → 닫고 로비로
+    else if (game.state === 'LOBBY') return; // 로비가 홈 — Esc 무동작
     else forfeit();
   });
 
@@ -484,6 +459,36 @@ function buildScene(engine: Engine): {
     menu.showCollection(() => menu.hide()); // 닫으면 게임으로 복귀(메뉴 X)
   };
   document.body.appendChild(island);
+
+  // 로비 설정 기어 (§13 스텝5) — 상주 우상단 버튼. 다이제틱 예외(월드 오브젝트 아님, §13.3).
+  // 인게임 설정은 ☰→일시정지에 있으나 로비엔 일시정지가 없어 이 기어가 사운드/품질 접근로. 가시성은 onFrame에서 LOBBY일 때만.
+  const gearBtn = document.createElement('button');
+  gearBtn.textContent = '⚙️';
+  gearBtn.setAttribute('aria-label', '설정');
+  gearBtn.style.cssText = [
+    'position:fixed',
+    'top:calc(8px + env(safe-area-inset-top))',
+    'right:calc(var(--col-edge, 0px) + 8px + env(safe-area-inset-right))',
+    'z-index:30',
+    'display:none',
+    'width:40px',
+    'height:40px',
+    'border-radius:10px',
+    'border:1px solid rgba(255,255,255,0.2)',
+    'background:rgba(14,17,27,0.82)',
+    'color:#e8edf5',
+    'font:700 18px/1 system-ui, sans-serif',
+    'cursor:pointer',
+    'backdrop-filter:blur(4px)',
+  ].join(';');
+  // 기어 → 로비 설정 패널 (다른 로비 패널과 같은 lobbyPanelOpen 가드·suspend 공유). 백버튼 = 닫기.
+  gearBtn.onclick = () => {
+    if (lobbyPanelOpen) return;
+    lobbyPanelOpen = true;
+    lobby.suspend(true);
+    menu.showSettings({ settings, onSound: applySound, onHaptics: applyHaptics, onQuality: applyQuality, onBack: () => closeLobbyPanel() });
+  };
+  document.body.appendChild(gearBtn);
 
   // 초기 카메라 (이후 CameraRig가 상태별로 보간) — AIMING 뷰와 동일
   engine.camera.position.set(0, 1.12, -2.7);
@@ -522,5 +527,5 @@ function buildScene(engine: Engine): {
     console.log('[rewards] 초기화 완료 — 새로고침하세요');
   };
 
-  return { game, controls, cameraRig, environment, sound, exitBtn, island, refreshIsland, lobby, lobbyEnterBtn, lobbyExitBtn, replay };
+  return { game, controls, cameraRig, environment, sound, exitBtn, island, gearBtn, refreshIsland, lobby, replay };
 }
