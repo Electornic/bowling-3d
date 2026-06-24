@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import type { Engine } from '../core/Engine';
 import { isCoarsePointer } from '../core/device';
 import { AI_PROFILES, type AiProfile } from '../game/ai';
+import { makeGlowShell } from './FakeGlowMaterial';
 
 /**
  * 오픈월드 로비 — **별도 공간(라운지)** (docs/OPEN_WORLD_LOBBY.md 슬라이스 1·2).
@@ -206,7 +207,8 @@ export class Lobby {
     const grid = makeGridTexture();
     const floor = new THREE.Mesh(
       new THREE.PlaneGeometry(16, 16),
-      new THREE.MeshStandardMaterial({ map: grid, emissiveMap: grid, emissive: 0xffffff, emissiveIntensity: 0.5, roughness: 0.6, metalness: 0.1 }),
+      // §12.3 PBR 바닥: metalness↑·roughness↓ → env IBL을 받아 "젖은 라운지 바닥"처럼 네온을 반사.
+      new THREE.MeshStandardMaterial({ map: grid, emissiveMap: grid, emissive: 0xffffff, emissiveIntensity: 0.5, roughness: 0.32, metalness: 0.4 }),
     );
     floor.rotation.x = -Math.PI / 2;
     floor.position.set(0, 0, -5);
@@ -222,6 +224,8 @@ export class Lobby {
         new THREE.MeshStandardMaterial({ color: 0x000000, emissive: sx < 0 ? 0xff2d78 : 0x22d3ee, emissiveIntensity: 2 }),
       );
       strip.position.set(sx * 6.2, 2.7, -5);
+      // 네온 헤일로(§12.3) — 두께축(x·y)만 키운 글로우 쉘. 자식이라 원본 위치·회전 상속.
+      strip.add(makeGlowShell(strip.geometry, sx < 0 ? 0xff2d78 : 0x22d3ee, new THREE.Vector3(4, 4, 1.02), { opacity: 0.7 }));
       engine.addLobby(strip);
     }
 
@@ -231,6 +235,7 @@ export class Lobby {
       new THREE.MeshStandardMaterial({ color: 0x000000, emissive: 0x22d3ee, emissiveIntensity: 1.8, roughness: 0.4 }),
     );
     arch.position.set(0, 1.15, PORTAL_Z);
+    arch.add(makeGlowShell(arch.geometry, 0x22d3ee, 1.5, { opacity: 0.85 })); // 포털 시안 헤일로 (중심 랜드마크)
     engine.addLobby(arch);
     const glow = new THREE.Mesh(
       new THREE.CircleGeometry(0.95, 40),
@@ -307,6 +312,7 @@ export class Lobby {
       new THREE.MeshStandardMaterial({ color: 0xff6aa6, emissive: 0xff2d78, emissiveIntensity: 0.5, roughness: 0.2, metalness: 0.5 }),
     );
     lockerBall.position.set(LOCKER_X, 1.72, LOCKER_Z);
+    lockerBall.add(makeGlowShell(lockerBall.geometry, 0xff2d78, 1.7, { opacity: 0.9 })); // 스킨 볼 마젠타 헤일로 (포컬)
     engine.addLobby(lockerBall);
     this.lockerBall = lockerBall;
     const lockerSign = makeSign('🎨 스킨', '#ff2d78', '#ffd5e6');
