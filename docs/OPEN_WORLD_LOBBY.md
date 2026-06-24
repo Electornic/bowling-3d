@@ -23,6 +23,8 @@
 >
 > **v4 (2026-06-24): 방향 전환 — 시네마틱·로비 폴리시 (이 세션).** 카메라 연출 리서치(PBA·게임 juice·볼링 중계) + "릴리스는 조준 제약이라 카메라 다이나믹 불가 + 볼러가 훅 라인을 가림" 깨달음 → **레인 볼러 제거(슬라이스 3 되돌림)** · **특별샷 리플레이(스냅샷) 추가** · **로비 리얼리즘 튜닝** · **로비 카메라 시점 조절** · **로비 A/D 좌우 반전 수정(구현됨)**. 상세 = **§12(신규).** 영향 구절(§5.1·§7·§9 슬라이스3·§11②)은 상단 ⚠️로 §12 갈음.
 >
+> **v5 (2026-06-24 후속): 메뉴 = 완전 다이제틱(A) 확정 + 리얼리즘 리서치 큐레이션 (이 세션).** ① 메뉴 처리 = **A(완전 다이제틱)** — DOM 메뉴 게이트 폐기, 모드/난이도/오일/스킨/통계를 월드 오브젝트로 해체. **A1(배치만 다이제틱: 오브젝트 근접→DOM 패널, NPC 버블 패턴 재사용) 우선 착수**, 핵심만 후속 A2(완전 in-world). 상세 = **§13(신규)**, 매핑 = §6.1. ② §12.3 리얼리즘 = three r184 기준 "구현 경로" 보강 + §12.6 큐레이션. (검토: 실제 Engine.ts/package.json 대조.)
+>
 > 관련 문서: [MOBILE_SUPPORT.md](./MOBILE_SUPPORT.md) (저사양·픽셀비·터치) ·
 > [GAME_DESIGN.md](./GAME_DESIGN.md) (좌표·상태머신·카메라 연출) ·
 > [REWARDS.md](./REWARDS.md) (스킨 불변식) · [GAMEPLAY_ROADMAP.md](./GAMEPLAY_ROADMAP.md) ·
@@ -342,6 +344,7 @@ LOBBY ──(레인 근접 + 확인)──▶ AIMING ──▶ ROLLING ──▶
 | **5. 로비 카메라 시점** | 드래그 오르빗 + 카메라 상대 이동 (§12.4) — A/D 수정(§12.5) 일반화 | 1 | 자유 시점 로비 |
 | **6. 특별샷 리플레이** | strike/spare/split 스냅샷 리플레이 (§12.2) | — | 하이라이트 |
 | **7. 로비 리얼리즘** | 셀렉티브 블룸·HDR·PBR (§12.3) | 1 | 비주얼 폴리시 |
+| **8. 다이제틱 메뉴** | 부팅→로비 직행 + 시작 콘솔·스킨 락커·통계 보드·설정 기어 (A1, §13) | 1 | 메뉴 해체 |
 
 > 슬라이스 0+1만으로 "대기실 → 레인 → 게임" 전체 루프가 완성된다. 2·3·4는 독립적으로 얹는다.
 > ⚠️ **숨은 의존성:** 슬라이스 1의 3인칭 팔로우캠은 *보이는 아바타*를 전제한다 → 1은 캡슐
@@ -437,16 +440,24 @@ AI=[GameState.ts:336](../src/game/GameState.ts) `update` AIMING case→throwBall
 - **전광판 싱크:** `environment.announce`("STRIKE!"/"SPARE!")를 score() 즉시가 아니라 **리플레이의 핀 임팩트 순간**(`crashTime`, 공 z>`PIN_CONTACT_Z`)에 `onCrash` 콜백으로 발화 → 결과 텍스트가 재생 액션과 동기(시작 시 미리 떠 스포일하던 것 제거). 리플레이 미발동·스킵·취소 시 즉시 발화(누락 방지, finish에서 보장).
 - **함께 한 사운드 보정 (같은 커밋):** ① 사이드/코너 핀(7·10 등) 크래시 사운드 누락 수정 — [GameState.ts](../src/game/GameState.ts) `notifyImpact` 게이트 `ROLLING`→`ROLLING+SETTLING`(거터 진입·핀덱 통과로 이미 SETTLING된 뒤 맞는 핀). ② BGM 레벨 ↑ — [SoundManager.ts](../src/audio/SoundManager.ts) `musicVol 0.5→0.6`, `musicMatchVol 0.14→0.2`.
 - **⚠️ 남은 확인 1건:** 카메라는 실기 OK. **전광판 싱크**(핀 맞는 순간에 뜨는지)는 다음 녹화로 눈 확인만 남음. 배너 "🎬 리플레이 · SPARE!"는 시작부터 결과 라벨 노출(의도) — 스포일로 느껴지면 "🎬 리플레이"로만 가능.
-- **▶ 다음 세션 시작점:** §12.2 완료. 미착수 = **§12.3 로비 리얼리즘**(셀렉티브 블룸·HDR 환경맵·PBR) · **§12.4 로비 카메라 시점**(드래그 오르빗 + 이동을 카메라 상대로 일반화 → §12.5 `mx=-mx` 하드코딩 흡수). 추천: §12.4 먼저(A/D 하드코딩 정리 겸) 또는 §12.3(비주얼 임팩트). 둘 다 이 §12에 설계 완비.
+- **▶ 다음 세션 시작점:** §12.2 완료. **방향 확정(v5):** 메뉴=A/A1(§13 신규) · §12.3 리얼리즘 리서치 완료(§12.6 큐레이션). 착수 후보 = **§13 다이제틱 메뉴 A1**(부팅→로비 직행 + 시작 콘솔이 config-bypass도 메움 — 1순위) · **§12.3 리얼리즘**(fake-glow 블룸부터, 파이프라인 무변경) · **§12.4 카메라 시점**. 셋 다 설계 완비.
 
 ### 12.3 로비 리얼리즘 튜닝
 
-- **셀렉티브 블룸 (네온 리얼리즘 단일 최대 승부수):** 로비/배경 네온 emissive에만 블룸. 현재 [Lobby.ts](../src/scene/Lobby.ts)·[Environment.ts](../src/scene/Environment.ts) 네온은 블룸 없음 → pmndrs postprocessing `SelectiveBloom`.
-- **HDR 환경맵:** `RGBELoader` → `scene.environment`(IBL)로 PBR 반사·간접광 향상. 현재 절차적 `RoomEnvironment` 사용 → 더 풍부한 env가 레버.
+- **셀렉티브 블룸 (네온 리얼리즘 단일 최대 승부수):** 로비/배경 네온 emissive에만 블룸. 현재 [Lobby.ts](../src/scene/Lobby.ts)·[Environment.ts](../src/scene/Environment.ts) 네온은 블룸 없고 [Engine.ts](../src/core/Engine.ts)도 `renderer.render()` 직접 호출(컴포저 없음) → 블룸은 **신규 파이프라인**. 경로 3택은 ↓ "구현 경로".
+- **HDR 환경맵:** [Engine.ts:83-84](../src/core/Engine.ts) 이미 `PMREMGenerator.fromScene(new RoomEnvironment(), 0.04)`로 런타임 IBL 생성 중 → "더 풍부한 env"는 **새 에셋 불요**. 0에셋 정답 = RoomEnvironment를 **네온 팔레트로 칠한 커스텀 절차 씬**으로 교체(↓ 구현 경로). `RGBELoader`로 .hdr 로드는 비추(0에셋 철학 깨짐 + 번들 증가).
 - **PBR:** `MeshStandardMaterial` metalness/roughness로 바닥·벽 반사. 물리광 `decay=2`, 광원 **2~4개면 충분**(많다고 좋지 않음).
-- **이미 적용 중:** ACESFilmic 톤매핑 · `shadowMap.autoUpdate=false`(정적 시).
+- **이미 적용 중:** ACESFilmic 톤매핑([Engine.ts:60](../src/core/Engine.ts)) · `shadowMap.autoUpdate=false`(정적 시). → 네온 채도가 ACES 색시프트로 죽으면 **AgX**(`THREE.AgXToneMapping`, three r184라 사용 가능)로 한 줄 교체 실험. 단 컴포저 도입 시 ↓ "이중 톤매핑 함정".
 - **아트 무드:** 코스믹 볼링(블랙라이트) · 네온 헤일로 링 · 디머블 LED(영역별 밝기) · 컬러스킴(스로백 그린·레드/오렌지 vs 슬릭 퓨처리스틱) · 어쿠스틱 패널 · 식물 벽.
-- ⚠️ **모바일 예산(§10):** 블룸/포스트프로세싱은 fill-rate 부담 → `isLowEnd`에선 블룸 OFF 또는 저해상도.
+- ⚠️ **모바일 예산(§10):** 블룸/포스트프로세싱은 fill-rate 부담 → `isLowEnd`에선 블룸 OFF 또는 저해상도. (fake-glow는 풀스크린 패스가 없어 이 부담을 회피 — ↓ 구현 경로.)
+
+**구현 경로 (이 코드 기준 — 2026-06-24 리서치, three r184):**
+
+- **블룸 3택:** ① **fake-glow 머티리얼**([ektogamat](https://github.com/ektogamat/fake-glow-material-threejs)) = 메시별 GLSL, 풀스크린 패스 0 → **모바일·0에셋 1순위, 파이프라인 무변경.** ② 공식 셀렉티브 블룸(레이어 2-컴포저, dep 0, 코드 많음·2패스). ③ pmndrs `postprocessing` `SelectiveBloom`(1컴포저·API 깔끔, dep 추가). ②③은 `isLowEnd`에서 OFF.
+- **⚠️ 이중 톤매핑 함정:** 컴포저(②③) 도입 순간 [Engine.ts:60](../src/core/Engine.ts)의 `ACESFilmicToneMapping`을 **`NoToneMapping`으로 내리고** 톤매핑을 컴포저 말단 `ToneMappingEffect`(AgX 기본)로 옮겨야 함 — 안 그러면 톤매핑 2회 적용 → 칙칙·저대비 + HDR이 `[0,1]` 클램프돼 **블룸 깨짐**. 즉 "AgX 전환"과 "pmndrs 블룸"은 **한 묶음**. fake-glow(①)만 쓰면 컴포저가 없어 이 함정 무관(현 ACES 유지).
+- **커스텀 네온 IBL(0에셋):** RoomEnvironment 대신 발광 area-light를 네온색(시안/마젠타/퍼플)으로 배치한 `THREE.Scene`을 `fromScene()`에 넘기면 반사·간접광이 로비 톤으로 물듦. 생성은 **1회만**(매 프레임 금지 — fill-rate 폭주).
+- **PBR 바닥:** 현 로비 바닥 `MeshStandardMaterial` metalness 0.1([Lobby.ts:151](../src/scene/Lobby.ts))을 ↑ 또는 `MeshPhysicalMaterial` clearcoat → "젖은 라운지 바닥". 반사원 = 위 env맵(IBL과 곱셈 시너지). IBL은 그림자 못 만듦 → 디렉셔널 1개 유지.
+- **팔레트 앵커:** 시안 `#00FFD5` · 마젠타 `#FF2DAA` · 그린 `#39FF14` · 퍼플 `#B026FF` · 옐로 `#FFF200` on near-black `#0A0A0F`. 현 로비(시안 `#22d3ee` + 핑크 `#ff2d78` on `#0a0814`)는 **이미 정합** → 퍼플·그린 + 핀덱 컬러광 추가가 레버.
 
 ### 12.4 로비 카메라 시점 조절 (신규 슬라이스 5)
 
@@ -480,6 +491,65 @@ AI=[GameState.ts:336](../src/game/GameState.ts) `update` AIMING case→throwBall
 
 **볼링장 아트 디렉션**
 - [Studio 6F Bowling Alley — Interior Design](https://interiordesign.net/projects/studio-6f-breathes-new-life-into-abandoned-chicago-bowling-alley/) · [Neon Bowling — Pinterest](https://www.pinterest.com/ideas/neon-bowling/954684211509/)
+
+**리얼리즘 리서치 큐레이션 (2026-06-24 후속 — §12.3 "구현 경로" 보강)**
+
+*블룸*
+- [fake-glow-material — ektogamat (MIT)](https://github.com/ektogamat/fake-glow-material-threejs) — 메시별 GLSL 글로우, 컴포저 불요 → 모바일 1순위.
+- [공식 셀렉티브 블룸 예제](https://threejs.org/examples/webgl_postprocessing_unreal_bloom_selective.html) · [Wael Yasmina 튜토리얼(2024-10)](https://waelyasmina.net/articles/unreal-bloom-selective-threejs-post-processing/) — 레이어 2-컴포저 정석.
+- [pmndrs/postprocessing](https://github.com/pmndrs/postprocessing) — `SelectiveBloom`·`ToneMappingEffect`(AgX 기본). 도입 시 `renderer.toneMapping=NoToneMapping` 필수.
+
+*IBL / 환경맵 (0에셋)*
+- [커스텀 env 생성 — donmccurdy](https://discourse.threejs.org/t/generating-an-environment-map-from-scratch/37857) · [라이트포머식 바닐라 IBL](https://discourse.threejs.org/t/r3f-lightformers-in-vanilla-three-js/48495)
+- docs: [RoomEnvironment](https://threejs.org/docs/pages/RoomEnvironment.html) · [PMREMGenerator](https://threejs.org/docs/pages/PMREMGenerator.html) · [IBL+조명 이중점등 주의](https://discourse.threejs.org/t/with-ibl-do-i-remove-lights-from-the-scene/65757)
+- ⚠️ iOS 구형 단말 `fromScene` 검은 envMap — [three #25888](https://github.com/mrdoob/three.js/issues/25888) (현 코드 이미 fromScene 사용·실기 동작 중이라 허용 경로).
+
+*톤매핑*
+- [pmndrs 톤매핑 가이드](https://discourse.threejs.org/t/pmndrs-post-processing-tone-mapping-guidance/59374) — ACES 색시프트 vs AgX, 컴포저 시 이중 적용 함정.
+
+*팔레트 / 아트 디렉션*
+- [media.io 22 네온 팔레트](https://www.media.io/color-palette/neon-color-palette.html) · [designyourway 네온 팔레트("Cosmic Glow")](https://www.designyourway.net/blog/neon-color-palettes/)
+- [Fusion Bowling 프로젝트](https://www.fusionbowling.com/projects)(파이버옵틱 별천장·플랜트월) · [NewRetroArcade: Neon](https://store.steampowered.com/app/465780/)(반사 바닥+앰비언트 네온).
+
+---
+
+## 13. 메뉴 다이제틱화 (v5, 2026-06-24) — A(완전 다이제틱) · A1 우선
+
+> 메뉴 처리 결정. **A(완전 다이제틱) 확정 — A1(배치만 다이제틱) 우선 착수.** §6.1 매트릭스를 실제 월드 오브젝트로 구현하는 단계. (이전엔 메뉴가 게이트·로비가 곁가지였음 — 역전.)
+
+### 13.1 현 상태 진단 ([Boot.ts](../src/core/Boot.ts))
+
+- **부팅 → DOM 메뉴가 게이트**([:206](../src/core/Boot.ts) `menu.showMenu()`). 메뉴가 설정 허브(모드·상대·난이도·오일·예측선·무게·스킨·통계·사운드, 998줄 [Menu.ts](../src/ui/Menu.ts)).
+- **로비는 곁가지** — 메뉴의 "🚶 로비 둘러보기"([:264](../src/core/Boot.ts))로만 진입.
+- ⚠️ **config-bypass 구멍:** 로비 진입은 모드/난이도/오일을 **못 고름** — 포털=`mode:'full'` 솔로 하드코딩([:251](../src/core/Boot.ts)), NPC=`full` vs AI 하드코딩([:260](../src/core/Boot.ts)). 무게·스킨만 즉시-적용 setter라 살아 넘어감. A의 시작 콘솔이 이 구멍을 메움.
+
+### 13.2 결정 — A / A1 우선
+
+- **A (완전 다이제틱):** 부팅→(터미널 로더)→**로비 직행**, DOM 메뉴 게이트 폐기. 메뉴 항목을 월드 오브젝트로 해체. → 로비가 "머무는 홈"이라 §12.3 리얼리즘 투자가 값어치를 함.
+- **A1 (우선 착수):** 콘솔·락커·보드는 3D 오브젝트로 배치하되 **근접 시 기존 DOM 패널이 열림** — [Lobby.ts](../src/scene/Lobby.ts)의 NPC 근접 버블·프롬프트 패턴 재사용(검증됨). [Menu.ts](../src/ui/Menu.ts) 칩 로직 대부분 재활용, 터치 입력 그대로 안전.
+- **A2 (후속, 선택적):** 핵심 1~2개(특히 시작 콘솔)만 CanvasTexture 평면 + 레이캐스트로 완전 in-world 승격. 모바일 터치 정밀도·가독성 난제라 손맛 검증 후.
+
+### 13.3 [Menu.ts](../src/ui/Menu.ts) → 다이제틱 집 (§6.1 매트릭스 구현)
+
+| Menu.ts 조각 | 다이제틱 집 (오브젝트) | 상태 |
+|---|---|---|
+| 모드·난이도·오일·무게 + 혼자/2인 토글 | **레인 앞 "시작 콘솔"**(포털 근접→패널) | 신규 — config-bypass 해소 |
+| AI 상대 3인 | **NPC**(kim/yoon/han) | ✅ 됨 |
+| 2인 교대전(핫시트) | 시작 콘솔의 "혼자/2인" 토글 | 신규 |
+| 스킨 컬렉션 | **로비 락커/키오스크** | 신규 |
+| 통계·업적 | **로비 보드/전광판**([Environment.ts](../src/scene/Environment.ts) `announce` 인프라) | 신규 |
+| 사운드·햅틱·품질 | 구석 **기어 버튼**(상주) — 다이제틱 예외 | 신규(경량) |
+| 일시정지·포기 | 인게임 오버레이 유지 | ✅ 변화 없음 |
+
+### 13.4 A1 빌드 순서 (§9 슬라이스 8)
+
+1. **부팅 흐름 전환** — 로더→로비 직행, DOM 메뉴 게이트 제거([Boot.ts](../src/core/Boot.ts) 초기 `menu.showMenu()` 제거 + `lobbyEnterBtn` 폐기). 결과 복귀는 항상 로비.
+2. **시작 콘솔(핵심)** — 포털 옆 오브젝트, 근접 시 모드/난이도/오일/무게/혼자·2인 패널([Menu.ts](../src/ui/Menu.ts) 칩 이식) → `startMatch(cfg)`. config-bypass 해소.
+3. **스킨 락커** — 오브젝트 근접 → `showSkins` 패널.
+4. **통계 보드** — 로비 벽/전광판에 `statsSummary`.
+5. **설정 기어** — 상주 버튼(사운드/품질).
+
+> §5 상태머신·§6.1 매핑 변경 없음(LOBBY 유지, 콘솔=LOBBY 내 근접 트리거). 메뉴 직접 시작·hotseat의 결과 복귀 분기(§11 H3)는 게이트 폐기로 단순화 — 모두 로비 복귀.
 
 ---
 
