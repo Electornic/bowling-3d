@@ -18,6 +18,29 @@ function isLowEnd(): boolean {
   return isCoarsePointer() && mem !== undefined && mem <= 4;
 }
 
+/**
+ * 로비 커스텀 네온 IBL용 절차 씬 (§12.3 7c, 에셋 0). RoomEnvironment(중성 실내광) 대신 네온 팔레트
+ * 발광 패널을 방향별로 배치 → PMREMGenerator.fromScene으로 구워 로비 PBR 표면에 시안·마젠타·퍼플·
+ * 그린 반사와 간접광을 입힌다. IBL은 그림자를 못 만들므로 lobbyScene 디렉셔널 라이트는 유지. (1회 생성)
+ */
+function makeNeonEnvScene(): THREE.Scene {
+  const s = new THREE.Scene();
+  s.background = new THREE.Color(0x0a0a0f); // §12.3 near-black 앵커
+  // [색, 위치, 크기] — §12.3 7d 팔레트 앵커(시안/마젠타/퍼플/그린)를 방향별 발광 패널로.
+  const panels: [number, [number, number, number], [number, number, number]][] = [
+    [0x00ffd5, [9, 3, 0], [0.5, 7, 16]], // 시안 — 우측
+    [0xff2daa, [-9, 3, 0], [0.5, 7, 16]], // 마젠타 — 좌측
+    [0xb026ff, [0, 3.5, -10], [18, 7, 0.5]], // 퍼플 — 뒤 (7d 신규 톤)
+    [0x39ff14, [0, 7, 5], [12, 0.5, 10]], // 그린 — 위 앞 (7d 신규 톤)
+  ];
+  for (const [color, [px, py, pz], [sx, sy, sz]] of panels) {
+    const m = new THREE.Mesh(new THREE.BoxGeometry(sx, sy, sz), new THREE.MeshBasicMaterial({ color }));
+    m.position.set(px, py, pz);
+    s.add(m);
+  }
+  return s;
+}
+
 /** three 메시 ↔ rapier 강체 페어 */
 export interface PhysicsObject {
   mesh: THREE.Object3D;
@@ -88,8 +111,10 @@ export class Engine {
     this.lobbyScene = new THREE.Scene();
     this.lobbyScene.background = new THREE.Color(0x0a0814);
     this.lobbyScene.fog = new THREE.Fog(0x0a0814, 11, 34);
-    this.lobbyScene.environment = this.scene.environment;
-    this.lobbyScene.environmentIntensity = 0.5;
+    // 커스텀 네온 IBL (§12.3 7c) — 레인의 중성 RoomEnvironment와 달리 로비는 네온 팔레트 반사.
+    // 1회 생성(매 프레임 금지 — fill-rate 폭주 방지). PBR 바닥(metalness 0.4)이 이 env를 반사한다.
+    this.lobbyScene.environment = pmrem.fromScene(makeNeonEnvScene(), 0.04).texture;
+    this.lobbyScene.environmentIntensity = 1.0; // 네온 반사가 PBR 바닥·메탈에 또렷이 드러나도록
     this.lobbyScene.add(new THREE.AmbientLight(0xffffff, 0.55));
     const lobbyDir = new THREE.DirectionalLight(0xffffff, 1.0);
     lobbyDir.position.set(3, 10, -4);

@@ -213,8 +213,8 @@ export class Lobby {
     const grid = makeGridTexture();
     const floor = new THREE.Mesh(
       new THREE.PlaneGeometry(16, 16),
-      // §12.3 PBR 바닥: metalness↑·roughness↓ → env IBL을 받아 "젖은 라운지 바닥"처럼 네온을 반사.
-      new THREE.MeshStandardMaterial({ map: grid, emissiveMap: grid, emissive: 0xffffff, emissiveIntensity: 0.5, roughness: 0.32, metalness: 0.4 }),
+      // §12.3 PBR 바닥: metalness↑·roughness↓ → 네온 IBL(§7c)을 받아 "젖은 라운지 바닥"처럼 반사.
+      new THREE.MeshStandardMaterial({ map: grid, emissiveMap: grid, emissive: 0xffffff, emissiveIntensity: 0.5, roughness: 0.26, metalness: 0.5 }),
     );
     floor.rotation.x = -Math.PI / 2;
     floor.position.set(0, 0, -5);
