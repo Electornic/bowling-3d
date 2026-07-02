@@ -82,18 +82,77 @@ export interface ConsoleController {
 /** 절차적 로우폴리 인물 (에셋 0) — 캡슐 몸통 + 구 머리 + 앞면 바이저(방향 표식). */
 function makeFigure(body: number, emissive: number): THREE.Group {
   const g = new THREE.Group();
-  const bodyMat = new THREE.MeshStandardMaterial({ color: body, emissive, emissiveIntensity: 0.6, roughness: 0.4, metalness: 0.1 });
+  // 리얼 재테마: 형광(emissive)↓ + roughness↑ → 매트한 옷감 느낌 (구 네온 캡슐에서 전환).
+  const bodyMat = new THREE.MeshStandardMaterial({ color: body, emissive, emissiveIntensity: 0.12, roughness: 0.7, metalness: 0.0 });
   const headMat = new THREE.MeshStandardMaterial({ color: 0xffe0b8, roughness: 0.6 });
   const torso = new THREE.Mesh(new THREE.CapsuleGeometry(0.18, 0.52, 6, 14), bodyMat);
   torso.position.y = 0.55;
   const head = new THREE.Mesh(new THREE.SphereGeometry(0.15, 18, 12), headMat);
   head.position.y = 1.02;
   const visor = new THREE.Mesh(
-    new THREE.BoxGeometry(0.18, 0.05, 0.05),
-    new THREE.MeshStandardMaterial({ color: 0x0e1118, emissive: 0x22d3ee, emissiveIntensity: 1.4 }),
+    new THREE.BoxGeometry(0.16, 0.045, 0.05),
+    new THREE.MeshStandardMaterial({ color: 0x2a2018, roughness: 0.6 }), // 매트한 얼굴 표식 (구 네온 바이저 대체)
   );
-  visor.position.set(0, 1.03, 0.13);
+  visor.position.set(0, 1.0, 0.13);
   g.add(torso, head, visor);
+  return g;
+}
+
+/** 볼링장 벤치 (리얼 재테마 소품, 에셋 0) — 우드 좌석+등받이 + 메탈 다리. */
+function makeBench(): THREE.Group {
+  const g = new THREE.Group();
+  const wood = new THREE.MeshStandardMaterial({ color: 0x5a3a22, roughness: 0.7, metalness: 0.05 });
+  const seat = new THREE.Mesh(new THREE.BoxGeometry(1.8, 0.12, 0.5), wood);
+  seat.position.y = 0.45;
+  const back = new THREE.Mesh(new THREE.BoxGeometry(1.8, 0.5, 0.1), wood);
+  back.position.set(0, 0.72, -0.2);
+  g.add(seat, back);
+  const legMat = new THREE.MeshStandardMaterial({ color: 0x26262c, roughness: 0.5, metalness: 0.4 });
+  for (const lx of [-0.8, 0.8]) {
+    for (const lz of [-0.18, 0.18]) {
+      const leg = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.45, 0.08), legMat);
+      leg.position.set(lx, 0.22, lz);
+      g.add(leg);
+    }
+  }
+  return g;
+}
+
+/** 신발 대여 카운터 (리얼 재테마 소품, 에셋 0) — 우드 데스크 + 뒤 신발 큐비 선반(컬러 신발). */
+function makeShoeCounter(): THREE.Group {
+  const g = new THREE.Group();
+  const desk = new THREE.Mesh(
+    new THREE.BoxGeometry(3.0, 1.0, 0.7),
+    new THREE.MeshStandardMaterial({ color: 0x3a2818, roughness: 0.6, metalness: 0.1 }),
+  );
+  desk.position.y = 0.5;
+  const top = new THREE.Mesh(
+    new THREE.BoxGeometry(3.25, 0.1, 0.85),
+    new THREE.MeshStandardMaterial({ color: 0x6a4a2a, roughness: 0.4, metalness: 0.2 }),
+  );
+  top.position.y = 1.02;
+  const shelf = new THREE.Mesh(
+    new THREE.BoxGeometry(3.0, 1.7, 0.3),
+    new THREE.MeshStandardMaterial({ color: 0x241a10, roughness: 0.85 }),
+  );
+  shelf.position.set(0, 1.35, -0.55);
+  g.add(desk, top, shelf);
+  const cubbyMat = new THREE.MeshStandardMaterial({ color: 0x1a120a, roughness: 0.9 });
+  const shoeCols = [0xc04535, 0x356ec0, 0x3a9a55, 0xc09030];
+  let si = 0;
+  for (let row = 0; row < 3; row++) {
+    for (let col = 0; col < 4; col++) {
+      const cubby = new THREE.Mesh(new THREE.BoxGeometry(0.62, 0.46, 0.06), cubbyMat);
+      cubby.position.set(-1.05 + col * 0.7, 0.75 + row * 0.5, -0.39);
+      const shoe = new THREE.Mesh(
+        new THREE.BoxGeometry(0.4, 0.2, 0.04),
+        new THREE.MeshStandardMaterial({ color: shoeCols[si % shoeCols.length], roughness: 0.6 }),
+      );
+      shoe.position.set(-1.05 + col * 0.7, 0.75 + row * 0.5, -0.36);
+      g.add(cubby, shoe);
+      si++;
+    }
+  }
   return g;
 }
 
@@ -107,7 +166,7 @@ function makeLabel(text: string, color: string): THREE.Sprite {
   g.textAlign = 'center';
   g.textBaseline = 'middle';
   g.shadowColor = color;
-  g.shadowBlur = 14;
+  g.shadowBlur = 6; // 리얼 재테마: 네온 글로우(14) 톤 다운 — 가독성만 유지
   g.fillStyle = color;
   g.fillText(text, 128, 34);
   const tex = new THREE.CanvasTexture(c);
@@ -117,29 +176,64 @@ function makeLabel(text: string, color: string): THREE.Sprite {
   return s;
 }
 
-/** 네온 그리드 바닥 텍스처 — 레인(나무결)과 확연히 다른 라운지 톤. */
-function makeGridTexture(): THREE.CanvasTexture {
+/**
+ * 볼링장 카펫 텍스처 (리얼 재테마, 에셋 0) — 다크 네이비 베이스 + 밝은 멀티컬러 confetti(삼각형·점·대시).
+ * 현대 볼링장 "코스믹/재즈" 카펫 패턴. 구 버건디+골드 다이아몬드(=카지노/시네마 시그니처)에서 전환.
+ * 시드 고정 LCG로 결정적 스캐터 + 도형을 ±S 래핑 복제해 타일 이음매 제거.
+ */
+function makeCarpetTexture(): THREE.CanvasTexture {
+  const S = 256;
   const c = document.createElement('canvas');
-  c.width = 256;
-  c.height = 256;
+  c.width = S;
+  c.height = S;
   const g = c.getContext('2d')!;
-  g.fillStyle = '#0a0814';
-  g.fillRect(0, 0, 256, 256);
-  g.strokeStyle = 'rgba(34,211,238,0.6)';
-  g.lineWidth = 2;
-  g.beginPath();
-  for (let i = 0; i <= 8; i++) {
-    const p = i * 32;
-    g.moveTo(p, 0);
-    g.lineTo(p, 256);
-    g.moveTo(0, p);
-    g.lineTo(256, p);
+  g.fillStyle = '#1b2138'; // 다크 네이비 베이스 (버건디 탈피)
+  g.fillRect(0, 0, S, S);
+  // 밝은 멀티컬러 — 핫핑크·시안·옐로우·퍼플·오렌지·라임 (볼링장 confetti 시그니처)
+  const palette = ['#ff3d7f', '#1ad1d8', '#ffd23f', '#9b6cff', '#ff7a3d', '#46d66f'];
+  // 결정적 LCG(시드 고정) → 빌드마다 동일 패턴. Math.random 미사용으로 텍스처 안정.
+  let seed = 1337;
+  const rnd = () => (seed = (seed * 1664525 + 1013904223) >>> 0) / 4294967296;
+  // 도형을 (±S, ±S)로 9분면 복제해 그려 타일 경계 이음매 제거.
+  const drawWrapped = (fn: (ox: number, oy: number) => void) => {
+    for (const ox of [-S, 0, S]) for (const oy of [-S, 0, S]) fn(ox, oy);
+  };
+  for (let i = 0; i < 44; i++) {
+    const x = rnd() * S;
+    const y = rnd() * S;
+    const col = palette[Math.floor(rnd() * palette.length)];
+    const kind = Math.floor(rnd() * 3);
+    const r = 5 + rnd() * 11;
+    const rot = rnd() * Math.PI * 2;
+    g.fillStyle = col;
+    drawWrapped((ox, oy) => {
+      g.save();
+      g.translate(x + ox, y + oy);
+      g.rotate(rot);
+      if (kind === 0) {
+        // 삼각형
+        g.beginPath();
+        g.moveTo(0, -r);
+        g.lineTo(r * 0.9, r * 0.8);
+        g.lineTo(-r * 0.9, r * 0.8);
+        g.closePath();
+        g.fill();
+      } else if (kind === 1) {
+        // 점
+        g.beginPath();
+        g.arc(0, 0, r * 0.66, 0, Math.PI * 2);
+        g.fill();
+      } else {
+        // 짧은 대시(부메랑 느낌)
+        g.fillRect(-r, -r * 0.28, r * 2, r * 0.56);
+      }
+      g.restore();
+    });
   }
-  g.stroke();
   const t = new THREE.CanvasTexture(c);
   t.colorSpace = THREE.SRGBColorSpace;
   t.wrapS = t.wrapT = THREE.RepeatWrapping;
-  t.repeat.set(8, 8);
+  t.repeat.set(7, 7);
   return t;
 }
 
@@ -211,51 +305,56 @@ export class Lobby {
 
   constructor(engine: Engine) {
     // --- 라운지 환경 (별도 공간, 레인·핀 없음) → engine.lobbyScene ---
-    const grid = makeGridTexture();
+    const carpet = makeCarpetTexture();
     const floor = new THREE.Mesh(
       new THREE.PlaneGeometry(16, 16),
-      // §12.3 PBR 바닥: metalness↑·roughness↓ → 네온 IBL(§7c)을 받아 "젖은 라운지 바닥"처럼 반사.
-      new THREE.MeshStandardMaterial({ map: grid, emissiveMap: grid, emissive: 0xffffff, emissiveIntensity: 0.5, roughness: 0.26, metalness: 0.5 }),
+      // 리얼 재테마: 네이비 confetti 카펫 = 매트(roughness↑·metalness 0·emissive 제거). 구 "젖은 네온 바닥"에서 전환.
+      new THREE.MeshStandardMaterial({ map: carpet, roughness: 0.95, metalness: 0.0 }),
     );
     floor.rotation.x = -Math.PI / 2;
     floor.position.set(0, 0, -5);
     engine.addLobby(floor);
 
-    const wallMat = new THREE.MeshStandardMaterial({ color: 0x12101e, roughness: 0.9 });
+    // 벽 = 하부 우드 웨인스코트 + 상부 밝은 패널 (도박장 단색 어둠 탈피 — 현대 볼링장 투톤).
+    const wainscotMat = new THREE.MeshStandardMaterial({ color: 0x6e5238, roughness: 0.8, metalness: 0.0 }); // 밝은 우드 하부
+    const upperMat = new THREE.MeshStandardMaterial({ color: 0xcfd4dc, roughness: 0.9, metalness: 0.0 }); // 밝은 쿨오프화이트 상부
     for (const sx of [-1, 1]) {
-      const wall = new THREE.Mesh(new THREE.BoxGeometry(0.3, 4.5, 16), wallMat);
-      wall.position.set(sx * 6.4, 2, -5);
-      engine.addLobby(wall);
+      const wainscot = new THREE.Mesh(new THREE.BoxGeometry(0.3, 1.8, 16), wainscotMat);
+      wainscot.position.set(sx * 6.4, 0.9, -5);
+      engine.addLobby(wainscot);
+      const upper = new THREE.Mesh(new THREE.BoxGeometry(0.3, 2.7, 16), upperMat);
+      upper.position.set(sx * 6.4, 3.15, -5);
+      engine.addLobby(upper);
+      // 벽 상단 따뜻한 조명 스트립(코브 간접조명) — 밝은 상부 벽을 데우는 전구색 라인.
       const strip = new THREE.Mesh(
         new THREE.BoxGeometry(0.06, 0.06, 12),
-        new THREE.MeshStandardMaterial({ color: 0x000000, emissive: sx < 0 ? 0xff2d78 : 0x22d3ee, emissiveIntensity: 2 }),
+        new THREE.MeshStandardMaterial({ color: 0x000000, emissive: 0xffcf8a, emissiveIntensity: 1.3 }),
       );
-      strip.position.set(sx * 6.2, 2.7, -5);
-      // 네온 헤일로(§12.3) — 두께축(x·y)만 키운 글로우 쉘. 자식이라 원본 위치·회전 상속.
-      strip.add(makeGlowShell(strip.geometry, sx < 0 ? 0xff2d78 : 0x22d3ee, new THREE.Vector3(4, 4, 1.02), { opacity: 0.7 }));
+      strip.position.set(sx * 6.2, 3.6, -5); // 천장 가까이 (코브 라이트)
+      strip.add(makeGlowShell(strip.geometry, 0xffcf8a, new THREE.Vector3(4, 4, 1.02), { opacity: 0.4 }));
       engine.addLobby(strip);
     }
 
-    // 입장 포털 (앞쪽) — 아치 + 안쪽 글로우 + 네온 사인 + 바닥 펄스 링
+    // 입장 포털 (앞쪽) — 앰버 우드 아치 + 안쪽 글로우 + 따뜻한 사인 + 바닥 펄스 링 (리얼 재테마)
     const arch = new THREE.Mesh(
       new THREE.TorusGeometry(1.0, 0.07, 14, 44),
-      new THREE.MeshStandardMaterial({ color: 0x000000, emissive: 0x22d3ee, emissiveIntensity: 1.8, roughness: 0.4 }),
+      new THREE.MeshStandardMaterial({ color: 0x000000, emissive: 0xffa64d, emissiveIntensity: 1.6, roughness: 0.4 }),
     );
     arch.position.set(0, 1.15, PORTAL_Z);
-    arch.add(makeGlowShell(arch.geometry, 0x22d3ee, 1.5, { opacity: 0.85 })); // 포털 시안 헤일로 (중심 랜드마크)
+    arch.add(makeGlowShell(arch.geometry, 0xffa64d, 1.5, { opacity: 0.7 })); // 포털 앰버 헤일로 (중심 랜드마크)
     engine.addLobby(arch);
     const glow = new THREE.Mesh(
       new THREE.CircleGeometry(0.95, 40),
-      new THREE.MeshBasicMaterial({ color: 0x22d3ee, transparent: true, opacity: 0.12, side: THREE.DoubleSide, toneMapped: false, depthWrite: false }),
+      new THREE.MeshBasicMaterial({ color: 0xffb866, transparent: true, opacity: 0.12, side: THREE.DoubleSide, toneMapped: false, depthWrite: false }),
     );
     glow.position.set(0, 1.15, PORTAL_Z - 0.02);
     engine.addLobby(glow);
-    const sign = makeSign('▶ 레인 입장');
+    const sign = makeSign('▶ 레인 입장', '#ffb347', '#ffe6c2');
     sign.position.set(0, 2.5, PORTAL_Z);
     engine.addLobby(sign);
 
     this.padMat = new THREE.MeshBasicMaterial({
-      color: 0x22d3ee,
+      color: 0xffa64d,
       transparent: true,
       opacity: 0.5,
       side: THREE.DoubleSide,
@@ -268,10 +367,28 @@ export class Lobby {
     this.pad.renderOrder = 3;
     engine.addLobby(this.pad);
 
+    // 포털 너머 레인 프리뷰 (리얼 재테마, 다이제틱) — "저 너머가 게임장"임을 보여주는 우드 레인 + 핀 실루엣.
+    const laneFloor = new THREE.Mesh(
+      new THREE.PlaneGeometry(2.6, 10),
+      new THREE.MeshStandardMaterial({ color: 0x9a7038, roughness: 0.35, metalness: 0.0 }),
+    );
+    laneFloor.rotation.x = -Math.PI / 2;
+    laneFloor.position.set(0, 0.012, 3.5); // 포털(PORTAL_Z) 너머 +z 통로 (카펫 위 살짝)
+    engine.addLobby(laneFloor);
+    const pinMat = new THREE.MeshStandardMaterial({ color: 0xfff5e8, emissive: 0x6a5540, emissiveIntensity: 0.45, roughness: 0.5 });
+    const pinRows = [[0], [-0.32, 0.32], [-0.64, 0, 0.64], [-0.96, -0.32, 0.32, 0.96]];
+    pinRows.forEach((xs, row) => {
+      for (const px of xs) {
+        const pin = new THREE.Mesh(new THREE.CapsuleGeometry(0.07, 0.22, 4, 8), pinMat);
+        pin.position.set(px, 0.2, 7.2 + row * 0.42);
+        engine.addLobby(pin);
+      }
+    });
+
     // 시작 콘솔 (§13 A1) — 포털 옆 다이제틱 터미널. 근접 → E/탭으로 레인 설정 패널이 열린다.
     const consoleBase = new THREE.Mesh(
       new THREE.BoxGeometry(0.5, 0.95, 0.4),
-      new THREE.MeshStandardMaterial({ color: 0x12101e, emissive: 0x0a2730, emissiveIntensity: 0.5, roughness: 0.5, metalness: 0.3 }),
+      new THREE.MeshStandardMaterial({ color: 0x2a1d12, emissive: 0x1a1208, emissiveIntensity: 0.5, roughness: 0.5, metalness: 0.3 }),
     );
     consoleBase.position.set(1.35, 0.48, PORTAL_Z + 0.25);
     consoleBase.rotation.y = -0.4;
@@ -295,19 +412,19 @@ export class Lobby {
     engine.addLobby(this.consoleScreen);
 
     // 스킨 락커 (§13 스텝3) — 콘솔 반대편(좌측) 다이제틱 키오스크. 근접 → E/탭으로 컬렉션 패널.
-    // 좌측 벽 네온이 마젠타라 락커도 마젠타 톤으로 통일(콘솔=시안과 대비 → 두 오브젝트 구분).
+    // 리얼 재테마: 앰버 골드 톤(스킨 볼·전구색 사인과 통일 → 따뜻한 "장비" 코너 느낌).
     const LOCKER_X = -3.0;
     const LOCKER_Z = -2.1;
     const lockerBody = new THREE.Mesh(
       new THREE.BoxGeometry(0.7, 1.5, 0.45),
-      new THREE.MeshStandardMaterial({ color: 0x16101e, emissive: 0x2a0a1e, emissiveIntensity: 0.6, roughness: 0.5, metalness: 0.3 }),
+      new THREE.MeshStandardMaterial({ color: 0x2a1d12, emissive: 0x1a1006, emissiveIntensity: 0.5, roughness: 0.6, metalness: 0.2 }),
     );
     lockerBody.position.set(LOCKER_X, 0.75, LOCKER_Z);
     lockerBody.rotation.y = 0.4; // 중앙을 향해 살짝 틀기 (콘솔 -0.4의 미러)
     engine.addLobby(lockerBody);
     const lockerScreen = new THREE.Mesh(
       new THREE.PlaneGeometry(0.5, 0.66),
-      new THREE.MeshBasicMaterial({ color: 0xff2d78, transparent: true, opacity: 0.82, toneMapped: false, side: THREE.DoubleSide }),
+      new THREE.MeshBasicMaterial({ color: 0xe0904a, transparent: true, opacity: 0.82, toneMapped: false, side: THREE.DoubleSide }),
     );
     // 0.4rad 회전한 전면에 디스플레이 부착 (법선 방향으로 살짝 띄움)
     lockerScreen.position.set(LOCKER_X + Math.sin(0.4) * 0.24, 0.95, LOCKER_Z + Math.cos(0.4) * 0.24);
@@ -316,13 +433,13 @@ export class Lobby {
     // 떠 있는 미리보기 볼 — "스킨" 상징. update()에서 천천히 보브/회전.
     const lockerBall = new THREE.Mesh(
       new THREE.SphereGeometry(0.17, 24, 16),
-      new THREE.MeshStandardMaterial({ color: 0xff6aa6, emissive: 0xff2d78, emissiveIntensity: 0.5, roughness: 0.2, metalness: 0.5 }),
+      new THREE.MeshStandardMaterial({ color: 0xffb84a, emissive: 0xffa64d, emissiveIntensity: 0.4, roughness: 0.25, metalness: 0.4 }),
     );
     lockerBall.position.set(LOCKER_X, 1.72, LOCKER_Z);
-    lockerBall.add(makeGlowShell(lockerBall.geometry, 0xff2d78, 1.7, { opacity: 0.9 })); // 스킨 볼 마젠타 헤일로 (포컬)
+    lockerBall.add(makeGlowShell(lockerBall.geometry, 0xffb347, 1.7, { opacity: 0.5 })); // 스킨 볼 앰버 헤일로 (포컬)
     engine.addLobby(lockerBall);
     this.lockerBall = lockerBall;
-    const lockerSign = makeSign('🎨 스킨', '#ff2d78', '#ffd5e6');
+    const lockerSign = makeSign('🎨 스킨', '#ffb347', '#ffe6c2');
     lockerSign.scale.set(0.62, 0.62, 0.62); // 포털 사인보다 작게 (보조 오브젝트)
     lockerSign.position.set(LOCKER_X, 2.25, LOCKER_Z);
     engine.addLobby(lockerSign);
@@ -358,7 +475,47 @@ export class Lobby {
       { kind: 'board', x: 4.0, z: BOARD_Z, radius: 1.6, label: '📊 통계 — [E] / 탭', onActivate: () => this.onOpenBoard?.() },
     );
 
-    // --- 플레이어 아바타 (시안) ---
+    // --- 볼 랙 (리얼 재테마 소품) — 좌측 뒤, 컬러 볼이 놓인 다크 우드 선반 (볼링장다움의 핵심) ---
+    const rack = new THREE.Group();
+    const rackMat = new THREE.MeshStandardMaterial({ color: 0x2a1d12, roughness: 0.7, metalness: 0.1 });
+    for (const sy of [0.5, 0.95]) {
+      const shelf = new THREE.Mesh(new THREE.BoxGeometry(2.2, 0.08, 0.5), rackMat);
+      shelf.position.set(0, sy, 0);
+      rack.add(shelf);
+    }
+    for (const sx of [-1.05, 1.05]) {
+      const side = new THREE.Mesh(new THREE.BoxGeometry(0.08, 1.1, 0.5), rackMat);
+      side.position.set(sx, 0.7, 0);
+      rack.add(side);
+    }
+    const ballCols = [0xd83a4a, 0x2a7fc0, 0xf0a830, 0x3aa860, 0x9050c0, 0xe0556a, 0x2090a0, 0xf07020, 0x5070c0, 0xc04080];
+    let bi = 0;
+    for (const sy of [0.62, 1.07]) {
+      for (let k = 0; k < 5; k++) {
+        const ball = new THREE.Mesh(
+          new THREE.SphereGeometry(0.16, 20, 14),
+          new THREE.MeshStandardMaterial({ color: ballCols[bi % ballCols.length], roughness: 0.25, metalness: 0.1 }),
+        );
+        ball.position.set(-0.85 + k * 0.42, sy, 0);
+        rack.add(ball);
+        bi++;
+      }
+    }
+    rack.position.set(-4.5, 0, -3.8); // 좌측 측벽 앞 (걷는 영역 x±4.2 밖) — 포털 근처라 정면 시야에 들어옴
+    rack.rotation.y = 0.7; // 중앙(플레이어)을 향해 틀기
+    engine.addLobby(rack);
+
+    // --- 볼링장 소품 (리얼 재테마): 벤치(좌석) 좌우 + 신발 카운터(입구 = 플레이어 뒤) ---
+    const benchL = makeBench();
+    benchL.position.set(-4.7, 0, -6.6);
+    benchL.rotation.y = Math.PI / 2; // 등받이를 좌측 벽으로
+    engine.addLobby(benchL);
+    const counter = makeShoeCounter();
+    counter.position.set(4.9, 0, -6.3); // 우측 측벽 앞(세로) — 카메라 정면을 안 가리게 측면 배치
+    counter.rotation.y = -Math.PI / 2; // 데스크 정면이 중앙(실내)을 향함
+    engine.addLobby(counter);
+
+    // --- 플레이어 아바타 ---
     this.avatar = makeFigure(0x2bd4ee, 0x0b3b45);
     this.avatar.position.set(0, 0, START_Z);
     this.avatar.visible = false;

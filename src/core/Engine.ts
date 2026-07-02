@@ -19,19 +19,20 @@ function isLowEnd(): boolean {
 }
 
 /**
- * 로비 커스텀 네온 IBL용 절차 씬 (§12.3 7c, 에셋 0). RoomEnvironment(중성 실내광) 대신 네온 팔레트
- * 발광 패널을 방향별로 배치 → PMREMGenerator.fromScene으로 구워 로비 PBR 표면에 시안·마젠타·퍼플·
- * 그린 반사와 간접광을 입힌다. IBL은 그림자를 못 만들므로 lobbyScene 디렉셔널 라이트는 유지. (1회 생성)
+ * 로비 따뜻한 볼링장 IBL용 절차 씬 (리얼 재테마, 에셋 0). 구 네온 팔레트 대신 천장 형광 + 우드/카펫
+ * 간접 반사 + 핀덱 쪽 약한 쿨화이트를 방향별 발광 패널로 배치 → PMREMGenerator.fromScene으로 구워
+ * 로비 PBR 표면을 따뜻하게 데운다. IBL은 그림자를 못 만들므로 lobbyScene 디렉셔널 라이트는 유지. (1회 생성)
  */
-function makeNeonEnvScene(): THREE.Scene {
+function makeBowlingEnvScene(): THREE.Scene {
   const s = new THREE.Scene();
-  s.background = new THREE.Color(0x0a0a0f); // §12.3 near-black 앵커
-  // [색, 위치, 크기] — §12.3 7d 팔레트 앵커(시안/마젠타/퍼플/그린)를 방향별 발광 패널로.
+  s.background = new THREE.Color(0x2a2f3a); // 밝은 쿨뉴트럴 앵커 (전방위 간접광↑ → 도박장 어둠 탈피)
+  // [색, 위치, 크기] — 볼링장 조명: 천장 형광(전반 간접) + 좌우 우드 반사 + 레인쪽 핀덱 쿨화이트(대비).
   const panels: [number, [number, number, number], [number, number, number]][] = [
-    [0x00ffd5, [9, 3, 0], [0.5, 7, 16]], // 시안 — 우측
-    [0xff2daa, [-9, 3, 0], [0.5, 7, 16]], // 마젠타 — 좌측
-    [0xb026ff, [0, 3.5, -10], [18, 7, 0.5]], // 퍼플 — 뒤 (7d 신규 톤)
-    [0x39ff14, [0, 7, 5], [12, 0.5, 10]], // 그린 — 위 앞 (7d 신규 톤)
+    [0xfffaf0, [0, 9, -3], [22, 0.5, 22]], // 천장 — 밝은 형광 (전반 간접광↑)
+    [0xffe2b4, [9, 3, 0], [0.5, 6, 16]], // 우측 — 따뜻한 우드 반사(밝게)
+    [0xffe2b4, [-9, 3, 0], [0.5, 6, 16]], // 좌측 — 따뜻한 우드 반사(밝게)
+    [0xf0f4ff, [0, 3.5, -11], [18, 6, 0.5]], // 레인쪽 — 핀덱 쿨화이트(따뜻함과 대비)
+    [0x40342a, [0, 1, 7], [16, 5, 0.5]], // 뒤 — 우드(밝게)
   ];
   for (const [color, [px, py, pz], [sx, sy, sz]] of panels) {
     const m = new THREE.Mesh(new THREE.BoxGeometry(sx, sy, sz), new THREE.MeshBasicMaterial({ color }));
@@ -109,15 +110,15 @@ export class Engine {
 
     // --- 로비 씬 (별도 공간, 슬라이스 2) --- 레인 씬과 분리 → 자체 배경·조명, 환경맵은 공유.
     this.lobbyScene = new THREE.Scene();
-    this.lobbyScene.background = new THREE.Color(0x0a0814);
-    this.lobbyScene.fog = new THREE.Fog(0x0a0814, 11, 34);
-    // 커스텀 네온 IBL (§12.3 7c) — 레인의 중성 RoomEnvironment와 달리 로비는 네온 팔레트 반사.
-    // 1회 생성(매 프레임 금지 — fill-rate 폭주 방지). PBR 바닥(metalness 0.4)이 이 env를 반사한다.
-    this.lobbyScene.environment = pmrem.fromScene(makeNeonEnvScene(), 0.04).texture;
-    this.lobbyScene.environmentIntensity = 1.0; // 네온 반사가 PBR 바닥·메탈에 또렷이 드러나도록
-    this.lobbyScene.add(new THREE.AmbientLight(0xffffff, 0.55));
-    const lobbyDir = new THREE.DirectionalLight(0xffffff, 1.0);
-    lobbyDir.position.set(3, 10, -4);
+    this.lobbyScene.background = new THREE.Color(0x33384a); // 밝은 쿨뉴트럴 (도박장 어둠/웜 탈피 — 현대 볼링장)
+    this.lobbyScene.fog = new THREE.Fog(0x33384a, 14, 40);
+    // 밝은 볼링장 IBL (리얼 재테마) — 천장 형광·우드 반사 + 쿨뉴트럴 앵커로 PBR 표면을 밝게 채운다.
+    // 1회 생성(매 프레임 금지 — fill-rate 폭주 방지). 카펫은 매트(반사↓), 우드/메탈 소품이 이 env를 반사한다.
+    this.lobbyScene.environment = pmrem.fromScene(makeBowlingEnvScene(), 0.04).texture;
+    this.lobbyScene.environmentIntensity = 0.7; // 간접광↑ (도박장 어둠 탈피) — 단 매트 카펫이라 과반사는 아님
+    this.lobbyScene.add(new THREE.AmbientLight(0xfff2e2, 1.0)); // 밝은 뉴트럴-웜 앰비언트
+    const lobbyDir = new THREE.DirectionalLight(0xfffaf0, 1.45); // 밝은 주광 (천장 조명 느낌)
+    lobbyDir.position.set(2, 10, -3);
     this.lobbyScene.add(lobbyDir);
     this.rendered = this.scene; // 기본 = 레인 씬 (MENU 시네마틱 배경도 레인)
 
