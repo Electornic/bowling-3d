@@ -13,9 +13,10 @@ import { hookFactor, oilEndZ, OIL_PRESETS, type OilPattern } from '../game/oil';
 import { makeWoodTexture } from './Environment';
 
 /**
- * 레인 바닥 + 양옆 거터(낮은 홈) + 바깥 벽 (도안 §3·§4.2).
+ * 레인 바닥 + 양옆 거터(낮은 홈) + 바깥 벽 + 핀덱 뒤 피트 (도안 §3·§4.2).
  * 공이 레인 가장자리를 벗어나면 거터로 떨어져(낮아져) 핀을 못 건드림 → 자동 0점.
- * 바깥 벽은 공이 코스 밖으로 이탈하는 것만 막는다.
+ * 플레이 바닥은 핀덱 바로 뒤(deckEnd)에서 끊기고, 그 뒤는 낮은 피트라 공/핀이 굴러떨어진다
+ * (레인 끝에 얹혀 멈추는 어색함 제거 — 실제 볼링 피트). 리플레이/라이브 카메라는 핀 앞에 파킹해 핏을 안 쫓는다.
  */
 export class Lane {
   private readonly floor: RAPIER.Collider;
@@ -25,9 +26,9 @@ export class Lane {
     const RAPIER = getRapier();
 
     const startZ = -2; // 공 시작(z=-1) 뒤 여유
-    const endZ = PIN_DECK_END + 1.5; // 핀덱 뒤 여유(피트)
-    const len = endZ - startZ;
-    const midZ = (startZ + endZ) / 2;
+    const deckEnd = PIN_DECK_END + 0.4; // 플레이 바닥 끝 = 핀덱 뒤 짧은 여유. 이 뒤는 피트로 낙하.
+    const len = deckEnd - startZ;
+    const midZ = (startZ + deckEnd) / 2;
     const half = LANE_WIDTH / 2;
     const gw = GUTTER_WIDTH;
 
@@ -42,14 +43,12 @@ export class Lane {
     floor.receiveShadow = true;
     engine.addVisual(floor);
 
-    // 물리 바닥은 전장 단일 콜라이더 — 오일/드라이로 2분할하면 이음새(z=OIL_END_Z)
-    // 모서리에 공이 걸려 수십 cm 튀어오른다(CCD가 내부 엣지를 잡음).
+    // 물리 바닥은 전장 단일 콜라이더(오일/드라이 2분할하면 이음새 모서리에 공이 걸려 튐).
     // 마찰 차등(레이트 훅)은 updateFriction()이 공 위치 기준으로 매 스텝 전환.
     const floorBody = engine.world.createRigidBody(
       RAPIER.RigidBodyDesc.fixed().setTranslation(0, -0.05, midZ),
     );
-    // 마찰 결합 Min: 기본 Average면 공 마찰(0.1)과 평균돼 오일 존이 0.05 밑으로
-    // 못 내려감 → 슬립이 오일 존에서 닫혀 막판 훅이 죽는다 (constants.ts 주석 참고)
+    // 마찰 결합 Min: 기본 Average면 공 마찰(0.1)과 평균돼 오일 존이 0.05 밑으로 못 내려감 (constants.ts 주석 참고)
     this.floor = engine.world.createCollider(
       RAPIER.ColliderDesc.cuboid(half, 0.05, len / 2)
         .setFriction(LANE_FRICTION_OIL)
@@ -73,12 +72,12 @@ export class Lane {
     engine.addVisual(oil);
     this.oilMesh = oil;
 
-    // --- 양옆 거터(낮은 홈, 윗면 y=-0.13) + 바깥 벽 ---
+    // --- 양옆 거터(낮은 홈, 윗면 y=-0.13) + 바깥 벽 (데크 길이) ---
     for (const side of [-1, 1]) {
       const gx = side * (half + gw / 2);
       const gutter = new THREE.Mesh(
         new THREE.BoxGeometry(gw, 0.1, len),
-        new THREE.MeshStandardMaterial({ color: 0x14181f, roughness: 1, envMapIntensity: 0 }), // 무광 — 반사 시밍 제거
+        new THREE.MeshStandardMaterial({ color: 0x14181f, roughness: 1, envMapIntensity: 0 }), // 무광
       );
       gutter.position.set(gx, -0.18, midZ); // 레인보다 0.13 낮음 → 공이 빠지면 핀 못 닿음
       gutter.receiveShadow = true;
@@ -92,14 +91,10 @@ export class Lane {
         gBody,
       );
 
-      // 거터 바깥 벽 (코스 이탈 방지). 벽 반두께(0.025)만큼 더 바깥에 둬 안쪽 면이 거터 바깥 끝
-      // (half+gw)에 맞게 — 안 그러면 벽이 거터 바닥을 침범해 채널이 공 지름보다 좁아지고 공이 낀다.
+      // 거터 바깥 벽 (코스 이탈 방지). 벽 반두께(0.025)만큼 더 바깥에 둬 안쪽 면이 거터 바깥 끝에 맞게.
       const wx = side * (half + gw + 0.025);
       const wall = new THREE.Mesh(
         new THREE.BoxGeometry(0.05, 0.3, len),
-        // 무광(roughness 1 + envMapIntensity 0) — 어두운 경계 벽이라 반사 불필요.
-        // ⚠️ 카메라 이동 시 '거터 벽 점멸'의 실제 원인은 무광/반사가 아니라 Environment 레일(k=0)과
-        //    이 벽이 같은 평면(x=±0.755 안쪽 면)에 겹친 z-fighting이었다 → Environment.ts에서 k=0 생략으로 해소.
         new THREE.MeshStandardMaterial({ color: 0x222831, roughness: 1, metalness: 0, envMapIntensity: 0 }),
       );
       wall.position.set(wx, 0.1, midZ);
@@ -110,6 +105,63 @@ export class Lane {
         RAPIER.RigidBodyDesc.fixed().setTranslation(wx, 0.1, midZ),
       );
       engine.world.createCollider(RAPIER.ColliderDesc.cuboid(0.025, 0.15, len / 2), wBody);
+    }
+
+    // --- 핀덱 뒤 피트(pit): 데크가 deckEnd에서 끊겨 공/핀이 낮은 바닥으로 굴러떨어진다.
+    //     낙하 깊이 y<-1 확보(리플레이 cutoff·시각적 '사라짐'). 뒷벽은 Environment 마스킹 월(≈21.03) 앞·아래라 안 겹침.
+    const PIT_DEPTH = 0.85; // 데크 윗면(y=0) 대비 피트 바닥 깊이 — 얕게: 낙하 짧아 포물선 완만
+    const PIT_LEN = 0.7; // deckEnd(≈19.48) → 뒷벽(≈20.18). 짧게 잡아 공의 수평 비행(포물선)을 바로 끊고 수직 낙하
+    const pitHalfW = half + gw + 0.1; // 레인+거터 전폭 커버
+    const pitMid = deckEnd + PIT_LEN / 2;
+    const pitBackZ = deckEnd + PIT_LEN;
+    const pitFloorTop = -PIT_DEPTH;
+    const pitMat = new THREE.MeshStandardMaterial({ color: 0x0a0d12, roughness: 1, metalness: 0, envMapIntensity: 0 });
+
+    // 피트 바닥 (마찰 높게 → 떨어진 공/핀이 빨리 정착)
+    const pitFloor = new THREE.Mesh(new THREE.BoxGeometry(pitHalfW * 2, 0.1, PIT_LEN), pitMat);
+    pitFloor.position.set(0, pitFloorTop - 0.05, pitMid);
+    pitFloor.receiveShadow = true;
+    engine.addVisual(pitFloor);
+    const pitBody = engine.world.createRigidBody(
+      RAPIER.RigidBodyDesc.fixed().setTranslation(0, pitFloorTop - 0.05, pitMid),
+    );
+    // 반발 결합 Min: 기본 Average면 공 반발(0.1)과 평균나 ~0.05가 남아 낙하 시 튕긴다 → Min으로 0 (툭 빠짐)
+    engine.world.createCollider(
+      RAPIER.ColliderDesc.cuboid(pitHalfW, 0.05, PIT_LEN / 2)
+        .setFriction(0.75)
+        .setRestitution(0)
+        .setRestitutionCombineRule(RAPIER.CoefficientCombineRule.Min),
+      pitBody,
+    );
+
+    // 피트 뒷벽(보이는 어두운 벽) + 양옆 벽(콜라이더만) — 공/핀 이탈 방지. 피트 바닥~데크 위 살짝까지.
+    const wallTop = 0.35;
+    const wallH = wallTop - pitFloorTop;
+    const wallCY = pitFloorTop + wallH / 2;
+    const backWall = new THREE.Mesh(new THREE.BoxGeometry(pitHalfW * 2, wallH, 0.1), pitMat);
+    backWall.position.set(0, wallCY, pitBackZ);
+    backWall.receiveShadow = true;
+    engine.addVisual(backWall);
+    const backBody = engine.world.createRigidBody(
+      RAPIER.RigidBodyDesc.fixed().setTranslation(0, wallCY, pitBackZ),
+    );
+    engine.world.createCollider(
+      RAPIER.ColliderDesc.cuboid(pitHalfW, wallH / 2, 0.05)
+        .setRestitution(0)
+        .setRestitutionCombineRule(RAPIER.CoefficientCombineRule.Min),
+      backBody,
+    );
+
+    for (const side of [-1, 1]) {
+      const sideBody = engine.world.createRigidBody(
+        RAPIER.RigidBodyDesc.fixed().setTranslation(side * pitHalfW, wallCY, pitMid),
+      );
+      engine.world.createCollider(
+        RAPIER.ColliderDesc.cuboid(0.05, wallH / 2, PIT_LEN / 2)
+          .setRestitution(0)
+          .setRestitutionCombineRule(RAPIER.CoefficientCombineRule.Min),
+        sideBody,
+      );
     }
   }
 
