@@ -246,7 +246,10 @@ export class GameState {
    * 트리거 빈도를 줄이려면: PIN_CONTACT_Z 상향, ball===1 게이트 추가, 또는 magnitude 임계 추가.
    */
   notifyImpact() {
-    if (this.slowmoUsed || this.state !== 'ROLLING') return;
+    // ROLLING뿐 아니라 SETTLING도 허용 — 코너/사이드 핀(7·10, 스페어)은 공이 레인 끝(inGutter)이나
+    // 핀덱 z를 먼저 넘겨 SETTLING으로 전환된 뒤에야 맞아 움직인다. ROLLING만 게이트하면 그 임팩트음이
+    // 통째로 씹혀 "사이드 핀 무음"이 됐다. slowmoUsed가 여전히 투구당 1회를 보장.
+    if (this.slowmoUsed || (this.state !== 'ROLLING' && this.state !== 'SETTLING')) return;
     // 실제로 핀이 맞아 움직이기 시작한 순간에만 발동. 거터·빗나감·핀 옆 통과(어떤 핀도
     // 안 움직임)엔 사운드·슬로모 둘 다 없음. z평면 통과 기준은 핀이 이미 치워진 자리(2구)나
     // 핀을 안 건드리고 지나가도 헛발동했다 → 핀 실제 움직임으로 판정(가장 견고).

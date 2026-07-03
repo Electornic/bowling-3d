@@ -243,9 +243,9 @@ export class SoundManager {
     src.buffer = this.strikeBuf!;
     const g = ctx.createGain();
     const intensity = Math.min(1, count / 10);
-    const vol = 0.4 + intensity * 0.6; // 1핀≈0.4, 풀랙=1.0
+    const vol = 0.55 + intensity * 0.45; // 1핀≈0.55, 풀랙=1.0 — 사이드/소수핀(2구 스페어)도 또렷하게
     // 적은 핀은 짧게(크랙+짧은 잔해), 많을수록 풀 클래터 — 1핀에 풀랙 소리 나는 부자연 방지.
-    const dur = 0.25 + intensity * 1.8; // 1핀≈0.25s, 풀랙≈2s
+    const dur = 0.3 + intensity * 1.8; // 1핀≈0.3s, 풀랙≈2.1s — 짧은 컷이 "안 들린다" 느낌 줄임
     g.gain.setValueAtTime(0, now);
     g.gain.linearRampToValueAtTime(vol, now + 0.012); // 12ms 페이드인 — 시작 클릭 제거
     g.gain.setValueAtTime(vol, now + Math.max(0.05, dur - 0.06));
@@ -411,8 +411,8 @@ export class SoundManager {
   private musicStep = 0;
   private musicNextTime = 0;
   private musicOn = false;
-  private readonly musicVol = 0.5; // 메뉴/결과 풀 레벨 (배경이라 작게)
-  private readonly musicMatchVol = 0.14; // 매치 중 잔잔한 배경 레벨 — 굴림·크래시 SFX와 안 싸울 만큼 죽임
+  private readonly musicVol = 0.62; // 메뉴/결과 풀 레벨 (배경이라 작게)
+  private readonly musicMatchVol = 0.22; // 매치 중 잔잔한 배경 레벨 — 굴림·크래시 SFX와 안 싸울 만큼 죽임
   // I–V–vi–IV (C장조) — 보편적으로 듣기 좋은 진행. 코드당 8스텝(16분음표)×4코드 = 32스텝 루프.
   // arp=아르페지오 노트(MIDI), bass=루트 저음(MIDI).
   private readonly MUSIC_PROG = [
