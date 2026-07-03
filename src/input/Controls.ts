@@ -83,8 +83,6 @@ export class Controls {
   private readonly aimCaseGeo: LineGeometry;
   private readonly aimCoreMat: LineMaterial;
   private readonly aimCaseMat: LineMaterial;
-  private readonly aimEndMarker: THREE.Mesh;
-  private readonly aimEndMat: THREE.MeshBasicMaterial;
   private readonly powerWrap: HTMLDivElement;
   private readonly gaugeFill: HTMLDivElement;
   private readonly spinWrap: HTMLDivElement;
@@ -136,20 +134,7 @@ export class Controls {
     coreLine.frustumCulled = false;
     this.aimGroup = new THREE.Group();
     this.aimGroup.add(caseLine, coreLine);
-    // 끝점 타깃 링 (UI_REVAMP 결정③: 짧은 끝점만 — z=Z_CAP 도달점 방향만, 훅 최종 포켓은 숨김).
-    // 라인이 끝에서 페이드돼도 스핀색 링이 "여기로 간다"를 또렷이 앵커한다.
-    this.aimEndMat = new THREE.MeshBasicMaterial({
-      color: 0xffffff,
-      transparent: true,
-      opacity: 0.9,
-      depthWrite: false,
-      side: THREE.DoubleSide,
-    });
-    this.aimEndMarker = new THREE.Mesh(new THREE.RingGeometry(0.05, 0.09, 28), this.aimEndMat);
-    this.aimEndMarker.rotation.x = -Math.PI / 2; // 레인 바닥에 눕힘
-    this.aimEndMarker.renderOrder = 7;
-    this.aimEndMarker.frustumCulled = false;
-    this.aimGroup.add(this.aimEndMarker);
+    // 끝 화살촉(∧)은 별도 메시가 아니라 updateAimArrow에서 라인 지오메트리에 stroke로 이어 붙인다.
     this.aimGroup.visible = false;
     engine.scene.add(this.aimGroup);
 
@@ -578,17 +563,41 @@ export class Controls {
       tmp.copy(dark).lerp(tan, fade);
       caseColors.push(tmp.r, tmp.g, tmp.b);
     }
+    // 끝 화살촉: 가이드라인과 같은 stroke(core+case)로 슬림한 ∧ 를 폴리라인에 이어 붙인다.
+    // 팁=마지막 점, 거기서 뒤쪽 좌우로 두 갈래. 되돌아오는 구간(좌갈래→팁)은 겹쳐서 안 보인다.
+    const ex = positions[positions.length - 3]; // path[last].x * k
+    const ez = positions[positions.length - 1]; // sz(path[last].z)
+    let dx = ex - path[last - 1][0] * k;
+    let dz = ez - sz(path[last - 1][1]);
+    const dm = Math.hypot(dx, dz) || 1;
+    dx /= dm;
+    dz /= dm; // 진행 방향 단위벡터
+    const AL = 0.17; // 화살촉 갈래 길이(월드 m)
+    const AA = 0.5; // 반각(rad, ≈29°) — 슬림한 화살표
+    const ca = Math.cos(AA);
+    const sa = Math.sin(AA);
+    const bx = -dx;
+    const bz = -dz; // 뒤 방향
+    positions.push(
+      ex + (bx * ca - bz * sa) * AL, 0.02, ez + (bx * sa + bz * ca) * AL, // 좌 갈래
+      ex, 0.02, ez, // 팁으로 복귀(겹침)
+      ex + (bx * ca + bz * sa) * AL, 0.02, ez + (-bx * sa + bz * ca) * AL, // 우 갈래
+    );
+    // 팁 vertex + 화살촉 3점은 또렷한 스핀색(core)/어두운 외곽(case) — 페이드된 라인 끝 위에 또렷이 얹힌다.
+    coreColors[last * 3] = spinCol.r;
+    coreColors[last * 3 + 1] = spinCol.g;
+    coreColors[last * 3 + 2] = spinCol.b;
+    for (let n = 0; n < 3; n++) {
+      coreColors.push(spinCol.r, spinCol.g, spinCol.b);
+      caseColors.push(dark.r, dark.g, dark.b);
+    }
+
     this.aimCoreGeo.setPositions(positions);
     this.aimCoreGeo.setColors(coreColors);
     this.aimCaseGeo.setPositions(positions);
     this.aimCaseGeo.setColors(caseColors);
     this.aimCoreMat.resolution.set(window.innerWidth, window.innerHeight);
     this.aimCaseMat.resolution.set(window.innerWidth, window.innerHeight);
-
-    // 끝점 링: 경로 끝(방향 도달점)에 스핀색으로 또렷하게 — 페이드된 라인 끝을 재앵커
-    const end = path[last];
-    this.aimEndMarker.position.set(end[0] * k, 0.021, sz(end[1]));
-    this.aimEndMat.color.copy(spinCol);
   }
 
   /**

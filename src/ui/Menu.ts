@@ -9,6 +9,112 @@ import type { Settings, Quality } from '../game/settings';
 
 const css = (el: HTMLElement, style: Partial<CSSStyleDeclaration>) => Object.assign(el.style, style);
 
+// === UI juice: 마이크로 모션 (데모 instant-smooth-ui의 "즉각 반응+부드러움"을 순수 CSS로 이식 — 의존성 0) ===
+// transform/opacity만 써 GPU 합성·레이아웃 무영향. 게임 루프/조준선/물리는 절대 안 건드림.
+const EASE_OUT = 'cubic-bezier(0.22, 1, 0.36, 1)'; // 감속 진입 — 부드럽고 차분(오버슈트/바운스 없음)
+let juiceInjected = false;
+/** 메뉴 juice 스타일 1회 주입 — 전 버튼 press/트랜지션 + 등장/팝 키프레임 + 모션최소화 존중 + View Transitions 커브. */
+function ensureMenuJuice(): void {
+  if (juiceInjected) return;
+  juiceInjected = true;
+  const s = document.createElement('style');
+  s.textContent = `
+.menu-panel button {
+  transition: transform .1s ${EASE_OUT}, background-color .2s ease, border-color .2s ease, color .2s ease, box-shadow .2s ease, filter .15s ease;
+  -webkit-tap-highlight-color: transparent;
+}
+.menu-panel button:active { transform: scale(0.97); }
+@media (hover: hover) { .menu-panel button:hover { filter: brightness(1.08); } }
+.juice-panel-in { animation: juicePanelIn .26s ${EASE_OUT} both; }
+@keyframes juicePanelIn { from { transform: translateY(8px); opacity: 0; } to { transform: none; opacity: 1; } }
+.juice-fade-in { animation: juiceFadeIn .2s ease both; }
+@keyframes juiceFadeIn { from { opacity: 0; } to { opacity: 1; } }
+::view-transition-old(root), ::view-transition-new(root) { animation-duration: .28s; animation-timing-function: ${EASE_OUT}; }
+@media (prefers-reduced-motion: reduce) {
+  .menu-panel button { transition: none; }
+  .menu-panel button:active { transform: none; }
+  .juice-panel-in, .juice-fade-in { animation: none; }
+  ::view-transition-old(root), ::view-transition-new(root) { animation: none !important; }
+}
+`;
+  document.head.appendChild(s);
+}
+/** 애니메이션 클래스 재트리거 (리플로우로 리셋 후 재부여) — 재선택·재진입마다 매번 재생되게. */
+function playOnce(el: HTMLElement, cls: string): void {
+  el.classList.remove(cls);
+  void el.offsetWidth; // 강제 리플로우 → 애니메이션 리셋
+  el.classList.add(cls);
+}
+
+const reducedMotion = () => window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+/**
+ * 접힘/펼침 높이 애니메이션 — 커스텀 난이도 행처럼 나타났다 사라지는 블록을 auto-height로 부드럽게.
+ * CSS transition + scrollHeight 측정으로 auto↔px↔0을 전환. CSS transition은 끝값을 확실히 커밋하고
+ * transitionend가 안정적으로 발화 → 펼침 후 height:auto 복귀, 접힘 후 display:none이 보장된다.
+ * (Motion/WAAPI는 이 setup에서 auto-height 끝값 커밋이 불안정해 CSS 방식 채택.) 모션 최소화면 즉시 토글.
+ */
+function slideReveal(el: HTMLElement, show: boolean, displayValue = 'block'): void {
+  type Slidable = HTMLElement & { _slideCleanup?: () => void; _slideShown?: boolean };
+  const se = el as Slidable;
+  // 현재 상태와 같으면 무시 — 같은 프리셋/버튼을 다시 눌러도 재펼침·재접힘하지 않음.
+  const already = se._slideShown ?? (getComputedStyle(el).display !== 'none');
+  if (already === show) return;
+  se._slideShown = show;
+  if (reducedMotion()) {
+    se._slideCleanup?.();
+    el.style.transition = '';
+    el.style.height = '';
+    el.style.opacity = '';
+    el.style.overflow = '';
+    el.style.display = show ? displayValue : 'none';
+    return;
+  }
+  se._slideCleanup?.(); // 이전 토글의 리스너/타이머 정리 (빠른 재토글 stale 방지)
+  el.style.overflow = 'hidden';
+  el.style.transition = 'height 0.32s cubic-bezier(0.22,1,0.36,1), opacity 0.28s ease';
+  let done = false;
+  const finish = () => {
+    if (done) return;
+    done = true;
+    el.removeEventListener('transitionend', onEnd);
+    clearTimeout(timer);
+    se._slideCleanup = undefined;
+    if (show) {
+      el.style.height = 'auto'; // 이후 내용 변화에 유연하게
+      el.style.overflow = '';
+    } else {
+      el.style.display = 'none';
+    }
+  };
+  const onEnd = (e: TransitionEvent) => {
+    if (e.propertyName === 'height' && e.target === el) finish();
+  };
+  // transitionend가 누락되는 환경(백그라운드/페인트 스로틀) 대비 폴백 — 트랜지션 길이보다 살짝 뒤에 최종 상태 강제.
+  const timer = setTimeout(finish, 420);
+  se._slideCleanup = () => {
+    el.removeEventListener('transitionend', onEnd);
+    clearTimeout(timer);
+  };
+  el.addEventListener('transitionend', onEnd);
+  if (show) {
+    el.style.display = displayValue;
+    const h = el.scrollHeight;
+    el.style.height = '0px';
+    el.style.opacity = '0';
+    void el.offsetHeight; // 강제 리플로우 → 시작값 커밋 (rAF 없이 트랜지션 발동, 스로틀 무관)
+    el.style.height = `${h}px`;
+    el.style.opacity = '1';
+  } else {
+    const h = el.scrollHeight;
+    el.style.height = `${h}px`; // auto → 고정 px (트랜지션 시작점)
+    el.style.opacity = '1';
+    void el.offsetHeight; // 강제 리플로우
+    el.style.height = '0px';
+    el.style.opacity = '0';
+  }
+}
+
 /** 인게임 일시정지 모달 설정 (Boot이 주입) — 토글은 즉시 적용 + 저장, 모달은 재렌더로 상태 반영. */
 export interface PauseConfig {
   settings: Settings;
@@ -137,7 +243,9 @@ export class MenuUI {
       backdropFilter: 'blur(4px)',
       zIndex: '40',
     });
+    ensureMenuJuice(); // juice 스타일 1회 주입 (전 버튼 press/트랜지션 + 등장/팝 키프레임)
     this.panel = document.createElement('div');
+    this.panel.classList.add('menu-panel'); // 스코프드 CSS(.menu-panel button)로 전 버튼 마이크로 모션
     css(this.panel, {
       position: 'relative', // 우상단 사운드 토글 등 absolute 자식의 기준
       background: 'rgba(14,17,27,0.96)',
@@ -165,6 +273,19 @@ export class MenuUI {
 
   hide() {
     this.backdrop.style.display = 'none';
+  }
+
+  /**
+   * 백드롭 노출. 등장 애니는 **실제 열림(숨김→노출)에만** 재생한다.
+   * 이미 열린 상태에서의 재렌더(스킨 선택 후 showSkins 재호출 등)는 애니 없이 내용만 교체 → "닫혔다 열림" 깜빡임 방지.
+   */
+  private reveal() {
+    const opening = this.backdrop.style.display === 'none' || this.backdrop.style.display === '';
+    this.backdrop.style.display = 'flex';
+    if (opening) {
+      playOnce(this.backdrop, 'juice-fade-in');
+      playOnce(this.panel, 'juice-panel-in');
+    }
   }
 
   /** 우상단 사운드 on/off 토글 (시작 메뉴). 끄면 메뉴 BGM·지속음까지 멎는다(SoundManager.enabled setter). */
@@ -210,7 +331,7 @@ export class MenuUI {
     // 참조해야 함), DOM 배치는 상대 row 아래(아래에서 append). 모드가 스페어면 2인 불가라 자동 숨김.
     const nameWrap = this.buildNameInputs();
     const syncNameWrap = () => {
-      nameWrap.style.display = this.mode !== 'spare' && this.rivalKey === 'human' ? 'flex' : 'none';
+      slideReveal(nameWrap, this.mode !== 'spare' && this.rivalKey === 'human', 'flex');
     };
 
     // 모드 선택
@@ -294,7 +415,7 @@ export class MenuUI {
           this.refreshChips(oilBtns, this.oilPattern);
           this.refreshChips(aimBtns, this.aimAid);
         }
-        customWrap.style.display = d.key === 'custom' ? 'block' : 'none';
+        slideReveal(customWrap, d.key === 'custom'); // 커스텀 행이 스르륵 펼쳐짐/접힘 (Motion auto-height)
         this.refreshChips(diffBtns, this.difficulty);
       };
       diffBtns.set(d.key, b);
@@ -337,6 +458,7 @@ export class MenuUI {
     this.refreshChips(oilBtns, this.oilPattern);
     this.refreshChips(aimBtns, this.aimAid);
     customWrap.style.display = this.difficulty === 'custom' ? 'block' : 'none';
+
 
     // 볼 무게 (인게임 HUD 대신 여기서 — 한 번 정하면 끝인 설정이라 매 투구 컨트롤과 분리)
     this.panel.appendChild(this.sectionLabel('볼 무게'));
@@ -416,7 +538,7 @@ export class MenuUI {
       : '마우스 이동 = 조준 · 꾹 눌렀다 떼기 = 파워 발사 · Q/E = 좌/우 스핀';
     this.panel.appendChild(help);
 
-    this.backdrop.style.display = 'flex';
+    this.reveal();
   }
 
   private start() {
@@ -431,8 +553,14 @@ export class MenuUI {
         if (profile) players.push({ name: profile.name, ai: profile });
       }
     }
-    this.hide();
-    this.onStart({ mode: this.mode, players, oilPattern: this.oilPattern, aimAid: this.aimAid });
+    const go = () => {
+      this.hide();
+      this.onStart({ mode: this.mode, players, oilPattern: this.oilPattern, aimAid: this.aimAid });
+    };
+    // View Transitions로 메뉴→게임 크로스페이드 (지원 브라우저만; 미지원은 즉시). 3D 캔버스는 뒤에 상주.
+    const startVT = (document as { startViewTransition?: (cb: () => void) => void }).startViewTransition?.bind(document);
+    if (startVT) startVT(go);
+    else go();
   }
 
   // --- 결과 화면 ---
@@ -564,7 +692,7 @@ export class MenuUI {
     btnRow.appendChild(menu);
     this.panel.appendChild(btnRow);
 
-    this.backdrop.style.display = 'flex';
+    this.reveal();
   }
 
   // --- 로컬 교대전 핸드오프 ---
@@ -606,7 +734,7 @@ export class MenuUI {
     };
     this.panel.appendChild(go);
 
-    this.backdrop.style.display = 'flex';
+    this.reveal();
   }
 
   // --- 인게임 포기 확인 ---
@@ -696,7 +824,7 @@ export class MenuUI {
     css(note, { font: '500 11px/1.4 system-ui, sans-serif', color: '#6b7686', textAlign: 'center', marginTop: '9px' });
     this.panel.appendChild(note);
 
-    this.backdrop.style.display = 'flex';
+    this.reveal();
   }
 
   // 일시정지 설정 행 — 라벨 + 현재값 알약 토글 버튼. active면 초록 강조.
@@ -808,9 +936,11 @@ export class MenuUI {
 
   private refreshChips<T>(map: Map<T, HTMLButtonElement>, active: T) {
     for (const [k, b] of map) {
-      b.style.borderColor = k === active ? '#ffd54a' : 'rgba(255,255,255,0.18)';
-      b.style.background = k === active ? 'rgba(255,213,74,0.14)' : 'rgba(255,255,255,0.05)';
-      b.style.color = k === active ? '#ffd54a' : '#e8edf5';
+      const on = k === active;
+      // 팝(바운스) 없이 색만 부드럽게 전환 (.menu-panel button transition이 담당). 여러 칩 동시 전환도 조용.
+      b.style.borderColor = on ? '#ffd54a' : 'rgba(255,255,255,0.18)';
+      b.style.background = on ? 'rgba(255,213,74,0.14)' : 'rgba(255,255,255,0.05)';
+      b.style.color = on ? '#ffd54a' : '#e8edf5';
     }
   }
 
@@ -1026,9 +1156,14 @@ export class MenuUI {
       return achWrap;
     };
 
+    let lastRenderedTab: string | null = null;
     const renderTab = () => {
       content.replaceChildren();
       content.appendChild(this.skinTab === 'skins' ? buildSkinGrid() : buildAchList());
+      // 페이드는 '실제 탭 전환'에만. 스킨 선택은 showSkins를 새로 호출(새 클로저 → lastRenderedTab=null)하므로
+      // 페이드가 안 걸림 → 볼 그리드가 매번 사라졌다 나타나던 깜빡임 제거.
+      if (lastRenderedTab !== null && lastRenderedTab !== this.skinTab) playOnce(content, 'juice-fade-in');
+      lastRenderedTab = this.skinTab;
       const skinsActive = this.skinTab === 'skins';
       css(skinTabBtn, { color: skinsActive ? '#22d3ee' : '#8a93a3', borderBottomColor: skinsActive ? '#22d3ee' : 'transparent' });
       css(achTabBtn, { color: !skinsActive ? '#22d3ee' : '#8a93a3', borderBottomColor: !skinsActive ? '#22d3ee' : 'transparent' });
@@ -1059,7 +1194,7 @@ export class MenuUI {
     back.onclick = onBack;
     this.panel.appendChild(back);
 
-    this.backdrop.style.display = 'flex';
+    this.reveal();
   }
 
   private equipSkin(id: string) {

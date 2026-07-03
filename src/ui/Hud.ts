@@ -80,6 +80,8 @@ export class Hud {
   private readonly wrap: HTMLDivElement;
   private readonly sheets: HTMLDivElement;
   private readonly status: HTMLDivElement;
+  // 직전 렌더의 누적 점수(플레이어별) — 값이 바뀐 셀만 팝시키려 비교 (매 프레임 재렌더라 필요). MENU서 리셋.
+  private prevScores: (number | undefined)[][] = [];
 
   constructor() {
     ensureNeonStyles();
@@ -140,6 +142,7 @@ export class Hud {
     if (d.state === 'MENU' || !d.players.length) {
       this.wrap.style.display = 'none';
       this.status.style.display = 'none';
+      this.prevScores = []; // 새 게임 시작 시 팝 오발동 방지
       return;
     }
     this.wrap.style.display = 'flex';
@@ -147,7 +150,7 @@ export class Hud {
     this.sheets.replaceChildren();
 
     d.players.forEach((p, i) => {
-      this.sheets.appendChild(this.renderSheet(d, p, i === d.current));
+      this.sheets.appendChild(this.renderSheet(d, p, i === d.current, i));
     });
 
     const cur = d.players[d.current];
@@ -162,7 +165,7 @@ export class Hud {
     }
   }
 
-  private renderSheet(d: HudView, p: HudPlayerView, active: boolean): HTMLDivElement {
+  private renderSheet(d: HudView, p: HudPlayerView, active: boolean, index: number): HTMLDivElement {
     const accent = active ? NEON.gold : NEON.cyan;
     const multi = d.players.length > 1;
 
@@ -240,6 +243,7 @@ export class Hud {
     }
 
     const cum = frameScores(p.rolls.flat(), d.frames);
+    const prev = this.prevScores[index]; // 직전 렌더 값 (첫 렌더면 undefined → 팝 안 함)
     for (let f = 0; f < d.frames; f++) {
       const fr = p.rolls[f] ?? [];
       const isCurrent = active && f === p.frame - 1 && d.state !== 'GAME_OVER';
@@ -284,11 +288,14 @@ export class Hud {
         color: '#fff',
       });
       score.textContent = cum[f] !== undefined ? String(cum[f]) : '';
+      // 점수가 새로 뜨거나(이전 undefined) 값이 바뀌면 팝 — 첫 렌더는 조용히.
+      if (prev && cum[f] !== undefined && cum[f] !== prev[f]) score.classList.add('juice-score-pop');
 
       box.appendChild(marks);
       box.appendChild(score);
       sheet.appendChild(box);
     }
+    this.prevScores[index] = cum; // 다음 렌더 비교용 저장
     row.appendChild(sheet);
     return row;
   }

@@ -79,6 +79,14 @@ export function ensureNeonStyles(): void {
   0%, 100% { box-shadow: inset 0 0 0 1.5px ${rgba(NEON.gold, 0.55)}, 0 0 9px ${rgba(NEON.gold, 0.3)}; }
   50%      { box-shadow: inset 0 0 0 1.5px ${rgba(NEON.gold, 1)}, 0 0 16px ${rgba(NEON.gold, 0.55)}; }
 }
+/* 누적 점수가 새로 뜨거나 바뀔 때 톡 튀는 팝 (Hud) — 차분한 감속 이징, 피크에서 골드 플래시 */
+@keyframes juiceScorePop {
+  0%   { transform: scale(1); }
+  30%  { transform: scale(1.28); color: ${NEON.gold}; }
+  100% { transform: scale(1); }
+}
+.juice-score-pop { animation: juiceScorePop 0.42s cubic-bezier(0.22, 1, 0.36, 1); }
+@media (prefers-reduced-motion: reduce) { .juice-score-pop { animation: none; } }
 `;
   document.head.appendChild(s);
 }
