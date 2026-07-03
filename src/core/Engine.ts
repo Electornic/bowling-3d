@@ -189,6 +189,23 @@ export class Engine {
     }
   }
 
+  /**
+   * 보간 상태(prev/cur)와 시각 메시를 현재 물리 바디 위치로 즉시 일치. 리플레이가 메시를 직접 몰거나
+   * 일시정지로 step을 건너뛴 뒤 라이브 복귀할 때 호출 — 다음 step의 prev=옛위치로 인한 보간 튐 방지(item 2).
+   */
+  snapToBodies() {
+    for (const o of this.objects) {
+      const t = o.body.translation();
+      o.curPos.set(t.x, t.y, t.z);
+      o.prevPos.copy(o.curPos);
+      const q = o.body.rotation();
+      o.curQuat.set(q.x, q.y, q.z, q.w);
+      o.prevQuat.copy(o.curQuat);
+      o.mesh.position.copy(o.curPos);
+      o.mesh.quaternion.copy(o.curQuat);
+    }
+  }
+
   render() {
     this.renderer.render(this.scene, this.camera);
   }

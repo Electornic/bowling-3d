@@ -40,6 +40,14 @@ export class CameraRig {
     this.shake = Math.min(SHAKE_MAX, this.shake + kick);
   }
 
+  /**
+   * 외부 연출(리플레이 item 2)이 카메라를 직접 몰고 난 뒤 호출 — 다음 update가 현재 카메라
+   * 위치(basePos)부터 다시 스무딩하도록 리셋해, 리플레이 종료 시 위치 점프(snap)를 없앤다.
+   */
+  resync() {
+    this.inited = false;
+  }
+
   /** 임팩트 push-in 신호 (Boot onContact). 핀 접촉마다 호출 → 근접 유지시간 갱신. */
   pushIn() {
     if (!PUSHIN_ENABLED) return;

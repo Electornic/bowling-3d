@@ -85,6 +85,7 @@ export class Hud {
     ensureNeonStyles();
 
     this.wrap = document.createElement('div');
+    this.wrap.id = 'hud-scoreboard'; // StillCut 밴드를 점수판 하단에 자동 정렬하려는 위치 측정 앵커
     css(this.wrap, {
       position: 'fixed',
       // 상단 점수판: 노치/Dynamic Island/상태바 침범 방지 (iOS WKWebView는 viewport-fit=cover로 인셋 제공)

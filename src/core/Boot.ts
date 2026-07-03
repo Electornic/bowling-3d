@@ -5,6 +5,8 @@ import { Lane } from '../scene/Lane';
 import { Environment } from '../scene/Environment';
 import { Ball } from '../scene/Ball';
 import { PinSet } from '../scene/PinSet';
+import { Replay } from '../scene/Replay';
+import { StillCut } from '../ui/StillCut';
 import { GameState } from '../game/GameState';
 import { Hud } from '../ui/Hud';
 import { MenuUI } from '../ui/Menu';
@@ -39,12 +41,22 @@ export async function boot() {
   document.documentElement.style.setProperty('--col-edge', 'max(0px, calc((100vw - 1440px) / 2))');
 
   const engine = new Engine();
-  const { game, controls, cameraRig, environment, sound, exitBtn, island, refreshIsland } = buildScene(engine);
+  const { game, controls, cameraRig, environment, sound, exitBtn, island, refreshIsland, replay } = buildScene(engine);
   let shadowMoving = true; // 그림자 정적화 상태 추적 (§6)
   const loop = new Loop(
     engine,
-    (dt) => game.update(dt), // 물리 스텝마다 상태머신 (+레인 마찰 전환)
     (dt) => {
+      replay.record(game.state); // update 전 캡처 — SETTLING 종료 프레임까지 녹화 (item 2)
+      game.update(dt); // 물리 스텝마다 상태머신 (+레인 마찰 전환)
+    },
+    (dt) => {
+      // 리플레이 재생 중: 메시·카메라를 리플레이가 소유 → 컨트롤/카메라릭 스킵. (물리·sync는 loop.paused로
+      // 정지, 종료 시 Engine.snapToBodies + cameraRig.resync로 라이브 인계.)
+      if (replay.active) {
+        replay.update(dt);
+        environment.update(dt);
+        return;
+      }
       controls.update(dt); // 렌더 프레임마다 UI(조준선·게이지) — dt 기반 파워 차징(프레임레이트 독립)
       cameraRig.update(dt); // 상태별 카메라 연출
       environment.update(dt); // 전광판 애니메이션
@@ -66,6 +78,9 @@ export async function boot() {
   );
   game.setTimeScale = (s) => {
     loop.timeScale = s; // AI 턴 빨리감기 (P2 슬로모도 같은 인프라)
+  };
+  replay.setPaused = (p) => {
+    loop.paused = p; // 리플레이 재생 중 라이브 물리·sync 정지 (item 2)
   };
   loop.start();
 
@@ -140,6 +155,7 @@ function buildScene(engine: Engine): {
   exitBtn: HTMLButtonElement;
   island: HTMLButtonElement;
   refreshIsland: () => void;
+  replay: Replay;
 } {
   const settings = loadSettings();
   engine.setQuality(settings.quality === 'high'); // 저장된 그래픽 품질 적용 (기본 high)
@@ -169,20 +185,30 @@ function buildScene(engine: Engine): {
   game.setBallSkin(resolveSkin(loadRewards().selectedSkin)); // 저장된 장착 스킨 초기 적용
   menu.showMenu();
 
+  // item 2 — 스틸컷 오버레이 + 특별샷 리플레이(스냅샷). onStep 녹화, onEvent 발화.
+  // 리플레이 종료 후 cameraRig.resync로 라이브 카메라가 현재 위치부터 부드럽게 인계 + 스틸컷 정리.
+  const stillCut = new StillCut();
+  const replay = new Replay(engine, ball, pins, () => {
+    cameraRig.resync();
+    stillCut.hide();
+  });
+
   // 게임 이벤트 → 연출. 모든 이벤트 텍스트는 전광판(diegetic)에만 표시 — HUD 중앙 배너 중복 제거.
   game.onEvent = (e) => {
     switch (e.type) {
       case 'strike': {
         const label =
           e.streak >= 4 ? `${e.streak} BAGGER!!` : e.streak === 3 ? 'TURKEY!!' : e.streak === 2 ? 'DOUBLE!' : 'STRIKE!';
-        environment.announce(label, '#ff2d78');
+        const sub = e.streak >= 2 ? `${e.streak}연속 · ON FIRE` : '스트라이크';
+        // 스트라이크 = 풀연출: 짧은 리플레이 → 프리즈에 스틸컷 슬램. 녹화 부족 시 즉시 스틸컷.
+        if (!replay.start(() => stillCut.show('strike', label, sub))) stillCut.show('strike', label, sub);
         break;
       }
       case 'spare':
-        environment.announce('SPARE!', '#22d3ee');
+        stillCut.show('spare', 'SPARE!', '스페어 정리'); // 스페어 = 스틸컷만 (리플레이 X)
         break;
       case 'gutter':
-        environment.announce('GUTTER', '#9aa6bd'); // 탈색조 — 아쉬운 투구
+        stillCut.show('gutter', 'GUTTER', '0 핀'); // 거터 = 디플레이팅 스틸컷 (축하 X)
         break;
       case 'split':
         environment.announce(`${e.label} 스플릿!`, '#ef6a6a');
@@ -203,6 +229,8 @@ function buildScene(engine: Engine): {
         }
         break;
       case 'gameOver': {
+        replay.cancel(); // 마지막 결정타 리플레이가 결과화면과 겹치지 않게 즉시 접음
+        stillCut.hide();
         const sm = e.summary;
         // 로컬 교대전(사람 2인)은 파티 모드 — 소유자 업적/하이스코어를 건드리지 않는다
         // (GameState.gameOver의 통계 생략과 동일 기준). 솔로·vs AI만 업적 평가.
@@ -374,5 +402,5 @@ function buildScene(engine: Engine): {
     console.log('[rewards] 초기화 완료 — 새로고침하세요');
   };
 
-  return { game, controls, cameraRig, environment, sound, exitBtn, island, refreshIsland };
+  return { game, controls, cameraRig, environment, sound, exitBtn, island, refreshIsland, replay };
 }
