@@ -110,6 +110,7 @@ export class MenuUI {
   private oilPattern: OilPattern = 'house'; // 오일 패턴 (P3) — 초급 프리셋과 일치
   private aimAid: AimAid = 'easy'; // 예측선 난이도 (P3, UI 전용) — 기본 easy(§2.7)
   private selectedSkin: string = loadRewards().selectedSkin; // 장착 볼 스킨 (보상)
+  private skinTab: 'skins' | 'achievements' = 'skins'; // 컬렉션 시트 활성 탭 (A안 탭형)
 
   constructor(
     private readonly onStart: (cfg: MatchConfig) => void,
@@ -840,121 +841,207 @@ export class MenuUI {
     const earned = loadRewards().earned;
     const unlocked = unlockedSkinIds(earned);
     const skinList = Object.values(SKINS);
+    const earnedCount = ACHIEVEMENTS.filter((a) => earned.includes(a.id)).length;
 
-    // 스킨 섹션 — 마감을 보여주는 미리보기 볼 + 잠금 조건(다음 목표 후크)
-    this.panel.appendChild(this.collectionHeader('볼 스킨', `${unlocked.size} / ${skinList.length} 해금`));
-    const grid = document.createElement('div');
-    css(grid, { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginBottom: '20px' });
-    for (const skin of skinList) {
-      const isUnlocked = unlocked.has(skin.id);
-      const isEquipped = this.selectedSkin === skin.id;
+    // 히어로 — 지금 장착한 볼을 크게 뽐냄(A안 탭형의 상단 주인공). 아래 탭이 스킨/업적을 갈라 스크롤을 줄인다.
+    const equipped = resolveSkin(this.selectedSkin);
+    const hero = document.createElement('div');
+    css(hero, {
+      display: 'flex',
+      flexDirection: 'column',
+      alignItems: 'center',
+      gap: '7px',
+      padding: '18px 0 15px',
+      marginBottom: '16px',
+      background: 'rgba(255,255,255,0.03)',
+      border: '1px solid rgba(255,255,255,0.08)',
+      borderRadius: '14px',
+    });
+    const heroBall = document.createElement('div');
+    const hp = skinPreviewStyle(equipped);
+    css(heroBall, { width: '78px', height: '78px', borderRadius: '50%', background: hp.background, boxShadow: hp.shadow });
+    const heroName = document.createElement('div');
+    css(heroName, { display: 'flex', alignItems: 'center', gap: '7px', font: '700 16px/1 system-ui, sans-serif', color: '#ffd54a' });
+    const heroNameText = document.createElement('span');
+    heroNameText.textContent = equipped.label;
+    const heroPill = document.createElement('span');
+    heroPill.textContent = '장착';
+    css(heroPill, { font: '800 9px/1 system-ui, sans-serif', color: '#1a1205', background: '#ffd54a', borderRadius: '5px', padding: '3px 6px' });
+    heroName.appendChild(heroNameText);
+    heroName.appendChild(heroPill);
+    const heroFinish = document.createElement('div');
+    heroFinish.textContent = `${FINISH_LABEL[equipped.finish]} 마감`;
+    css(heroFinish, { font: '500 11px/1 system-ui, sans-serif', color: '#8a93a3' });
+    hero.appendChild(heroBall);
+    hero.appendChild(heroName);
+    hero.appendChild(heroFinish);
+    this.panel.appendChild(hero);
 
-      const ball = document.createElement('span');
-      if (isUnlocked) {
-        const p = skinPreviewStyle(skin);
-        css(ball, { width: '42px', height: '42px', borderRadius: '50%', flex: '0 0 auto', background: p.background, boxShadow: p.shadow });
-      } else {
-        css(ball, {
-          width: '42px',
-          height: '42px',
-          borderRadius: '50%',
-          flex: '0 0 auto',
-          background: '#2b3140',
+    // 탭 바 — 볼 스킨 / 업적 (진행도 카운트를 탭에 얹어 인-컨텐츠 헤더 제거)
+    const tabBar = document.createElement('div');
+    css(tabBar, { display: 'flex', marginBottom: '14px', borderBottom: '1px solid rgba(255,255,255,0.1)' });
+    const mkTab = (label: string, count: string): HTMLButtonElement => {
+      const t = document.createElement('button');
+      t.textContent = label;
+      const c = document.createElement('span');
+      c.textContent = ` ${count}`;
+      css(c, { font: '500 12px/1 system-ui, sans-serif', opacity: '0.7', marginLeft: '4px' });
+      t.appendChild(c);
+      css(t, {
+        flex: '1',
+        textAlign: 'center',
+        padding: COARSE ? '11px 0' : '9px 0',
+        minHeight: COARSE ? '44px' : '',
+        background: 'transparent',
+        border: 'none',
+        borderBottom: '2px solid transparent',
+        color: '#8a93a3',
+        font: '700 13px/1 system-ui, sans-serif',
+        cursor: 'pointer',
+      });
+      return t;
+    };
+    const skinTabBtn = mkTab('볼 스킨', `${unlocked.size}/${skinList.length}`);
+    const achTabBtn = mkTab('업적', `${earnedCount}/${ACHIEVEMENTS.length}`);
+    tabBar.appendChild(skinTabBtn);
+    tabBar.appendChild(achTabBtn);
+    this.panel.appendChild(tabBar);
+
+    // 탭 내용 — 활성 탭에 따라 갈아끼움(this.skinTab로 재빌드 후에도 탭 유지)
+    const content = document.createElement('div');
+    css(content, { marginBottom: '16px' });
+    this.panel.appendChild(content);
+
+    const buildSkinGrid = (): HTMLElement => {
+      const grid = document.createElement('div');
+      css(grid, { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' });
+      for (const skin of skinList) {
+        const isUnlocked = unlocked.has(skin.id);
+        const isEquipped = this.selectedSkin === skin.id;
+
+        const ball = document.createElement('span');
+        if (isUnlocked) {
+          const p = skinPreviewStyle(skin);
+          css(ball, { width: '42px', height: '42px', borderRadius: '50%', flex: '0 0 auto', background: p.background, boxShadow: p.shadow });
+        } else {
+          css(ball, {
+            width: '42px',
+            height: '42px',
+            borderRadius: '50%',
+            flex: '0 0 auto',
+            background: '#2b3140',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            font: '17px/1 system-ui, sans-serif',
+            opacity: '0.85',
+          });
+          ball.textContent = '🔒';
+        }
+
+        const labelEl = document.createElement('div');
+        labelEl.textContent = skin.label;
+        css(labelEl, { font: '700 13px/1.2 system-ui, sans-serif', color: isEquipped ? '#ffd54a' : isUnlocked ? '#e8edf5' : '#6b7686' });
+        const subEl = document.createElement('div');
+        subEl.textContent = isUnlocked ? FINISH_LABEL[skin.finish] : achievementForSkin(skin.id)?.desc ?? '잠김';
+        css(subEl, { font: '500 10px/1.3 system-ui, sans-serif', color: isUnlocked ? (isEquipped ? '#caa86a' : '#8a93a3') : '#7d8696', marginTop: '2px' });
+        const textWrap = document.createElement('div');
+        css(textWrap, { textAlign: 'center' });
+        textWrap.appendChild(labelEl);
+        textWrap.appendChild(subEl);
+
+        const cell = document.createElement('button');
+        cell.disabled = !isUnlocked;
+        css(cell, {
+          position: 'relative',
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          gap: '7px',
+          padding: '11px 11px 9px',
+          minHeight: COARSE ? '52px' : '',
+          borderRadius: '11px',
+          border: isEquipped ? '1px solid #ffd54a' : isUnlocked ? '1px solid rgba(255,255,255,0.16)' : '1px solid rgba(255,255,255,0.1)',
+          background: isEquipped ? 'rgba(255,213,74,0.14)' : isUnlocked ? 'rgba(255,255,255,0.04)' : 'rgba(255,255,255,0.02)',
+          cursor: isUnlocked ? 'pointer' : 'not-allowed',
+        });
+        cell.appendChild(ball);
+        cell.appendChild(textWrap);
+
+        if (isEquipped) {
+          const pill = document.createElement('span');
+          pill.textContent = '장착';
+          css(pill, { position: 'absolute', top: '7px', right: '8px', font: '800 9px/1 system-ui, sans-serif', color: '#1a1205', background: '#ffd54a', borderRadius: '5px', padding: '2px 5px' });
+          cell.appendChild(pill);
+        }
+
+        if (isUnlocked) {
+          cell.onclick = () => {
+            this.equipSkin(skin.id);
+            this.showSkins(onBack, backLabel);
+          };
+        }
+        grid.appendChild(cell);
+      }
+      return grid;
+    };
+
+    const buildAchList = (): HTMLElement => {
+      const achWrap = document.createElement('div');
+      css(achWrap, { display: 'flex', flexDirection: 'column', gap: '6px' });
+      for (const a of ACHIEVEMENTS) {
+        const got = earned.includes(a.id);
+        const row = document.createElement('div');
+        css(row, {
           display: 'flex',
           alignItems: 'center',
-          justifyContent: 'center',
-          font: '17px/1 system-ui, sans-serif',
-          opacity: '0.85',
+          gap: '11px',
+          padding: '9px 11px',
+          borderRadius: '9px',
+          background: got ? 'rgba(255,213,74,0.08)' : 'rgba(255,255,255,0.02)',
+          border: got ? '1px solid rgba(255,213,74,0.22)' : '1px solid rgba(255,255,255,0.08)',
+          opacity: got ? '1' : '0.75',
         });
-        ball.textContent = '🔒';
+        const icon = document.createElement('span');
+        icon.textContent = a.icon;
+        css(icon, { font: '18px/1 system-ui, sans-serif', flex: '0 0 auto', filter: got ? '' : 'grayscale(1)' });
+        const badge = document.createElement('div');
+        badge.textContent = a.badge;
+        css(badge, { font: '700 12px/1.3 system-ui, sans-serif', color: got ? '#ffd54a' : '#9aa3b2' });
+        const desc = document.createElement('div');
+        desc.textContent = `${a.desc} · ${resolveSkin(a.reward).label} 해금`;
+        css(desc, { font: '500 10px/1.3 system-ui, sans-serif', color: got ? '#8a93a3' : '#6b7686' });
+        const body = document.createElement('div');
+        css(body, { flex: '1' });
+        body.appendChild(badge);
+        body.appendChild(desc);
+        const status = document.createElement('span');
+        status.textContent = got ? '✓' : '🔒';
+        css(status, { flex: '0 0 auto', font: got ? '800 13px/1 system-ui, sans-serif' : '600 11px/1 system-ui, sans-serif', color: got ? '#5dca8f' : '#6b7686' });
+        row.appendChild(icon);
+        row.appendChild(body);
+        row.appendChild(status);
+        achWrap.appendChild(row);
       }
+      return achWrap;
+    };
 
-      const labelEl = document.createElement('div');
-      labelEl.textContent = skin.label;
-      css(labelEl, { font: '700 13px/1.2 system-ui, sans-serif', color: isEquipped ? '#ffd54a' : isUnlocked ? '#e8edf5' : '#6b7686' });
-      const subEl = document.createElement('div');
-      subEl.textContent = isUnlocked ? FINISH_LABEL[skin.finish] : achievementForSkin(skin.id)?.desc ?? '잠김';
-      css(subEl, { font: '500 10px/1.3 system-ui, sans-serif', color: isUnlocked ? (isEquipped ? '#caa86a' : '#8a93a3') : '#7d8696', marginTop: '2px' });
-      const textWrap = document.createElement('div');
-      css(textWrap, { textAlign: 'center' });
-      textWrap.appendChild(labelEl);
-      textWrap.appendChild(subEl);
-
-      const cell = document.createElement('button');
-      cell.disabled = !isUnlocked;
-      css(cell, {
-        position: 'relative',
-        display: 'flex',
-        flexDirection: 'column',
-        alignItems: 'center',
-        gap: '7px',
-        padding: '11px 11px 9px',
-        minHeight: COARSE ? '52px' : '',
-        borderRadius: '11px',
-        border: isEquipped ? '1px solid #ffd54a' : isUnlocked ? '1px solid rgba(255,255,255,0.16)' : '1px solid rgba(255,255,255,0.1)',
-        background: isEquipped ? 'rgba(255,213,74,0.14)' : isUnlocked ? 'rgba(255,255,255,0.04)' : 'rgba(255,255,255,0.02)',
-        cursor: isUnlocked ? 'pointer' : 'not-allowed',
-      });
-      cell.appendChild(ball);
-      cell.appendChild(textWrap);
-
-      if (isEquipped) {
-        const pill = document.createElement('span');
-        pill.textContent = '장착';
-        css(pill, { position: 'absolute', top: '7px', right: '8px', font: '800 9px/1 system-ui, sans-serif', color: '#1a1205', background: '#ffd54a', borderRadius: '5px', padding: '2px 5px' });
-        cell.appendChild(pill);
-      }
-
-      if (isUnlocked) {
-        cell.onclick = () => {
-          this.equipSkin(skin.id);
-          this.showSkins(onBack, backLabel);
-        };
-      }
-      grid.appendChild(cell);
-    }
-    this.panel.appendChild(grid);
-
-    // 업적 섹션 — 6개 뱃지를 한자리에(딴 것 ✓ / 잠긴 것 조건+해금 스킨). 솔로 게임의 동기 엔진(§1).
-    const earnedCount = ACHIEVEMENTS.filter((a) => earned.includes(a.id)).length;
-    this.panel.appendChild(this.collectionHeader('업적', `${earnedCount} / ${ACHIEVEMENTS.length} 달성`));
-    const achWrap = document.createElement('div');
-    css(achWrap, { display: 'flex', flexDirection: 'column', gap: '6px', marginBottom: '20px' });
-    for (const a of ACHIEVEMENTS) {
-      const got = earned.includes(a.id);
-      const row = document.createElement('div');
-      css(row, {
-        display: 'flex',
-        alignItems: 'center',
-        gap: '11px',
-        padding: '9px 11px',
-        borderRadius: '9px',
-        background: got ? 'rgba(255,213,74,0.08)' : 'rgba(255,255,255,0.02)',
-        border: got ? '1px solid rgba(255,213,74,0.22)' : '1px solid rgba(255,255,255,0.08)',
-        opacity: got ? '1' : '0.75',
-      });
-      const icon = document.createElement('span');
-      icon.textContent = a.icon;
-      css(icon, { font: '18px/1 system-ui, sans-serif', flex: '0 0 auto', filter: got ? '' : 'grayscale(1)' });
-      const badge = document.createElement('div');
-      badge.textContent = a.badge;
-      css(badge, { font: '700 12px/1.3 system-ui, sans-serif', color: got ? '#ffd54a' : '#9aa3b2' });
-      const desc = document.createElement('div');
-      desc.textContent = `${a.desc} · ${resolveSkin(a.reward).label} 해금`;
-      css(desc, { font: '500 10px/1.3 system-ui, sans-serif', color: got ? '#8a93a3' : '#6b7686' });
-      const body = document.createElement('div');
-      css(body, { flex: '1' });
-      body.appendChild(badge);
-      body.appendChild(desc);
-      const status = document.createElement('span');
-      status.textContent = got ? '✓' : '🔒';
-      css(status, { flex: '0 0 auto', font: got ? '800 13px/1 system-ui, sans-serif' : '600 11px/1 system-ui, sans-serif', color: got ? '#5dca8f' : '#6b7686' });
-      row.appendChild(icon);
-      row.appendChild(body);
-      row.appendChild(status);
-      achWrap.appendChild(row);
-    }
-    this.panel.appendChild(achWrap);
+    const renderTab = () => {
+      content.replaceChildren();
+      content.appendChild(this.skinTab === 'skins' ? buildSkinGrid() : buildAchList());
+      const skinsActive = this.skinTab === 'skins';
+      css(skinTabBtn, { color: skinsActive ? '#22d3ee' : '#8a93a3', borderBottomColor: skinsActive ? '#22d3ee' : 'transparent' });
+      css(achTabBtn, { color: !skinsActive ? '#22d3ee' : '#8a93a3', borderBottomColor: !skinsActive ? '#22d3ee' : 'transparent' });
+    };
+    skinTabBtn.onclick = () => {
+      this.skinTab = 'skins';
+      renderTab();
+    };
+    achTabBtn.onclick = () => {
+      this.skinTab = 'achievements';
+      renderTab();
+    };
+    renderTab();
 
     const back = document.createElement('button');
     back.textContent = backLabel;
@@ -973,21 +1060,6 @@ export class MenuUI {
     this.panel.appendChild(back);
 
     this.backdrop.style.display = 'flex';
-  }
-
-  // 컬렉션 섹션 헤더 — 라벨 + 진행도 카운트(예: "3 / 7 해금")
-  private collectionHeader(label: string, count: string): HTMLDivElement {
-    const h = document.createElement('div');
-    css(h, { display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '10px' });
-    const l = document.createElement('span');
-    l.textContent = label;
-    css(l, { font: '700 12px/1 system-ui, sans-serif', color: '#aab3c2' });
-    const c = document.createElement('span');
-    c.textContent = count;
-    css(c, { font: "600 11px/1 ui-monospace, 'SF Mono', monospace", color: '#6b7686' });
-    h.appendChild(l);
-    h.appendChild(c);
-    return h;
   }
 
   private equipSkin(id: string) {
