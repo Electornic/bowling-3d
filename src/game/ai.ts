@@ -68,7 +68,7 @@ export const AI_PROFILES: AiProfile[] = [
   },
 ];
 
-const ENTRY_DIST = HEADPIN_Z - BALL_START_Z; // ≈19.29 (aim → 진입 x 변환 거리)
+export const ENTRY_DIST = HEADPIN_Z - BALL_START_Z; // ≈19.29 (aim → 진입 x 변환 거리) — Controls도 공유(#9)
 // 풀스핀 풀파워 훅 드리프트 (m) — 오일 endZ의 함수 (P3). sim-carry 총휨 스캔(endZ 12.5→9.42, 선형 적합):
 //   endZ 10.5(하우스) 실측 0.30→캘리 0.33 / 9.5(숏)≈0.40 / 12.5(롱)≈0.19. 기울기 ≈0.070 m per endZ 1m.
 //   오일이 짧을수록(숏·레인 마름) 훅이 길게 살아 드리프트↑ → AI가 그만큼 더 바깥을 노려 보정.
@@ -81,8 +81,8 @@ function hookDriftFor(oilEnd: number): number {
 const POCKET_X_STRAIGHT = -0.07; // 진입 x 포켓 — 매치 sim 미세스윕: 스트라이크 밴드 −8~−6cm 중심(power 1.0/0.95). 0(헤드핀 정면)은 노즈히트=스플릿이라 직구가 안 터졌다
 const POCKET_X_HOOK = 0.05; // 매치 sim 훅 스윕: 발사오프셋 T≈0.38(=0.05+HOOK_DRIFT_HOUSE) 중심이 스트라이크 밴드 중앙
 
-/** 표준정규 난수 (Box-Muller) */
-function gauss(): number {
+/** 표준정규 난수 (Box-Muller) — Controls 릴리스 타이밍 노이즈도 공유(#9). */
+export function gauss(): number {
   let u = 0;
   let v = 0;
   while (u === 0) u = Math.random();

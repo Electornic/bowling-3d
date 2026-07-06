@@ -7,6 +7,16 @@ export const LANE_LENGTH = 18.29; // 파울라인(z=0) → 1번핀
 export const LANE_WIDTH = 1.05;
 export const BALL_RADIUS = 0.109; // 지름 21.8cm (무게 무관 고정)
 export const PIN_HEIGHT = 0.38;
+/**
+ * 핀 병 실루엣 프로파일 (LatheGeometry 단면, 도안 §5.3) — [반경 r, 높이 y] 튜플.
+ * 실핀(Pin.ts, 세그먼트 20)과 배경 장식핀(Environment.ts, 세그먼트 12)이 공유하는 단일 소스(#9).
+ * 모양을 바꾸면 양쪽에 자동 반영 — 예전엔 두 곳에 복제돼 "바꾸면 양쪽" 주석으로 수동 동기해야 했다.
+ */
+export const PIN_PROFILE: readonly (readonly [number, number])[] = [
+  [0.0, 0.0], [0.024, 0.0], [0.03, 0.03], [0.038, 0.1], [0.03, 0.15],
+  [0.02, 0.21], [0.016, 0.24], [0.024, 0.29], [0.026, 0.31], [0.018, 0.36],
+  [0.008, 0.38], [0.0, 0.38],
+];
 export const PIN_MASS = 1.5;
 export const PIN_SPACING = 0.3048; // 핀 중심거리 12인치
 export const GUTTER_WIDTH = 0.23;
@@ -87,7 +97,7 @@ export const PIN_FALL_ANGLE = Math.PI / 4; // 45° 쓰러짐 임계
 
 // --- P2 타격감 (juice) ---
 // 공이 이 z를 넘으면 '핀 임팩트'로 취급 (셰이크·크래시 사운드·슬로모 트리거).
-// 그 전(레인 굴림 중) 접촉은 기존 playHit 그대로 — 굴림 거동은 안 건드린다.
+// 그 전(레인 굴림 중) 접촉은 기존 그대로 — 굴림 거동은 안 건드린다.
 // 공이 헤드핀에 실제 닿는 z (공R0.109+핀R0.06≈0.18). 임팩트 트리거의 '접촉 시점' 기준.
 export const PIN_CONTACT_Z = HEADPIN_Z - 0.18; // ≈18.11 (Boot 임팩트 push-in 카메라 트리거)
 // 스트라이크/포켓 슬로모: 임팩트 순간 timeScale를 떨궜다가 복원 (Loop.timeScale 인프라 공용).

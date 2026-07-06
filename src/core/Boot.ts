@@ -43,6 +43,7 @@ export async function boot() {
   const engine = new Engine();
   const { game, controls, cameraRig, environment, sound, exitBtn, island, refreshIsland, replay } = buildScene(engine);
   let shadowMoving = true; // 그림자 정적화 상태 추적 (§6)
+  let matchVisible: boolean | null = null; // 인게임 UI(exitBtn·island) 표시 상태 캐시(#12) — null=초기 1회 강제 쓰기
   const loop = new Loop(
     engine,
     (dt) => {
@@ -70,9 +71,13 @@ export async function boot() {
       }
       // 인게임 '메뉴로' 버튼 + 상단 업적 아일랜드: 매치 중(MENU/GAME_OVER 외)에만 노출.
       const inMatch = game.state !== 'MENU' && game.state !== 'GAME_OVER';
-      if (inMatch && exitBtn.style.display === 'none') refreshIsland(); // 매치 진입 시 진행도 1회 갱신
-      exitBtn.style.display = inMatch ? 'block' : 'none';
-      island.style.display = inMatch ? 'block' : 'none';
+      if (inMatch !== matchVisible) { // 변경 시에만 DOM 쓰기(#12, 위 섀도우 토글과 통일). null 센티넬로 초기 1회 강제.
+        matchVisible = inMatch;
+        if (inMatch) refreshIsland(); // 매치 진입 시 진행도 1회 갱신
+        const disp = inMatch ? 'block' : 'none';
+        exitBtn.style.display = disp;
+        island.style.display = disp;
+      }
       sound.setMenuMusic(!inMatch); // 메뉴·결과 화면에서만 배경음악 (매치 시작하면 페이드아웃). 멱등.
     },
   );
@@ -144,7 +149,7 @@ function maybeShowOrientationHint() {
 
 /**
  * 씬 + 게임 + UI 조립 (M5).
- * 입력은 Controls(마우스 조준/파워 차징 + Q/E 스핀), 무게는 BallPicker 슬라이더.
+ * 입력은 Controls(마우스 조준/파워 차징 + Q/E 스핀), 무게는 시작 메뉴 무게 슬라이더.
  */
 function buildScene(engine: Engine): {
   game: GameState;
@@ -260,7 +265,7 @@ function buildScene(engine: Engine): {
 
   // 충돌 신호 → 사운드 + 타격감 (P2). 공이 핀 구역(PIN_CONTACT_Z)에 들어선 접촉만
   // '임팩트'로 취급: 크래시 사운드 구분 + 카메라 셰이크 + 슬로모. 그 전 굴림 접촉은
-  // 기존 playHit 그대로 (굴림 거동 불변).
+  // 기존 굴림 접촉 그대로 (별도 사운드 없음, 굴림 거동 불변).
   const sound = new SoundManager();
   sound.enabled = settings.sound; // 저장된 사운드 on/off 적용
   engine.onContact = (mag) => {
@@ -383,6 +388,7 @@ function buildScene(engine: Engine): {
     __game?: GameState;
     __cameraRig?: CameraRig;
     __sound?: SoundManager;
+    __controls?: Controls;
     __unlockAllRewards?: () => void;
     __resetRewards?: () => void;
   };
@@ -392,6 +398,7 @@ function buildScene(engine: Engine): {
   w.__game = game;
   w.__cameraRig = cameraRig;
   w.__sound = sound;
+  w.__controls = controls;
   // [DEV] 보상 디버그 — 콘솔에서 호출 후 새로고침
   w.__unlockAllRewards = () => {
     recordRewards(ACHIEVEMENTS.map((a) => a.id));

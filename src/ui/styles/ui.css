@@ -1,0 +1,84 @@
+/*
+ * 정적 UI 스타일 + 애니메이션 (#4 — JS <style> 문자열에서 추출).
+ * 성질별 3층 분리: 이 파일은 "정적/애니메이션"만 담는다.
+ *   · 토큰(네온 팔레트)은 TS(theme.ts NEON)가 유일 소스 — WebGL도 같은 상수를 읽으므로 TS에 둔다.
+ *     theme.ts ensureNeonStyles()가 부팅 시 :root { --neon-* } CSS 변수를 방출하고, 여기서 var()로 소비한다(#5).
+ *   · 런타임 계산 인라인 스타일(요소별 height 트랜지션 등)은 TS에 남긴다.
+ * main.ts가 한 줄로 import → Vite가 <head>에 주입(설정 0, HMR·린팅·문법 하이라이트 회복).
+ * ⚠️ index.html 부팅 로더 CSS는 여기 없음 — 모듈보다 먼저 로드돼야 "즉시 타이핑"이라 의도적으로 인라인 유지.
+ *
+ * 알파 합성은 relative color syntax(rgb(from var(--x) r g b / a))로 토큰 하나에서 파생 — 값 복제 0.
+ */
+
+/* === 네온 레인지 슬라이더 (인라인 불가한 의사요소) — theme.ts에서 이동 === */
+.neon-range {
+  -webkit-appearance: none; appearance: none;
+  width: 100%; height: 6px; border-radius: 999px; outline: none; cursor: pointer; margin: 0;
+  background: linear-gradient(90deg, var(--neon-cyan), var(--neon-purple), var(--neon-pink));
+}
+.neon-range::-webkit-slider-thumb {
+  -webkit-appearance: none; appearance: none;
+  width: 18px; height: 18px; border-radius: 50%;
+  background: #fff; border: 2px solid var(--neon-cyan);
+  box-shadow: 0 0 10px rgb(from var(--neon-cyan) r g b / 0.9), 0 1px 3px rgba(0,0,0,0.6);
+}
+.neon-range::-moz-range-thumb {
+  width: 18px; height: 18px; border: 2px solid var(--neon-cyan); border-radius: 50%;
+  background: #fff; box-shadow: 0 0 10px rgb(from var(--neon-cyan) r g b / 0.9);
+}
+.neon-range::-moz-range-track { height: 6px; border-radius: 999px; background: transparent; }
+/* 터치(coarse): 슬라이더 썸 18→28px로 키워 손가락 타깃 확보 (MOBILE_SUPPORT.md §3.1) */
+@media (pointer: coarse) {
+  .neon-range { height: 10px; }
+  .neon-range::-webkit-slider-thumb { width: 28px; height: 28px; }
+  .neon-range::-moz-range-thumb { width: 28px; height: 28px; }
+}
+
+/* === 네온 펄스 강조(업적 아일랜드 등) + HUD 점수 팝 — theme.ts에서 이동 === */
+@keyframes neonPulse {
+  0%, 100% { box-shadow: inset 0 0 0 1.5px rgb(from var(--neon-gold) r g b / 0.55), 0 0 9px rgb(from var(--neon-gold) r g b / 0.3); }
+  50%      { box-shadow: inset 0 0 0 1.5px var(--neon-gold), 0 0 16px rgb(from var(--neon-gold) r g b / 0.55); }
+}
+/* 누적 점수가 새로 뜨거나 바뀔 때 톡 튀는 팝 (Hud) — 차분한 감속 이징, 피크에서 골드 플래시 */
+@keyframes juiceScorePop {
+  0%   { transform: scale(1); }
+  30%  { transform: scale(1.28); color: var(--neon-gold); }
+  100% { transform: scale(1); }
+}
+.juice-score-pop { animation: juiceScorePop 0.42s cubic-bezier(0.22, 1, 0.36, 1); }
+@media (prefers-reduced-motion: reduce) { .juice-score-pop { animation: none; } }
+
+/* === 메뉴 juice — 마이크로 모션 (Menu.ts ensureMenuJuice에서 이동) === */
+/* transform/opacity만 써 GPU 합성·레이아웃 무영향. 게임 루프/조준선/물리는 절대 안 건드림. */
+/* EASE_OUT = cubic-bezier(0.22,1,0.36,1) — 감속 진입(오버슈트/바운스 없음) */
+.menu-panel button {
+  transition: transform .1s cubic-bezier(0.22, 1, 0.36, 1), background-color .2s ease, border-color .2s ease, color .2s ease, box-shadow .2s ease, filter .15s ease;
+  -webkit-tap-highlight-color: transparent;
+}
+.menu-panel button:active { transform: scale(0.97); }
+@media (hover: hover) { .menu-panel button:hover { filter: brightness(1.08); } }
+.juice-panel-in { animation: juicePanelIn .26s cubic-bezier(0.22, 1, 0.36, 1) both; }
+@keyframes juicePanelIn { from { transform: translateY(8px); opacity: 0; } to { transform: none; opacity: 1; } }
+.juice-fade-in { animation: juiceFadeIn .2s ease both; }
+@keyframes juiceFadeIn { from { opacity: 0; } to { opacity: 1; } }
+::view-transition-old(root), ::view-transition-new(root) { animation-duration: .28s; animation-timing-function: cubic-bezier(0.22, 1, 0.36, 1); }
+@media (prefers-reduced-motion: reduce) {
+  .menu-panel button { transition: none; }
+  .menu-panel button:active { transform: none; }
+  .juice-panel-in, .juice-fade-in { animation: none; }
+  ::view-transition-old(root), ::view-transition-new(root) { animation: none !important; }
+}
+
+/* === 스틸컷 오버레이 애니메이션 (StillCut.ts ensureStyles에서 이동, 전부 정적) === */
+/* 배경 스며듦 — 투명 → 진한 검정(반투명 0.9로 남겨 뒤가 살짝 비침) + 그림자 페이드인 */
+@keyframes sc-tint { 0% { background: rgba(5,6,10,0); box-shadow: 0 0 0 rgba(0,0,0,0); } 100% { background: rgba(5,6,10,0.9); box-shadow: 0 12px 34px rgba(0,0,0,0.5); } }
+/* "슉" — 왼쪽 멀리서 스큐 걸린 채 오른쪽으로 들어와 살짝 오버슈트 후 착지 */
+@keyframes sc-fly { 0% { opacity: 0; transform: translateX(-95vw) skewX(-18deg); } 65% { opacity: 1; transform: translateX(3vw) skewX(-4deg); } 100% { opacity: 1; transform: translateX(0) skewX(0); } }
+/* 거터 — 왼→오로 흘러들지만 힘없이(오버슈트X) 착지 */
+@keyframes sc-fly-limp { 0% { opacity: 0; transform: translateX(-55vw); } 100% { opacity: 0.9; transform: translateX(0); } }
+/* 하단 바 — 캡션 도착 즈음 왼→오 그어짐 */
+@keyframes sc-bar { 0% { transform: scaleX(0); } 45% { transform: scaleX(0); } 100% { transform: scaleX(1); } }
+/* 보조문구 — 살짝 늦게 왼쪽에서 페이드인 */
+@keyframes sc-sub { 0% { opacity: 0; transform: translateX(-24px); } 55% { opacity: 0; } 100% { opacity: 0.92; transform: translateX(0); } }
+/* 스피드라인 — 왼→오로 밀려가며 슉 지나가고 사라짐 */
+@keyframes sc-streak { 0% { opacity: 0; transform: translateX(-30%); } 35% { opacity: 1; } 100% { opacity: 0; transform: translateX(8%); } }

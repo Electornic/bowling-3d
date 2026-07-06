@@ -32,7 +32,19 @@ const emptyStats = (): ModeStats => ({
 export function loadStats(): Record<string, ModeStats> {
   try {
     const raw = localStorage.getItem(KEY);
-    return raw ? (JSON.parse(raw) as Record<string, ModeStats>) : {};
+    if (!raw) return {};
+    const parsed = JSON.parse(raw) as unknown;
+    // 형태 방어(#3): JSON.parse는 파싱 throw만 막고 "유효 JSON·잘못된 형태"는 통과한다.
+    // 손상/레거시 엔트리({} 또는 부분 필드)가 있으면 best/games 등이 undefined가 되어
+    // recordGame의 Math.max(undefined, …)나 statsSummary의 나눗셈이 NaN이 되고, 그대로 재저장돼
+    // "평균 NaN·스트라이크 NaN%"로 고착된다. 각 엔트리를 emptyStats()에 병합해 숫자 필드를 항상 보장.
+    // (settings.ts { ...DEFAULTS, ...parsed } / rewards.ts 필드검증과 동일한 방어 관용구.)
+    if (!parsed || typeof parsed !== 'object') return {};
+    const clean: Record<string, ModeStats> = {};
+    for (const [mode, v] of Object.entries(parsed as Record<string, unknown>)) {
+      if (v && typeof v === 'object') clean[mode] = { ...emptyStats(), ...(v as Partial<ModeStats>) };
+    }
+    return clean;
   } catch {
     return {}; // 시크릿 모드 등 localStorage 불가 환경 — 통계 없이 동작
   }

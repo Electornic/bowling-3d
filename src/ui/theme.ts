@@ -43,50 +43,15 @@ export function applyPanel(el: HTMLElement, accent: string = NEON.cyan): void {
   el.style.setProperty('-webkit-backdrop-filter', 'blur(8px)');
 }
 
-let stylesInjected = false;
+let varsEmitted = false;
 /**
- * 인라인 style로 걸 수 없는 의사요소(range 슬라이더 썸/트랙)와 키프레임을 1회 주입.
- * 네이티브 <input type=range>를 네온 룩으로 바꾸려면 ::-webkit-slider-thumb 등이 필요.
+ * NEON 팔레트를 :root CSS 변수(--neon-*)로 1회 방출 — ui.css(정적 애니메이션·의사요소, #4)가 var()로 소비(#5).
+ * TS의 NEON이 유일 소스: CSS·DOM-JS·WebGL 세 세계가 같은 상수를 공유해 드리프트 0.
+ * (함수명 유지 — Hud·Controls가 "네온 UI 표시 전 1회 호출" 계약으로 이미 부른다. .neon-range·키프레임은 ui.css로 이동.)
  */
 export function ensureNeonStyles(): void {
-  if (stylesInjected) return;
-  stylesInjected = true;
-  const s = document.createElement('style');
-  s.textContent = `
-.neon-range {
-  -webkit-appearance: none; appearance: none;
-  width: 100%; height: 6px; border-radius: 999px; outline: none; cursor: pointer; margin: 0;
-  background: linear-gradient(90deg, ${NEON.cyan}, ${NEON.purple}, ${NEON.pink});
-}
-.neon-range::-webkit-slider-thumb {
-  -webkit-appearance: none; appearance: none;
-  width: 18px; height: 18px; border-radius: 50%;
-  background: #fff; border: 2px solid ${NEON.cyan};
-  box-shadow: 0 0 10px ${rgba(NEON.cyan, 0.9)}, 0 1px 3px rgba(0,0,0,0.6);
-}
-.neon-range::-moz-range-thumb {
-  width: 18px; height: 18px; border: 2px solid ${NEON.cyan}; border-radius: 50%;
-  background: #fff; box-shadow: 0 0 10px ${rgba(NEON.cyan, 0.9)};
-}
-.neon-range::-moz-range-track { height: 6px; border-radius: 999px; background: transparent; }
-/* 터치(coarse): 슬라이더 썸 18→28px로 키워 손가락 타깃 확보 (MOBILE_SUPPORT.md §3.1) */
-@media (pointer: coarse) {
-  .neon-range { height: 10px; }
-  .neon-range::-webkit-slider-thumb { width: 28px; height: 28px; }
-  .neon-range::-moz-range-thumb { width: 28px; height: 28px; }
-}
-@keyframes neonPulse {
-  0%, 100% { box-shadow: inset 0 0 0 1.5px ${rgba(NEON.gold, 0.55)}, 0 0 9px ${rgba(NEON.gold, 0.3)}; }
-  50%      { box-shadow: inset 0 0 0 1.5px ${rgba(NEON.gold, 1)}, 0 0 16px ${rgba(NEON.gold, 0.55)}; }
-}
-/* 누적 점수가 새로 뜨거나 바뀔 때 톡 튀는 팝 (Hud) — 차분한 감속 이징, 피크에서 골드 플래시 */
-@keyframes juiceScorePop {
-  0%   { transform: scale(1); }
-  30%  { transform: scale(1.28); color: ${NEON.gold}; }
-  100% { transform: scale(1); }
-}
-.juice-score-pop { animation: juiceScorePop 0.42s cubic-bezier(0.22, 1, 0.36, 1); }
-@media (prefers-reduced-motion: reduce) { .juice-score-pop { animation: none; } }
-`;
-  document.head.appendChild(s);
+  if (varsEmitted) return;
+  varsEmitted = true;
+  const root = document.documentElement.style;
+  for (const [k, v] of Object.entries(NEON)) root.setProperty(`--neon-${k}`, v);
 }

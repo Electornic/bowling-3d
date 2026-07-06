@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import type RAPIER from '@dimforge/rapier3d-compat';
 import type { Engine } from '../core/Engine';
 import { getRapier } from '../core/Boot';
-import { PIN_HEIGHT, PIN_MASS, PIN_RESTITUTION, PIN_LINEAR_DAMPING } from '../game/constants';
+import { PIN_HEIGHT, PIN_MASS, PIN_RESTITUTION, PIN_LINEAR_DAMPING, PIN_PROFILE } from '../game/constants';
 
 export const PIN_RADIUS = 0.06; // 콜라이더 반경 (도안 §4.4: ≥0.06, 터널링 방지)
 
@@ -19,12 +19,8 @@ export class Pin {
     const RAPIER = getRapier();
     this.home = { x, z };
 
-    // 병 실루엣 프로파일 (LatheGeometry, 도안 §5.3). 콜라이더는 단순 cylinder 유지.
-    const profile = [
-      [0.0, 0.0], [0.024, 0.0], [0.03, 0.03], [0.038, 0.1], [0.03, 0.15],
-      [0.02, 0.21], [0.016, 0.24], [0.024, 0.29], [0.026, 0.31], [0.018, 0.36],
-      [0.008, 0.38], [0.0, 0.38],
-    ].map(([r, y]) => new THREE.Vector2(r, y));
+    // 병 실루엣 프로파일 (LatheGeometry, 도안 §5.3) — constants.PIN_PROFILE 단일소스 공유(#9). 콜라이더는 단순 cylinder 유지.
+    const profile = PIN_PROFILE.map(([r, y]) => new THREE.Vector2(r, y));
     const pinGeo = new THREE.LatheGeometry(profile, 20);
     pinGeo.translate(0, -PIN_HEIGHT / 2, 0); // 중심 정렬 (body 중심과 맞춤)
     this.mesh = new THREE.Mesh(

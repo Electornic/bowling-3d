@@ -19,6 +19,16 @@ import { recordGame } from './Stats';
 import { resetOil, advanceOilDrying, type OilPattern } from './oil';
 import { CLASSIC_SKIN, type BallSkin } from './rewards';
 
+/**
+ * 슬로모 배속 이징 (#8 추출 · 순수함수라 단위테스트 가능) — 진행도 p=timer/total(1→0)에 ease-out (1-p)²로
+ * SLOWMO_SCALE에서 1.0으로 부드럽게 복원. 충돌 직후 즉시 떨궜다(하드컷 "툭 끊김" 제거) 후반에 빠르게 정상속도.
+ */
+export function slowmoScale(timer: number, total: number): number {
+  const p = Math.max(0, Math.min(1, timer / total));
+  const restore = (1 - p) * (1 - p);
+  return SLOWMO_SCALE + (1 - SLOWMO_SCALE) * restore;
+}
+
 export type GameStateName = 'MENU' | 'AIMING' | 'ROLLING' | 'SETTLING' | 'GAME_OVER';
 export type GameMode = 'full' | 'blitz' | 'spare';
 /** 예측선 난이도 (조준 보조) — P3. UI 전용, 점수·물리 무영향. */
@@ -157,7 +167,7 @@ export class GameState {
     return this.players[this.current];
   }
 
-  /** 입력(Controls/BallPicker)이 사람 차례인지 확인 */
+  /** 입력(Controls)이 사람 차례인지 확인 */
   isHumanTurn(): boolean {
     return !this.currentPlayer?.ai;
   }
@@ -215,7 +225,7 @@ export class GameState {
     this.refreshHud();
   }
 
-  /** BallPicker → 사람 공 스펙. AI 턴엔 저장만 하고 사람 차례에 적용. */
+  /** 메뉴 무게 슬라이더 → 사람 공 스펙. AI 턴엔 저장만 하고 사람 차례에 적용. */
   setHumanBallSpec(spec: BallSpec) {
     this.humanSpec = spec;
     if (this.state === 'AIMING' && this.isHumanTurn()) this.ballObj.setSpec(spec);
@@ -253,12 +263,13 @@ export class GameState {
     // 실제로 핀이 맞아 움직이기 시작한 순간에만 발동. 거터·빗나감·핀 옆 통과(어떤 핀도
     // 안 움직임)엔 사운드·슬로모 둘 다 없음. z평면 통과 기준은 핀이 이미 치워진 자리(2구)나
     // 핀을 안 건드리고 지나가도 헛발동했다 → 핀 실제 움직임으로 판정(가장 견고).
-    const hit = this.pins.pins.some((p) => {
-      // 치워진 핀(stash y=-50, 중력으로 낙하 중) 제외 — 2구 시작 시 헛발동 방지.
-      if (p.body.translation().y < -1) return false;
+    // 매 물리 스텝 호출이라 .some() 클로저 할당을 피해 for 루프로(#12). 동작 동일.
+    let hit = false;
+    for (const p of this.pins.pins) {
+      if (p.body.translation().y < -1) continue; // 치워진 핀(stash y=-50, 중력으로 낙하 중) 제외 — 2구 시작 시 헛발동 방지.
       const v = p.body.linvel();
-      return v.x * v.x + v.y * v.y + v.z * v.z > 0.25; // |v| > 0.5 m/s = 충돌로 움직임
-    });
+      if (v.x * v.x + v.y * v.y + v.z * v.z > 0.25) { hit = true; break; } // |v| > 0.5 m/s = 충돌로 움직임
+    }
     if (hit) {
       this.slowmoUsed = true;
       this.slowmoTimer = SLOWMO_REAL_SEC * SLOWMO_SCALE; // 실시간 SLOWMO_REAL_SEC (배속 보정)
@@ -275,39 +286,12 @@ export class GameState {
     // Loop가 아니라 여기 두는 이유: 수동 스텝 디버그(__engine.step + __game.update)에서도 동작해야 함
     this.lane.updateFriction(this.ballObj.body.translation().z);
 
-    // 공 굴림 럼블 — 레인 위 공 속도로 지속 저역음 구동 (SoundManager.setRoll). 굴림/안착 중만,
-    // 그 외엔 0으로 꺼짐. 공이 멈추면 속도→0이라 자연히 사라진다.
-    const rolling = this.state === 'ROLLING' || this.state === 'SETTLING';
-    if (this.onRoll) {
-      // 레인 위 굴림만 — 공이 핀덱 뒤로 넘어가면(핀 충돌·핏 진입) 굴림음 차단.
-      const tr = this.ballObj.body.translation();
-      const onLane = tr.z < PIN_DECK_END;
-      const inGutter = Math.abs(tr.x) > LANE_WIDTH / 2; // 레인 끝을 넘어 거터 홈으로 빠짐 → 홀로우 음색
-      const rv = this.ballObj.body.linvel();
-      this.onRoll(rolling && onLane ? Math.hypot(rv.x, rv.y, rv.z) : 0, inGutter);
-    }
+    // 굴림 럼블 오디오 + 임팩트(사운드·슬로모) + 시간 배속 — 각각 헬퍼로 분리(#8).
+    this.updateRollAudio();
+    this.notifyImpact(); // 접촉 시간 기반 임팩트 평가 (고정 z 트리거 폐기, 속도 무관 동기)
+    this.setTimeScale?.(this.computeTimeScale(dt)); // AI 빨리감기(P1.5) vs 임팩트 슬로모(P2, 우선)
 
-    // 임팩트(사운드·슬로모) — 접촉 시간 기반으로 매 스텝 평가 (고정 z 트리거 폐기, 속도 무관 동기).
-    this.notifyImpact();
-
-    // 시간 배속 (물리 dt는 그대로, accumulator 유입만 스케일 — Loop.timeScale).
-    // AI 턴 빨리감기(P1.5) vs 임팩트 슬로모(P2) — 슬로모가 활성일 땐 그게 우선.
     const ai = this.currentPlayer?.ai;
-    const fastForward = !!ai && (this.state === 'ROLLING' || this.state === 'SETTLING');
-    let scale = fastForward ? AI_FAST_FORWARD : 1;
-    if (this.slowmoTimer > 0) {
-      // dt는 sim 시간. 슬로모 중 scale배로 흐르므로, 실시간 T초 = sim (T·scale)초 소비.
-      // 따라서 timer를 (REAL_SEC·SCALE) sim초로 잡으면 실시간 REAL_SEC 동안 지속된다.
-      this.slowmoTimer -= dt;
-      // 충돌 순간 즉시 SLOWMO_SCALE로 떨궈 임팩트를 박고, 진행도 p(1→0)에 ease-out으로
-      // 1.0까지 부드럽게 복원 — 하드컷 복원이 "툭 끊김"으로 읽히던 것 제거. (1-p)^2라
-      // 전반부는 느리게 머물다 후반부에 빠르게 정상속도로 — 슬로모가 짧게 느껴진다.
-      const p = Math.max(0, Math.min(1, this.slowmoTimer / this.slowmoTotal));
-      const restore = (1 - p) * (1 - p);
-      scale = SLOWMO_SCALE + (1 - SLOWMO_SCALE) * restore;
-    }
-    this.setTimeScale?.(scale);
-
     if (this.state === 'AIMING') {
       if (ai) {
         this.aiWait += dt;
@@ -339,6 +323,31 @@ export class GameState {
         this.score();
       }
     }
+  }
+
+  /** 공 굴림 럼블 오디오 — 레인 위 굴림/안착 중 공 속도로 지속 저역음, 그 외 0. (#8 update()에서 추출) */
+  private updateRollAudio(): void {
+    if (!this.onRoll) return;
+    const rolling = this.state === 'ROLLING' || this.state === 'SETTLING';
+    const tr = this.ballObj.body.translation();
+    const onLane = tr.z < PIN_DECK_END; // 핀덱 뒤로 넘어가면(핀 충돌·핏 진입) 굴림음 차단
+    const inGutter = Math.abs(tr.x) > LANE_WIDTH / 2; // 레인 끝을 넘어 거터 홈 → 홀로우 음색
+    const rv = this.ballObj.body.linvel();
+    this.onRoll(rolling && onLane ? Math.hypot(rv.x, rv.y, rv.z) : 0, inGutter);
+  }
+
+  /**
+   * Loop.timeScale 값 산출 (#8 update()에서 추출) — AI 턴 빨리감기(P1.5) vs 임팩트 슬로모(P2), 슬로모 우선.
+   * 슬로모 활성 시 slowmoTimer를 dt만큼 소모(sim 시간)하고 이징된 배속(slowmoScale)을 반환. 아니면 빨리감기/1.
+   */
+  private computeTimeScale(dt: number): number {
+    if (this.slowmoTimer > 0) {
+      this.slowmoTimer -= dt;
+      return slowmoScale(this.slowmoTimer, this.slowmoTotal);
+    }
+    const ai = this.currentPlayer?.ai;
+    const fastForward = !!ai && (this.state === 'ROLLING' || this.state === 'SETTLING');
+    return fastForward ? AI_FAST_FORWARD : 1;
   }
 
   private ballGoneOrStopped(): boolean {

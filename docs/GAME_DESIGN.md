@@ -66,8 +66,7 @@ bowling-3d/
     │   └─ SoundManager.ts   프리로드 + 충돌음(임펄스 기반)+UI음
     └─ ui/
         ├─ Hud.ts            점수판, 프레임 표시, 파워 게이지
-        ├─ BallPicker.ts     볼 무게 선택 UI
-        └─ Menu.ts           시작 화면 / 게임오버 / 재시작
+        └─ Menu.ts           시작 화면(볼 무게 슬라이더 포함) / 게임오버 / 재시작
 ```
 
 ---
@@ -356,7 +355,7 @@ BOOT ──▶ MENU ──(Start)──▶ PLAYING ──(10프레임 종료)─
 
 **BETWEEN_FRAMES**: 프레임 종료 시 핀 10개 전체 리셋 + 짧은 전환 연출 후 다음 프레임 AIMING.
 
-**MENU / GAME_OVER**: DOM 메뉴(Menu.ts)로 Start/Restart 버튼 제공. MENU에서 볼 무게 선택(BallPicker). GAME_OVER는 최종 점수·프레임별 점수 표시.
+**MENU / GAME_OVER**: DOM 메뉴(Menu.ts)로 Start/Restart 버튼 제공. MENU에서 볼 무게 선택(메뉴 무게 슬라이더). GAME_OVER는 최종 점수·프레임별 점수 표시.
 
 ---
 

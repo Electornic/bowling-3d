@@ -29,7 +29,7 @@
 | # | 문제 | 근거 | 영향 |
 |---|---|---|---|
 | 1 | **조준·파워 결합** — 터치엔 hover가 없어 누르는 즉시 차징 시작, "조준 후 차징" 불가. 절대좌표 조준이라 처음 닿는 x가 그대로 조준에 편입 | [Controls.ts:234](../src/input/Controls.ts)(aim=clientX 절대), [239](../src/input/Controls.ts)(down=즉시 charging) | **치명** — 정조준 발사 불가 |
-| 2 | **UI 고정 px 충돌/오버플로** — 볼무게(우상단 210px) ↔ 점수판(상단중앙, 풀게임 폭 ~400px+) 좁은 폰에서 겹침/잘림. 파워·스핀(우하단 240px)도 좁은 폭 미고려 | [BallPicker.ts:14](../src/ui/BallPicker.ts), [Hud.ts:76](../src/ui/Hud.ts), [Controls.ts:73](../src/input/Controls.ts) | 높음 |
+| 2 | **UI 고정 px 충돌/오버플로** — 볼무게(구 우상단 210px 패널 → 시작 메뉴로 이동해 해소) ↔ 점수판(상단중앙, 풀게임 폭 ~400px+) 좁은 폰에서 겹침/잘림. 파워·스핀(우하단 240px)도 좁은 폭 미고려 | [Hud.ts:76](../src/ui/Hud.ts), [Controls.ts:73](../src/input/Controls.ts) | 높음 |
 | 3 | **뷰포트/제스처 미처리** — `viewport-fit`/safe-area 없음, `touch-action`/`user-scalable` 미설정 → 더블탭 줌·핀치 줌·당겨서새로고침·롱프레스 메뉴가 플레이 방해 | [index.html:5](../index.html) | 높음 |
 | 4 | **방향 미처리** — 레인이 화면을 세로로 가르는 구도라 세로 폰에서 레인이 과도하게 좁음 | [CameraRig.ts:75](../src/camera/CameraRig.ts)(AIMING 뷰) | 중 |
 | 5 | **키보드 의존 잔재** — Q/E 스핀, 조작 안내문이 데스크톱 문구 그대로 | [Controls.ts:258](../src/input/Controls.ts), [Menu.ts:141](../src/ui/Menu.ts) | 중 |
@@ -81,7 +81,7 @@
 | 요소 | 현재 | 모바일안 |
 |---|---|---|
 | **점수판**([Hud.ts](../src/ui/Hud.ts)) | 상단중앙, 셀 17px×칸 + 누적 → 10프레임 ≈396px(이름칼럼 +74px). wrap에 `maxWidth:'96vw'`([Hud.ts:88](../src/ui/Hud.ts))가 **이미 있으나** 내부 셀이 고정 px라 96vw 초과분이 `overflow` 미처리로 화면 밖으로 삐져나감(무력) | 셀/폰트 축소 + 가로 스크롤 허용, 또는 **컴팩트 모드**(현재 프레임 + 누적점수만, 탭하면 전체 시트 펼침). 멀티는 세로 스택 유지. ⚠️ 탭 펼침 쓰려면 wrap의 `pointerEvents:'none'`([Hud.ts:87](../src/ui/Hud.ts))을 해당 요소만 `'auto'`로 |
-| **볼무게**([BallPicker.ts](../src/ui/BallPicker.ts)) | 우상단 210px 패널 상시 | 컴팩트 칩(현재 무게+스와치)으로 접고 탭하면 슬라이더 펼침 → 점수판과 충돌 회피 |
+| **볼무게**(시작 메뉴, [Menu.ts](../src/ui/Menu.ts)) | (구) 우상단 210px 인게임 패널 → 시작 메뉴 슬라이더로 이동 | 인게임 패널 제거(BallPicker 삭제)로 점수판 충돌 원천 해소 |
 | **파워/스핀**([Controls.ts](../src/input/Controls.ts)) | 우하단 240px 고정 | 폭 `min(240px, 44vw)`, `bottom/right`에 `env(safe-area-inset-*)` 가산 |
 | **메뉴/결과**([Menu.ts](../src/ui/Menu.ts)) | 중앙 패널, `overflow` 미처리 | **짧은 가로 화면(landscape 단변 ~375px)에서 내용이 뷰포트를 넘으면 잘림** → 패널에 `max-height: 90dvh; overflow:auto; touch-action: pan-y`(§4와 연동). **`vh` 금지 — iOS 동적 주소창이 `vh`에 포함돼 패널이 화면 밖으로 밀린다. `dvh`(동적, 보수적이면 `svh`)** 사용 |
 
@@ -179,7 +179,7 @@ canvas     { touch-action: none; }         /* 게임 표면: 브라우저 제스
 | [src/input/Controls.ts](../src/input/Controls.ts) | 터치 분기·조준/파워·**isPrimary/pointercancel**·힌트 | 게이지 폭/safe-area | — |
 | [src/game/constants.ts](../src/game/constants.ts) | `AIM_GAIN` | — | — |
 | [src/ui/Hud.ts](../src/ui/Hud.ts) | — | 컴팩트 점수판 | — |
-| [src/ui/BallPicker.ts](../src/ui/BallPicker.ts) | — | 컴팩트 칩 + 슬라이더 히트영역 | — |
+| ~~src/ui/BallPicker.ts~~ (삭제됨 — 볼무게 시작 메뉴로 이동) | — | — | — |
 | [src/ui/theme.ts](../src/ui/theme.ts) | — | `.neon-range` 썸 ≥28px(터치) | — |
 | [src/ui/Menu.ts](../src/ui/Menu.ts) | 조작 안내 모바일화 | 패널 overflow/스크롤 + 버튼 ≥44px | — |
 | [src/camera/CameraRig.ts](../src/camera/CameraRig.ts) | — | — | 방향별 보정 |

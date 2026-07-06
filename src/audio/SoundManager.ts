@@ -32,7 +32,6 @@ export class SoundManager {
       this.stopMusic(); // 메뉴 음악도 정지
     }
   }
-  private lastPlay = 0;
 
   constructor() {
     const resume = () => {
@@ -202,27 +201,6 @@ export class SoundManager {
     if (this.ctx && this.ctx.state === 'suspended') void this.ctx.resume();
   }
 
-  /** 충돌음: magnitude(contact force) → 볼륨·피치로 매핑. 레인 굴림 등 일반 접촉용. */
-  playHit(magnitude: number) {
-    if (!this.ctx || !this.enabled) return;
-    const now = this.ctx.currentTime;
-    if (now - this.lastPlay < 0.025) return; // 동시 다중충돌 폭주 방지 (도안 §12)
-    this.lastPlay = now;
-
-    const vol = Math.min(1, magnitude / 60) * 0.35;
-    if (vol < 0.01) return;
-
-    const osc = this.ctx.createOscillator();
-    const gain = this.ctx.createGain();
-    osc.type = 'triangle';
-    osc.frequency.value = 110 + Math.min(magnitude, 120) * 3; // 셀수록 높은 음
-    gain.gain.setValueAtTime(vol, now);
-    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.13);
-    osc.connect(gain).connect(this.out()); // 굴림음도 룸 리버브 경유 (같은 공간)
-    osc.start(now);
-    osc.stop(now + 0.14);
-  }
-
   /**
    * 투구당 1회 핀 임팩트음 (GameState.notifyImpact가 명령). 개별 contact마다 소리내던
    * 방식은 슬로모 중 contact가 띄엄띄엄 들어와 '여러 번/탭탭탭'으로 들려서, 임팩트는
@@ -232,7 +210,7 @@ export class SoundManager {
     if (!this.ctx || !this.enabled) return;
     if (this.strikeBuf) this.playStrike(standingCount); // 실제 샘플(핀수로 볼륨·길이 스케일) — 1~2핀도 합성 '뽁' 대신 가벼운 실제 타격음
     else if (standingCount <= LIGHT_HIT_MAX) this.click(70); // 디코드 전 폴백
-    else this.crash(0, standingCount);
+    else this.crash(standingCount);
   }
 
   /** 실제 스트라이크 녹음 재생 — 자연 잔향 포함이라 합성 리버브 우회(드라이, 이중 잔향 방지). */
@@ -276,7 +254,7 @@ export class SoundManager {
    * 뒤로 노이즈 클러터 '구름'(미세 클릭 다발)이 깔리고, 무게감은 저역 쿵 1발.
    * 어택이 노이즈 스웰이면 '쉭'으로 들려서 — 크랙을 앞세우고 노이즈 어택은 살짝 늦춘다.
    */
-  private crash(magnitude: number, count: number) {
+  private crash(count: number) {
     const ctx = this.ctx!;
     const now = ctx.currentTime;
     const intensity = Math.min(1, count / 10);

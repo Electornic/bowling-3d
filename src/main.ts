@@ -1,3 +1,4 @@
+import './ui/styles/ui.css'; // 정적 UI 스타일·애니메이션(#4) — Vite가 <head>에 주입. 토큰은 theme.ts가 :root 변수로 방출.
 import { boot } from './core/Boot';
 
 boot().catch((e) => {

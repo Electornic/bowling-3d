@@ -6,39 +6,11 @@ import { isCoarsePointer } from '../core/device';
 import { SKINS, ACHIEVEMENTS, loadRewards, saveSelectedSkin, unlockedSkinIds, resolveSkin, achievementForSkin } from '../game/rewards';
 import type { BallSkin, SkinFinish } from '../game/rewards';
 import type { Settings, Quality } from '../game/settings';
+import { css, NEON } from '../ui/theme'; // 디자인 시스템 단일소스(#6) — 로컬 css 복제 제거, NEON 팔레트 토큰 공유
 
-const css = (el: HTMLElement, style: Partial<CSSStyleDeclaration>) => Object.assign(el.style, style);
-
-// === UI juice: 마이크로 모션 (데모 instant-smooth-ui의 "즉각 반응+부드러움"을 순수 CSS로 이식 — 의존성 0) ===
+// === UI juice: 마이크로 모션 — 정적 CSS(.menu-panel button 트랜지션 + juicePanelIn/juiceFadeIn 키프레임 +
+// 모션최소화 + View Transitions 커브)는 ui.css로 이동(#4). main.ts가 전역 import하므로 별도 주입 불필요.
 // transform/opacity만 써 GPU 합성·레이아웃 무영향. 게임 루프/조준선/물리는 절대 안 건드림.
-const EASE_OUT = 'cubic-bezier(0.22, 1, 0.36, 1)'; // 감속 진입 — 부드럽고 차분(오버슈트/바운스 없음)
-let juiceInjected = false;
-/** 메뉴 juice 스타일 1회 주입 — 전 버튼 press/트랜지션 + 등장/팝 키프레임 + 모션최소화 존중 + View Transitions 커브. */
-function ensureMenuJuice(): void {
-  if (juiceInjected) return;
-  juiceInjected = true;
-  const s = document.createElement('style');
-  s.textContent = `
-.menu-panel button {
-  transition: transform .1s ${EASE_OUT}, background-color .2s ease, border-color .2s ease, color .2s ease, box-shadow .2s ease, filter .15s ease;
-  -webkit-tap-highlight-color: transparent;
-}
-.menu-panel button:active { transform: scale(0.97); }
-@media (hover: hover) { .menu-panel button:hover { filter: brightness(1.08); } }
-.juice-panel-in { animation: juicePanelIn .26s ${EASE_OUT} both; }
-@keyframes juicePanelIn { from { transform: translateY(8px); opacity: 0; } to { transform: none; opacity: 1; } }
-.juice-fade-in { animation: juiceFadeIn .2s ease both; }
-@keyframes juiceFadeIn { from { opacity: 0; } to { opacity: 1; } }
-::view-transition-old(root), ::view-transition-new(root) { animation-duration: .28s; animation-timing-function: ${EASE_OUT}; }
-@media (prefers-reduced-motion: reduce) {
-  .menu-panel button { transition: none; }
-  .menu-panel button:active { transform: none; }
-  .juice-panel-in, .juice-fade-in { animation: none; }
-  ::view-transition-old(root), ::view-transition-new(root) { animation: none !important; }
-}
-`;
-  document.head.appendChild(s);
-}
 /** 애니메이션 클래스 재트리거 (리플로우로 리셋 후 재부여) — 재선택·재진입마다 매번 재생되게. */
 function playOnce(el: HTMLElement, cls: string): void {
   el.classList.remove(cls);
@@ -243,7 +215,6 @@ export class MenuUI {
       backdropFilter: 'blur(4px)',
       zIndex: '40',
     });
-    ensureMenuJuice(); // juice 스타일 1회 주입 (전 버튼 press/트랜지션 + 등장/팝 키프레임)
     this.panel = document.createElement('div');
     this.panel.classList.add('menu-panel'); // 스코프드 CSS(.menu-panel button)로 전 버튼 마이크로 모션
     css(this.panel, {
@@ -252,7 +223,7 @@ export class MenuUI {
       border: '1px solid rgba(255,255,255,0.1)',
       borderRadius: '16px',
       padding: '28px 32px',
-      color: '#e8edf5',
+      color: NEON.text,
       font: '500 14px/1.5 system-ui, sans-serif',
       // 모바일은 뷰 무관 고정 폭으로 통일 — 안 그러면 패널이 내용 너비에 맞춰져, 내용이 좁은
       // 컬렉션 시트가 메뉴보다 홀쭉해진다. border-box+92vw 상한으로 좁은 폰 가로 오버플로도 방지.
@@ -307,7 +278,7 @@ export class MenuUI {
       borderRadius: '10px',
       border: '1px solid rgba(255,255,255,0.14)',
       background: 'rgba(255,255,255,0.04)',
-      color: '#e8edf5',
+      color: NEON.text,
       fontSize: '18px',
       lineHeight: '1',
       padding: '0',
@@ -470,10 +441,10 @@ export class MenuUI {
     wInput.max = '16';
     wInput.step = '1'; // 1파운드 단위
     wInput.value = String(this.weight);
-    css(wInput, { flex: '1', accentColor: '#22d3ee', minHeight: COARSE ? '44px' : '' });
+    css(wInput, { flex: '1', accentColor: NEON.cyan, minHeight: COARSE ? '44px' : '' });
     const wVal = document.createElement('span');
     wVal.textContent = `${this.weight} lb`;
-    css(wVal, { font: "700 14px/1 ui-monospace, 'SF Mono', monospace", color: '#22d3ee', minWidth: '54px', textAlign: 'right' });
+    css(wVal, { font: "700 14px/1 ui-monospace, 'SF Mono', monospace", color: NEON.cyan, minWidth: '54px', textAlign: 'right' });
     wInput.addEventListener('input', () => {
       this.weight = parseFloat(wInput.value);
       wVal.textContent = `${this.weight} lb`;
@@ -493,7 +464,7 @@ export class MenuUI {
       borderRadius: '10px',
       border: '1px solid rgba(255,255,255,0.18)',
       background: 'rgba(255,255,255,0.05)',
-      color: '#e8edf5',
+      color: NEON.text,
       font: '700 13px/1 system-ui, sans-serif',
       cursor: 'pointer',
       marginBottom: '14px',
@@ -587,7 +558,7 @@ export class MenuUI {
         display: 'flex',
         justifyContent: 'space-between',
         gap: '24px',
-        color: i === summary.winner ? '#ffd54a' : '#e8edf5',
+        color: i === summary.winner ? NEON.gold : NEON.text,
       });
       const unit = summary.mode === 'spare' ? `/10` : '점';
       row.innerHTML = `<span>${p.ai ? '🤖 ' : ''}${p.name}</span><span>${p.score}${unit}</span>`;
@@ -599,7 +570,7 @@ export class MenuUI {
       const badge = document.createElement('div');
       badge.textContent = '✨ 새 기록!';
       css(badge, {
-        color: '#ffd54a',
+        color: NEON.gold,
         font: '800 14px/1 system-ui, sans-serif',
         marginBottom: '14px',
       });
@@ -620,7 +591,7 @@ export class MenuUI {
         const ach = ACHIEVEMENTS.find((a) => a.id === id);
         if (!ach) continue;
         const row = document.createElement('div');
-        css(row, { font: '700 13px/1.6 system-ui, sans-serif', color: '#ffd54a' });
+        css(row, { font: '700 13px/1.6 system-ui, sans-serif', color: NEON.gold });
         row.textContent = `${ach.icon} NEW · ${ach.badge} → ${resolveSkin(ach.reward).label}`;
         box.appendChild(row);
       }
@@ -680,7 +651,7 @@ export class MenuUI {
       borderRadius: '10px',
       border: '1px solid rgba(255,255,255,0.25)',
       background: 'transparent',
-      color: '#e8edf5',
+      color: NEON.text,
       font: '700 14px/1 system-ui, sans-serif',
       cursor: 'pointer',
     });
@@ -707,7 +678,7 @@ export class MenuUI {
 
     const who = document.createElement('div');
     who.textContent = name;
-    css(who, { font: '800 30px/1.2 system-ui, sans-serif', textAlign: 'center', color: '#ffd54a', marginBottom: '6px' });
+    css(who, { font: '800 30px/1.2 system-ui, sans-serif', textAlign: 'center', color: NEON.gold, marginBottom: '6px' });
     this.panel.appendChild(who);
 
     const sub = document.createElement('div');
@@ -842,7 +813,7 @@ export class MenuUI {
     });
     const l = document.createElement('span');
     l.textContent = label;
-    css(l, { font: '600 14px/1 system-ui, sans-serif', color: '#e8edf5' });
+    css(l, { font: '600 14px/1 system-ui, sans-serif', color: NEON.text });
     const btn = document.createElement('button');
     btn.textContent = valueText;
     css(btn, {
@@ -891,7 +862,7 @@ export class MenuUI {
       borderRadius: '9px',
       border: '1px solid rgba(255,255,255,0.18)',
       background: 'rgba(255,255,255,0.05)',
-      color: '#e8edf5',
+      color: NEON.text,
       font: '600 13px/1 system-ui, sans-serif',
       cursor: 'pointer',
     });
@@ -907,7 +878,7 @@ export class MenuUI {
       css(rowEl, { display: 'flex', alignItems: 'center', gap: '10px' });
       const lab = document.createElement('span');
       lab.textContent = tag;
-      css(lab, { font: '800 12px/1 system-ui, sans-serif', color: '#ffd54a', minWidth: '26px' });
+      css(lab, { font: '800 12px/1 system-ui, sans-serif', color: NEON.gold, minWidth: '26px' });
       const input = document.createElement('input');
       input.type = 'text';
       input.value = value;
@@ -920,7 +891,7 @@ export class MenuUI {
         borderRadius: '9px',
         border: '1px solid rgba(255,255,255,0.18)',
         background: 'rgba(255,255,255,0.05)',
-        color: '#e8edf5',
+        color: NEON.text,
         font: '600 13px/1 system-ui, sans-serif',
         boxSizing: 'border-box',
       });
@@ -938,9 +909,9 @@ export class MenuUI {
     for (const [k, b] of map) {
       const on = k === active;
       // 팝(바운스) 없이 색만 부드럽게 전환 (.menu-panel button transition이 담당). 여러 칩 동시 전환도 조용.
-      b.style.borderColor = on ? '#ffd54a' : 'rgba(255,255,255,0.18)';
+      b.style.borderColor = on ? NEON.gold : 'rgba(255,255,255,0.18)';
       b.style.background = on ? 'rgba(255,213,74,0.14)' : 'rgba(255,255,255,0.05)';
-      b.style.color = on ? '#ffd54a' : '#e8edf5';
+      b.style.color = on ? NEON.gold : NEON.text;
     }
   }
 
@@ -948,9 +919,9 @@ export class MenuUI {
     const spareMode = this.mode === 'spare';
     for (const [k, b] of map) {
       const active = k === this.rivalKey;
-      b.style.borderColor = active ? '#ffd54a' : 'rgba(255,255,255,0.18)';
+      b.style.borderColor = active ? NEON.gold : 'rgba(255,255,255,0.18)';
       b.style.background = active ? 'rgba(255,213,74,0.14)' : 'rgba(255,255,255,0.05)';
-      b.style.color = active ? '#ffd54a' : '#e8edf5';
+      b.style.color = active ? NEON.gold : NEON.text;
       if (k !== null) {
         b.style.opacity = spareMode ? '0.35' : '1';
         b.style.cursor = spareMode ? 'not-allowed' : 'pointer';
@@ -991,12 +962,12 @@ export class MenuUI {
     const hp = skinPreviewStyle(equipped);
     css(heroBall, { width: '78px', height: '78px', borderRadius: '50%', background: hp.background, boxShadow: hp.shadow });
     const heroName = document.createElement('div');
-    css(heroName, { display: 'flex', alignItems: 'center', gap: '7px', font: '700 16px/1 system-ui, sans-serif', color: '#ffd54a' });
+    css(heroName, { display: 'flex', alignItems: 'center', gap: '7px', font: '700 16px/1 system-ui, sans-serif', color: NEON.gold });
     const heroNameText = document.createElement('span');
     heroNameText.textContent = equipped.label;
     const heroPill = document.createElement('span');
     heroPill.textContent = '장착';
-    css(heroPill, { font: '800 9px/1 system-ui, sans-serif', color: '#1a1205', background: '#ffd54a', borderRadius: '5px', padding: '3px 6px' });
+    css(heroPill, { font: '800 9px/1 system-ui, sans-serif', color: '#1a1205', background: NEON.gold, borderRadius: '5px', padding: '3px 6px' });
     heroName.appendChild(heroNameText);
     heroName.appendChild(heroPill);
     const heroFinish = document.createElement('div');
@@ -1071,7 +1042,7 @@ export class MenuUI {
 
         const labelEl = document.createElement('div');
         labelEl.textContent = skin.label;
-        css(labelEl, { font: '700 13px/1.2 system-ui, sans-serif', color: isEquipped ? '#ffd54a' : isUnlocked ? '#e8edf5' : '#6b7686' });
+        css(labelEl, { font: '700 13px/1.2 system-ui, sans-serif', color: isEquipped ? NEON.gold : isUnlocked ? NEON.text : '#6b7686' });
         const subEl = document.createElement('div');
         subEl.textContent = isUnlocked ? FINISH_LABEL[skin.finish] : achievementForSkin(skin.id)?.desc ?? '잠김';
         css(subEl, { font: '500 10px/1.3 system-ui, sans-serif', color: isUnlocked ? (isEquipped ? '#caa86a' : '#8a93a3') : '#7d8696', marginTop: '2px' });
@@ -1101,7 +1072,7 @@ export class MenuUI {
         if (isEquipped) {
           const pill = document.createElement('span');
           pill.textContent = '장착';
-          css(pill, { position: 'absolute', top: '7px', right: '8px', font: '800 9px/1 system-ui, sans-serif', color: '#1a1205', background: '#ffd54a', borderRadius: '5px', padding: '2px 5px' });
+          css(pill, { position: 'absolute', top: '7px', right: '8px', font: '800 9px/1 system-ui, sans-serif', color: '#1a1205', background: NEON.gold, borderRadius: '5px', padding: '2px 5px' });
           cell.appendChild(pill);
         }
 
@@ -1137,7 +1108,7 @@ export class MenuUI {
         css(icon, { font: '18px/1 system-ui, sans-serif', flex: '0 0 auto', filter: got ? '' : 'grayscale(1)' });
         const badge = document.createElement('div');
         badge.textContent = a.badge;
-        css(badge, { font: '700 12px/1.3 system-ui, sans-serif', color: got ? '#ffd54a' : '#9aa3b2' });
+        css(badge, { font: '700 12px/1.3 system-ui, sans-serif', color: got ? NEON.gold : '#9aa3b2' });
         const desc = document.createElement('div');
         desc.textContent = `${a.desc} · ${resolveSkin(a.reward).label} 해금`;
         css(desc, { font: '500 10px/1.3 system-ui, sans-serif', color: got ? '#8a93a3' : '#6b7686' });
@@ -1165,8 +1136,8 @@ export class MenuUI {
       if (lastRenderedTab !== null && lastRenderedTab !== this.skinTab) playOnce(content, 'juice-fade-in');
       lastRenderedTab = this.skinTab;
       const skinsActive = this.skinTab === 'skins';
-      css(skinTabBtn, { color: skinsActive ? '#22d3ee' : '#8a93a3', borderBottomColor: skinsActive ? '#22d3ee' : 'transparent' });
-      css(achTabBtn, { color: !skinsActive ? '#22d3ee' : '#8a93a3', borderBottomColor: !skinsActive ? '#22d3ee' : 'transparent' });
+      css(skinTabBtn, { color: skinsActive ? NEON.cyan : '#8a93a3', borderBottomColor: skinsActive ? NEON.cyan : 'transparent' });
+      css(achTabBtn, { color: !skinsActive ? NEON.cyan : '#8a93a3', borderBottomColor: !skinsActive ? NEON.cyan : 'transparent' });
     };
     skinTabBtn.onclick = () => {
       this.skinTab = 'skins';
@@ -1187,7 +1158,7 @@ export class MenuUI {
       borderRadius: '10px',
       border: '1px solid rgba(255,255,255,0.25)',
       background: 'transparent',
-      color: '#e8edf5',
+      color: NEON.text,
       font: '700 14px/1 system-ui, sans-serif',
       cursor: 'pointer',
     });

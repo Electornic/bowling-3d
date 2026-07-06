@@ -23,7 +23,7 @@ export class StillCut {
   private hideTimer: number | null = null;
 
   constructor() {
-    ensureStyles();
+    // 스틸컷 sc-* 키프레임은 ui.css로 이동(#4) — main.ts가 전역 import하므로 별도 주입 불필요.
     this.root = document.createElement('div');
     this.root.style.cssText = ['position:fixed', 'inset:0', 'z-index:28', 'display:none', 'pointer-events:none', 'overflow:hidden'].join(';');
     document.body.appendChild(this.root);
@@ -150,26 +150,4 @@ export class StillCut {
 
     return band;
   }
-}
-
-let stylesAdded = false;
-function ensureStyles() {
-  if (stylesAdded) return;
-  stylesAdded = true;
-  const st = document.createElement('style');
-  st.textContent = [
-    // 배경 스며듦 — 투명 → 진한 검정(반투명 0.9로 남겨 뒤가 살짝 비침) + 그림자 페이드인
-    '@keyframes sc-tint{0%{background:rgba(5,6,10,0);box-shadow:0 0 0 rgba(0,0,0,0)}100%{background:rgba(5,6,10,0.9);box-shadow:0 12px 34px rgba(0,0,0,0.5)}}',
-    // "슉" — 왼쪽 멀리서 스큐 걸린 채 오른쪽으로 들어와 살짝 오버슈트 후 착지
-    '@keyframes sc-fly{0%{opacity:0;transform:translateX(-95vw) skewX(-18deg)}65%{opacity:1;transform:translateX(3vw) skewX(-4deg)}100%{opacity:1;transform:translateX(0) skewX(0)}}',
-    // 거터 — 왼→오로 흘러들지만 힘없이(오버슈트X) 착지
-    '@keyframes sc-fly-limp{0%{opacity:0;transform:translateX(-55vw)}100%{opacity:0.9;transform:translateX(0)}}',
-    // 하단 바 — 캡션 도착 즈음 왼→오 그어짐
-    '@keyframes sc-bar{0%{transform:scaleX(0)}45%{transform:scaleX(0)}100%{transform:scaleX(1)}}',
-    // 보조문구 — 살짝 늦게 왼쪽에서 페이드인
-    '@keyframes sc-sub{0%{opacity:0;transform:translateX(-24px)}55%{opacity:0}100%{opacity:0.92;transform:translateX(0)}}',
-    // 스피드라인 — 왼→오로 밀려가며 슉 지나가고 사라짐
-    '@keyframes sc-streak{0%{opacity:0;transform:translateX(-30%)}35%{opacity:1}100%{opacity:0;transform:translateX(8%)}}',
-  ].join('');
-  document.head.appendChild(st);
 }

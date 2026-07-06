@@ -30,9 +30,17 @@ import {
   RELEASE_TOL,
 } from '../game/constants';
 import { hookFactor, oilEndZ } from '../game/oil';
+import { gauss, ENTRY_DIST } from '../game/ai'; // 릴리스 타이밍 노이즈(#9) — ai와 동일 구현 단일소스 공유
 import { css, NEON, FONT_UI, rgba, ensureNeonStyles, applyPanel } from '../ui/theme';
 
 const PREVIEW_DT = 0.08; // 예측 경로 적분 스텝 (s)
+
+// 조준선 색 — 매 재빌드마다 THREE.Color를 새로 할당하던 것을 모듈 스크래치로 재사용(무할당, #1).
+// tan/dark는 불변 상수, spinCol은 스핀 따라 .set()으로 갱신, tmp는 lerp 스크래치.
+const AIM_TAN = new THREE.Color(0xcdb892); // 레인색(끝 페이드 타겟)
+const AIM_DARK = new THREE.Color(0x0a0e16); // 외곽선 어두운색
+const AIM_SPIN_COL = new THREE.Color(); // 스핀색 스크래치(L=시안/R=앰버/0=흰색)
+const AIM_TMP_COL = new THREE.Color(); // lerp 스크래치
 // 파워 차징 속도(단위 /초). 기존엔 프레임당 +0.018(프레임레이트 의존 — 고주사율/저FPS에서 속도가
 // 달라지는 버그)이었다. ×60fps = 1.08/s로 환산해 dt를 곱하면 어떤 FPS에서도 0→1 약 0.93초로 일정.
 const CHARGE_RATE = 1.08;
@@ -43,16 +51,7 @@ const CHARGE_RATE = 1.08;
 const POWER_SWEET_LO = RELEASE_SWEET_LO;
 const POWER_SWEET_HI = RELEASE_SWEET_HI;
 
-// 릴리스 타이밍(P3): aim↔진입x 변환 거리 (ai.ts ENTRY_DIST와 동일). 노이즈를 진입x cm로 환산.
-const ENTRY_DIST = HEADPIN_Z - BALL_START_Z; // ≈19.29
-/** 표준정규 난수 (Box-Muller) — 릴리스 타이밍 실행 노이즈용 (ai.ts gauss와 동일). */
-function gauss(): number {
-  let u = 0;
-  let v = 0;
-  while (u === 0) u = Math.random();
-  while (v === 0) v = Math.random();
-  return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v);
-}
+// 릴리스 타이밍(P3) 노이즈용 gauss()·ENTRY_DIST(aim↔진입x 변환 거리)는 ai.ts에서 import(#9) — 예전엔 여기 복제였다.
 
 /**
  * 포인터(마우스+터치) + 키보드 입력 추상화 (도안 §8 / MOBILE_SUPPORT.md §2).
@@ -71,6 +70,8 @@ export class Controls {
   private chargeDir = 1;
   private draggingSpin = false;
   private wasAiming = false;
+  // 조준선 재빌드 캐시 키(#1) — 입력(조준·스핀·보조·오일끝·볼물성) 불변이면 재적분·재업로드 스킵.
+  private lastAimKey = '';
 
   // 터치 ⓑ — 상대 조준 anchor + 단일 포인터 추적 (멀티터치 오발사·pointercancel 고착 방지)
   private readonly coarse = isCoarsePointer();
@@ -92,7 +93,7 @@ export class Controls {
   private readonly spinValue: HTMLSpanElement;
 
   constructor(
-    private readonly engine: Engine,
+    engine: Engine, // 생성자에서 aimGroup을 씬에 추가할 때만 씀 — 저장 안 함(this.engine 미사용, #11)
     private readonly game: GameState,
     private readonly ball: Ball,
   ) {
@@ -500,6 +501,17 @@ export class Controls {
     // normal/pro 종료점은 오일 존 안(hook=0)이라 곡선이 안 생겨 "스키드만 보여주고 훅은 직접 읽어라"가 된다.
     const aid = this.game.aimAid;
     const endZ = aid === 'easy' ? REF_Z : aid === 'normal' ? oilEndZ() : BALL_START_Z + 4;
+    // 캐시 가드(#1): 조준·스핀·보조·오일끝·볼물성이 그대로면 재적분·배열재빌드·버퍼 재업로드를 통째 스킵.
+    // oilEndZ()는 aid와 별개로 반드시 키에 — hookFactor(z)가 모든 aid에서 오일 endZ에 의존(마름 반영).
+    // 볼물성(speedScale/massKg)도 필수 — speed/inject가 의존하고 setSpec()은 조준 중 호출되는 정상 경로.
+    // resolution만 리사이즈 대응차 매 프레임 갱신하고 종료(가벼운 uniform 쓰기).
+    const key = `${this.aim}|${this.spin}|${aid}|${oilEndZ()}|${this.ball.massKg}|${this.ball.speedScale}`;
+    if (key === this.lastAimKey) {
+      this.aimCoreMat.resolution.set(window.innerWidth, window.innerHeight);
+      this.aimCaseMat.resolution.set(window.innerWidth, window.innerHeight);
+      return;
+    }
+    this.lastAimKey = key;
     const speed = (MIN_SPEED + p * (MAX_SPEED - MIN_SPEED)) * this.ball.speedScale;
     const nrm = Math.hypot(this.aim, 1);
     let vx = (this.aim / nrm) * speed;
@@ -549,10 +561,11 @@ export class Controls {
     for (let i = 0; i < path.length; i++) positions.push(path[i][0] * k, 0.02, sz(path[i][1]));
 
     // 색: L=시안 / R=앰버 / 0=흰색. 끝으로 갈수록 레인색(tan)으로 페이드 → 레인에 자연스럽게 녹아듦.
-    const spinCol = new THREE.Color(this.spin < 0 ? NEON.cyan : this.spin > 0 ? NEON.amber : 0xffffff);
-    const tan = new THREE.Color(0xcdb892);
-    const dark = new THREE.Color(0x0a0e16);
-    const tmp = new THREE.Color();
+    // 모듈 스크래치 재사용(무할당) — spinCol만 스핀 따라 갱신, tan/dark는 불변, tmp는 lerp용.
+    const spinCol = AIM_SPIN_COL.set(this.spin < 0 ? NEON.cyan : this.spin > 0 ? NEON.amber : 0xffffff);
+    const tan = AIM_TAN;
+    const dark = AIM_DARK;
+    const tmp = AIM_TMP_COL;
     const coreColors: number[] = [];
     const caseColors: number[] = [];
     const last = path.length - 1;

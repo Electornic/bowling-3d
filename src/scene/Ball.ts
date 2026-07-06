@@ -97,7 +97,7 @@ export class Ball {
     return this.spec.maxSpeedScale;
   }
 
-  /** 볼 무게/색 교체 (BallPicker, AIMING 중에만 권장). 도안 §4.5 */
+  /** 볼 무게/색 교체 (메뉴 무게 슬라이더, AIMING 중에만 권장). 도안 §4.5 */
   setSpec(spec: BallSpec) {
     this.spec = spec;
     this.collider.setMass(spec.massKg);

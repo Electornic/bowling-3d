@@ -7,7 +7,9 @@ import {
   HEADPIN_Z,
   PIN_SPACING,
   ROW_GAP,
+  PIN_PROFILE,
 } from '../game/constants';
+import { NEON, rgba } from '../ui/theme'; // 네온 팔레트 단일소스(#5) — 씬 머티리얼·캔버스가 theme.ts와 같은 상수 공유(드리프트 0)
 
 const LANE_START_Z = -2; // Lane.ts와 동일
 const LANE_END_Z = PIN_DECK_END + 1.5;
@@ -105,8 +107,9 @@ export class Environment {
   private readonly screenCtx: CanvasRenderingContext2D;
   private readonly screenTex: THREE.CanvasTexture;
   private time = 0;
+  private lastDraw = -1; // 전광판 마지막 재드로우 시각(#2 스로틀). -1 = 첫 프레임 강제 드로우.
   private announceText = '';
-  private announceColor = '#ff2d78';
+  private announceColor: string = NEON.pink;
   private announceUntil = 0;
 
   constructor(engine: Engine) {
@@ -120,12 +123,8 @@ export class Environment {
     const matGutter = new THREE.MeshStandardMaterial({ color: 0x14181f, roughness: 0.7 });
     const matRail = new THREE.MeshStandardMaterial({ color: 0x2a3140, roughness: 0.85 });
     // 배경 장식 핀 — 진짜 핀(Pin.ts)과 같은 병 실루엣 LatheGeometry. (예전 단순 원뿔 실린더라 어색했음.)
-    // base가 y=0, 꼭대기 y≈0.38. 배경이라 세그먼트는 적게(12). ⚠️ Pin.ts 프로파일 복제 — 모양 바꾸면 양쪽.
-    const pinProfile = [
-      [0.0, 0.0], [0.024, 0.0], [0.03, 0.03], [0.038, 0.1], [0.03, 0.15],
-      [0.02, 0.21], [0.016, 0.24], [0.024, 0.29], [0.026, 0.31], [0.018, 0.36],
-      [0.008, 0.38], [0.0, 0.38],
-    ].map(([r, y]) => new THREE.Vector2(r, y));
+    // base가 y=0, 꼭대기 y≈0.38. 배경이라 세그먼트는 적게(12). 프로파일은 constants.PIN_PROFILE 단일소스 공유(#9).
+    const pinProfile = PIN_PROFILE.map(([r, y]) => new THREE.Vector2(r, y));
     const pinGeo = new THREE.LatheGeometry(pinProfile, 12);
     const pinMat = new THREE.MeshStandardMaterial({ color: 0xf0ece4, roughness: 0.5 });
 
@@ -187,7 +186,7 @@ export class Environment {
     );
     canopy.position.set(0, 1.55, HEADPIN_Z + 0.6);
     engine.addVisual(canopy);
-    const neon = (color: number, y: number) => {
+    const neon = (color: THREE.ColorRepresentation, y: number) => {
       const m = new THREE.Mesh(
         new THREE.BoxGeometry(HALL_HALF_W * 2, 0.07, 0.05),
         new THREE.MeshStandardMaterial({ color: 0x000000, emissive: color, emissiveIntensity: 2.4 }),
@@ -195,8 +194,8 @@ export class Environment {
       m.position.set(0, y, HEADPIN_Z - 0.52);
       engine.addVisual(m);
     };
-    neon(0xff2d78, 1.36); // 핑크
-    neon(0x22d3ee, 1.22); // 시안
+    neon(NEON.pink, 1.36); // 핑크
+    neon(NEON.cyan, 1.22); // 시안
 
     // --- 양쪽 벽 + 천장 + 조명 스트립 ---
     const matWall = new THREE.MeshStandardMaterial({ color: 0x161b26, roughness: 0.9 });
@@ -213,7 +212,7 @@ export class Environment {
     engine.addVisual(ceiling);
     const stripMat = new THREE.MeshStandardMaterial({
       color: 0x000000,
-      emissive: 0xdfe8ff,
+      emissive: NEON.ice,
       emissiveIntensity: 1.6,
     });
     for (const x of [-2.4, 0, 2.4]) {
@@ -251,8 +250,8 @@ export class Environment {
     // --- 옆벽 네온 광고판 (정적, 절차적) ---
     const adGeo = new THREE.PlaneGeometry(1.7, 1.2);
     const ads = [
-      { tex: makePosterTexture('#ff2d78', '#ffd86b'), z: 3.5 },
-      { tex: makePosterTexture('#22d3ee', '#a855f7'), z: 9.5 },
+      { tex: makePosterTexture(NEON.pink, NEON.amber), z: 3.5 },
+      { tex: makePosterTexture(NEON.cyan, NEON.purple), z: 9.5 },
     ];
     for (const side of [-1, 1]) {
       for (const ad of ads) {
@@ -296,7 +295,7 @@ export class Environment {
   }
 
   /** 이벤트(스트라이크/스페어 등)를 전광판에 큼지막하게 띄움 (Boot.onEvent에서 호출) */
-  announce(text: string, color = '#ff2d78') {
+  announce(text: string, color: string = NEON.pink) {
     this.announceText = text;
     this.announceColor = color;
     this.announceUntil = this.time + 2.2;
@@ -305,8 +304,14 @@ export class Environment {
   /** 매 렌더 프레임 호출 (Boot.onFrame) — 전광판 애니메이션 갱신 */
   update(dt: number) {
     this.time += dt;
-    this.drawScreen();
-    this.screenTex.needsUpdate = true;
+    // 재드로우 스로틀(#2): drawScreen()은 그라디언트2 + 태양 + 그리드 33선 + 마퀴를 매번 다시 그리고
+    // 768×256 텍스처를 통째 재업로드한다. 스크롤(0.3/s)·마퀴(80px/s)·announce 펄스(~2.5Hz)는 모두
+    // 24fps에서 무손실이므로 ~1/24초 간격으로만 갱신 → 렌더 비용 절반↓ (섀도우맵 정적화와 결 맞춤).
+    if (this.time - this.lastDraw >= 1 / 24) {
+      this.lastDraw = this.time;
+      this.drawScreen();
+      this.screenTex.needsUpdate = true;
+    }
   }
 
   /** 전광판 한 프레임 렌더 (신스웨이브 + 스크롤 마퀴 + 이벤트 어나운스) */
@@ -332,9 +337,9 @@ export class Environment {
     ctx.clip();
     const sunR = H * 0.36;
     const sun = ctx.createLinearGradient(0, horizon - sunR, 0, horizon);
-    sun.addColorStop(0, '#ffd86b');
-    sun.addColorStop(0.55, '#ff6aa6');
-    sun.addColorStop(1, '#ff2d78');
+    sun.addColorStop(0, NEON.amber);
+    sun.addColorStop(0.55, '#ff6aa6'); // 핑크 중간톤 — 팔레트 토큰 아님(그라디언트 전용)이라 리터럴 유지
+    sun.addColorStop(1, NEON.pink);
     ctx.fillStyle = sun;
     ctx.beginPath();
     ctx.arc(cx, horizon, sunR, 0, Math.PI * 2);
@@ -352,13 +357,13 @@ export class Environment {
     for (let i = 0; i < 16; i++) {
       const f = (i + scroll) / 16;
       const y = horizon + (H - horizon) * f * f;
-      ctx.strokeStyle = `rgba(34,211,238,${(0.1 + 0.55 * f).toFixed(3)})`;
+      ctx.strokeStyle = rgba(NEON.cyan, 0.1 + 0.55 * f);
       ctx.beginPath();
       ctx.moveTo(0, y);
       ctx.lineTo(W, y);
       ctx.stroke();
     }
-    ctx.strokeStyle = 'rgba(255,45,120,0.45)';
+    ctx.strokeStyle = rgba(NEON.pink, 0.45);
     for (let i = -8; i <= 8; i++) {
       ctx.beginPath();
       ctx.moveTo(cx + i * (W * 0.045), horizon);
@@ -371,7 +376,7 @@ export class Environment {
     ctx.font = 'bold 26px sans-serif';
     ctx.textBaseline = 'top';
     ctx.fillStyle = 'rgba(255,255,255,0.85)';
-    ctx.shadowColor = '#22d3ee';
+    ctx.shadowColor = NEON.cyan;
     ctx.shadowBlur = 12;
     const msg = '★  NEON LANES  ★  STRIKE IT UP  ★  ';
     const mw = ctx.measureText(msg).width;
