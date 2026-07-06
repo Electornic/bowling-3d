@@ -142,6 +142,15 @@ const FINISH_LABEL: Record<SkinFinish, string> = {
   glow: '글로우',
 };
 
+// 프라이머리 버튼 액센트(#7) — 그라디언트 + 그 위 텍스트색. start/again=fire · handoff/resume=ice · equip=gold.
+// 색만 프리셋으로 묶고 크기(패딩·폰트·라운드)는 호출부가 제각각이라 옵션으로 — 손복사 5곳을 바이트 동일하게 접는다.
+const BTN_ACCENTS = {
+  fire: { bg: 'linear-gradient(90deg,#f59e0b,#ef4444)', fg: '#fff' },
+  ice: { bg: 'linear-gradient(90deg,#22d3ee,#3b82f6)', fg: '#06121a' },
+  gold: { bg: 'linear-gradient(90deg,#fbbf24,#f59e0b)', fg: '#1a1205' },
+} as const;
+type BtnAccent = keyof typeof BTN_ACCENTS;
+
 const MODES: { key: GameMode; label: string; desc: string }[] = [
   { key: 'full', label: '풀게임', desc: '10프레임 정식 룰' },
   { key: 'blitz', label: '블리츠', desc: '3프레임 스피드전' },
@@ -292,12 +301,22 @@ export class MenuUI {
     return b;
   }
 
-  // --- 시작 메뉴 ---
+  // --- 시작 메뉴 --- (섹션별 빌더로 분해, #8후반 — 각 빌더는 자족적으로 this.panel에 append)
   showMenu() {
     this.panel.replaceChildren();
     this.panel.appendChild(this.title('🎳 BOWLING 3D'));
     this.panel.appendChild(this.soundToggle()); // 우상단 사운드 토글
+    this.buildMatchupSection(); // 모드 + 상대 + (2인) 이름 입력
+    this.buildDifficultySection(); // 레인 난이도 프리셋 (+ 커스텀 오일/조준)
+    this.buildWeightSection(); // 볼 무게 슬라이더
+    this.buildSkinEntry(); // 컬렉션 진입
+    this.buildStartButton(); // 게임 시작
+    this.buildStatsFooter(); // 통계 + 조작법
+    this.reveal();
+  }
 
+  /** 모드(풀/블리츠/스페어) + 상대(혼자/2인/AI) + 2인 이름 입력 — syncNameWrap·칩맵으로 얽혀 한 섹션에 묶는다. */
+  private buildMatchupSection(): void {
     // 로컬 교대전 이름 입력 — '2인' 선택 시에만 노출. 생성은 여기서(모드/상대 칩 onclick이 syncNameWrap를
     // 참조해야 함), DOM 배치는 상대 row 아래(아래에서 append). 모드가 스페어면 2인 불가라 자동 숨김.
     const nameWrap = this.buildNameInputs();
@@ -364,7 +383,10 @@ export class MenuUI {
     this.refreshChips(modeBtns, this.mode);
     this.refreshRivalChips(rivalBtns);
     syncNameWrap();
+  }
 
+  /** 레인 난이도 프리셋(쉬움/보통/어려움/커스텀). '커스텀'에서만 오일·조준 두 축이 slideReveal로 펼쳐진다. */
+  private buildDifficultySection(): void {
     // 난이도 프리셋 (P3 §2.7 — 오일+예측선을 한 손잡이로 큐레이션. '커스텀'에서만 두 축 따로)
     this.panel.appendChild(this.sectionLabel('레인 난이도'));
     const diffRow = document.createElement('div');
@@ -429,8 +451,10 @@ export class MenuUI {
     this.refreshChips(oilBtns, this.oilPattern);
     this.refreshChips(aimBtns, this.aimAid);
     customWrap.style.display = this.difficulty === 'custom' ? 'block' : 'none';
+  }
 
-
+  /** 볼 무게 슬라이더(6~16lb) — 입력 즉시 onWeight로 라이브 반영. */
+  private buildWeightSection(): void {
     // 볼 무게 (인게임 HUD 대신 여기서 — 한 번 정하면 끝인 설정이라 매 투구 컨트롤과 분리)
     this.panel.appendChild(this.sectionLabel('볼 무게'));
     const wRow = document.createElement('div');
@@ -453,7 +477,10 @@ export class MenuUI {
     wRow.appendChild(wInput);
     wRow.appendChild(wVal);
     this.panel.appendChild(wRow);
+  }
 
+  /** 컬렉션(볼 스킨) 진입 — 현재 장착 스킨 라벨을 표시하는 서브틀 버튼. */
+  private buildSkinEntry(): void {
     // 볼 스킨 진입 (외형 전용 — 시작 버튼 안 밀게 무게 슬라이더 아래 한 줄, REWARDS.md §10.1)
     const skinBtn = document.createElement('button');
     skinBtn.textContent = `🎨 컬렉션 · ${resolveSkin(this.selectedSkin).label} ▸`;
@@ -471,24 +498,17 @@ export class MenuUI {
     });
     skinBtn.onclick = () => this.showSkins();
     this.panel.appendChild(skinBtn);
+  }
 
-    // 시작
-    const start = document.createElement('button');
-    start.textContent = '게임 시작';
-    css(start, {
-      width: '100%',
-      padding: '12px',
-      borderRadius: '10px',
-      border: 'none',
-      background: 'linear-gradient(90deg,#f59e0b,#ef4444)',
-      color: '#fff',
-      font: '800 16px/1 system-ui, sans-serif',
-      cursor: 'pointer',
-      marginBottom: '14px',
-    });
+  /** 게임 시작 버튼 (fire 프라이머리). */
+  private buildStartButton(): void {
+    const start = this.primaryButton('게임 시작', 'fire', { size: 16, padding: '12px', radius: 10, marginBottom: '14px' });
     start.onclick = () => this.start();
     this.panel.appendChild(start);
+  }
 
+  /** 모드별 최고기록 통계 + 입력 환경별 조작 안내 (패널 하단 푸터). */
+  private buildStatsFooter(): void {
     // 통계 (localStorage)
     const s = statsSummary();
     const stats = document.createElement('div');
@@ -508,8 +528,6 @@ export class MenuUI {
       ? '누른 채 좌우로 조준 · 떼면 파워 발사 · 하단 바 = 스핀'
       : '마우스 이동 = 조준 · 꾹 눌렀다 떼기 = 파워 발사 · Q/E = 좌/우 스핀';
     this.panel.appendChild(help);
-
-    this.reveal();
   }
 
   private start() {
@@ -598,19 +616,7 @@ export class MenuUI {
       const lastAch = ACHIEVEMENTS.find((a) => a.id === fresh[fresh.length - 1]);
       if (lastAch) {
         const skin = resolveSkin(lastAch.reward);
-        const equip = document.createElement('button');
-        equip.textContent = `${skin.label} 장착하기`;
-        css(equip, {
-          marginTop: '8px',
-          width: '100%',
-          padding: '9px',
-          borderRadius: '8px',
-          border: 'none',
-          background: 'linear-gradient(90deg,#fbbf24,#f59e0b)',
-          color: '#1a1205',
-          font: '800 13px/1 system-ui, sans-serif',
-          cursor: 'pointer',
-        });
+        const equip = this.primaryButton(`${skin.label} 장착하기`, 'gold', { size: 13, padding: '9px', radius: 8, marginTop: '8px' });
         equip.onclick = () => {
           this.equipSkin(skin.id);
           equip.textContent = `✓ ${skin.label} 장착됨`;
@@ -630,31 +636,9 @@ export class MenuUI {
 
     const btnRow = document.createElement('div');
     css(btnRow, { display: 'flex', gap: '8px' });
-    const again = document.createElement('button');
-    again.textContent = '다시 하기';
-    css(again, {
-      flex: '1',
-      padding: '11px',
-      borderRadius: '10px',
-      border: 'none',
-      background: 'linear-gradient(90deg,#f59e0b,#ef4444)',
-      color: '#fff',
-      font: '700 14px/1 system-ui, sans-serif',
-      cursor: 'pointer',
-    });
+    const again = this.primaryButton('다시 하기', 'fire', { size: 14, padding: '11px', radius: 10, weight: 700, flex1: true });
     again.onclick = () => this.start(); // 같은 설정으로 재시작
-    const menu = document.createElement('button');
-    menu.textContent = '메뉴로';
-    css(menu, {
-      flex: '1',
-      padding: '11px',
-      borderRadius: '10px',
-      border: '1px solid rgba(255,255,255,0.25)',
-      background: 'transparent',
-      color: NEON.text,
-      font: '700 14px/1 system-ui, sans-serif',
-      cursor: 'pointer',
-    });
+    const menu = this.ghostButton('메뉴로', { flex1: true });
     menu.onclick = () => {
       this.onMenu();
       this.showMenu();
@@ -686,19 +670,7 @@ export class MenuUI {
     css(sub, { font: '500 13px/1.5 system-ui, sans-serif', color: '#aab3c2', textAlign: 'center', marginBottom: '20px' });
     this.panel.appendChild(sub);
 
-    const go = document.createElement('button');
-    go.textContent = '내 차례 시작 ▶';
-    css(go, {
-      width: '100%',
-      padding: '13px',
-      minHeight: COARSE ? '48px' : '',
-      borderRadius: '11px',
-      border: 'none',
-      background: 'linear-gradient(90deg,#22d3ee,#3b82f6)',
-      color: '#06121a',
-      font: '800 15px/1 system-ui, sans-serif',
-      cursor: 'pointer',
-    });
+    const go = this.primaryButton('내 차례 시작 ▶', 'ice', { size: 15, padding: '13px', radius: 11, coarseMinHeight: '48px' });
     go.onclick = () => {
       this.hide();
       onReady();
@@ -756,37 +728,12 @@ export class MenuUI {
     this.panel.appendChild(help);
 
     // 계속하기 (주 버튼)
-    const resume = document.createElement('button');
-    resume.textContent = '▶ 계속하기';
-    css(resume, {
-      width: '100%',
-      padding: '13px',
-      minHeight: COARSE ? '48px' : '',
-      borderRadius: '11px',
-      border: 'none',
-      background: 'linear-gradient(90deg,#22d3ee,#3b82f6)',
-      color: '#06121a',
-      font: '800 15px/1 system-ui, sans-serif',
-      cursor: 'pointer',
-      marginBottom: '8px',
-    });
+    const resume = this.primaryButton('▶ 계속하기', 'ice', { size: 15, padding: '13px', radius: 11, coarseMinHeight: '48px', marginBottom: '8px' });
     resume.onclick = cfg.onResume;
     this.panel.appendChild(resume);
 
     // 포기 (파괴적, 하단)
-    const quit = document.createElement('button');
-    quit.textContent = '포기하고 나가기';
-    css(quit, {
-      width: '100%',
-      padding: '11px',
-      minHeight: COARSE ? '44px' : '',
-      borderRadius: '10px',
-      border: '1px solid rgba(239,68,68,0.5)',
-      background: 'transparent',
-      color: '#f87171',
-      font: '700 13px/1 system-ui, sans-serif',
-      cursor: 'pointer',
-    });
+    const quit = this.ghostButton('포기하고 나가기', { danger: true, size: 13, coarseMinHeight: '44px' });
     quit.onclick = cfg.onForfeit;
     this.panel.appendChild(quit);
 
@@ -867,6 +814,96 @@ export class MenuUI {
       cursor: 'pointer',
     });
     return b;
+  }
+
+  /**
+   * 프라이머리(그라디언트) 버튼 빌더(#7) — start/again/handoff/resume/equip 5곳의 손복사 접기.
+   * accent가 색(그라디언트+텍스트), opts가 크기. 호출부마다 크기가 달라 옵션이 많지만 렌더는 기존과 바이트 동일.
+   */
+  private primaryButton(
+    label: string,
+    accent: BtnAccent,
+    opts: {
+      size: number; // 폰트 px
+      padding: string;
+      radius: number; // borderRadius px
+      weight?: number; // 폰트 굵기 (기본 800)
+      flex1?: boolean; // width:100% 대신 flex:1 (버튼 행)
+      coarseMinHeight?: string; // 터치 환경 최소 높이
+      marginTop?: string;
+      marginBottom?: string;
+    },
+  ): HTMLButtonElement {
+    const a = BTN_ACCENTS[accent];
+    const b = document.createElement('button');
+    b.textContent = label;
+    css(b, {
+      ...(opts.flex1 ? { flex: '1' } : { width: '100%' }),
+      padding: opts.padding,
+      minHeight: opts.coarseMinHeight && COARSE ? opts.coarseMinHeight : '',
+      borderRadius: `${opts.radius}px`,
+      border: 'none',
+      background: a.bg,
+      color: a.fg,
+      font: `${opts.weight ?? 800} ${opts.size}px/1 system-ui, sans-serif`,
+      cursor: 'pointer',
+      ...(opts.marginTop ? { marginTop: opts.marginTop } : {}),
+      ...(opts.marginBottom ? { marginBottom: opts.marginBottom } : {}),
+    });
+    return b;
+  }
+
+  /**
+   * 고스트(투명+테두리) 버튼 빌더(#7) — 메뉴로/뒤로/포기 3곳. danger면 빨강 테두리·글자(포기).
+   * 셋 다 padding 11px·radius 10px 공통, size·flex·minHeight만 다름.
+   */
+  private ghostButton(
+    label: string,
+    opts: { flex1?: boolean; size?: number; danger?: boolean; coarseMinHeight?: string } = {},
+  ): HTMLButtonElement {
+    const b = document.createElement('button');
+    b.textContent = label;
+    css(b, {
+      ...(opts.flex1 ? { flex: '1' } : { width: '100%' }),
+      padding: '11px',
+      minHeight: opts.coarseMinHeight && COARSE ? opts.coarseMinHeight : '',
+      borderRadius: '10px',
+      border: `1px solid ${opts.danger ? 'rgba(239,68,68,0.5)' : 'rgba(255,255,255,0.25)'}`,
+      background: 'transparent',
+      color: opts.danger ? '#f87171' : NEON.text,
+      font: `700 ${opts.size ?? 14}px/1 system-ui, sans-serif`,
+      cursor: 'pointer',
+    });
+    return b;
+  }
+
+  /** '장착' 골드 배지(#7) — 히어로(인라인)·스킨셀(우상단 absolute) 공용. */
+  private equippedPill(absolute = false): HTMLSpanElement {
+    const pill = document.createElement('span');
+    pill.textContent = '장착';
+    css(pill, {
+      font: '800 9px/1 system-ui, sans-serif',
+      color: '#1a1205',
+      background: NEON.gold,
+      borderRadius: '5px',
+      ...(absolute ? { position: 'absolute', top: '7px', right: '8px', padding: '2px 5px' } : { padding: '3px 6px' }),
+    });
+    return pill;
+  }
+
+  /** 볼 스와치(#7) — skinPreviewStyle 그라데+섀도를 원형에 입힌 미리보기. 히어로 78px·그리드셀 42px 공용. */
+  private ballSwatch(skin: BallSkin, size: number, flexNone = false): HTMLSpanElement {
+    const el = document.createElement('span');
+    const p = skinPreviewStyle(skin);
+    css(el, {
+      width: `${size}px`,
+      height: `${size}px`,
+      borderRadius: '50%',
+      ...(flexNone ? { flex: '0 0 auto' } : {}),
+      background: p.background,
+      boxShadow: p.shadow,
+    });
+    return el;
   }
 
   /** 로컬 교대전 플레이어 이름 입력 2칸 (rivalKey==='human'일 때만 노출 — syncNameWrap가 토글). */
@@ -958,18 +995,13 @@ export class MenuUI {
       border: '1px solid rgba(255,255,255,0.08)',
       borderRadius: '14px',
     });
-    const heroBall = document.createElement('div');
-    const hp = skinPreviewStyle(equipped);
-    css(heroBall, { width: '78px', height: '78px', borderRadius: '50%', background: hp.background, boxShadow: hp.shadow });
+    const heroBall = this.ballSwatch(equipped, 78);
     const heroName = document.createElement('div');
     css(heroName, { display: 'flex', alignItems: 'center', gap: '7px', font: '700 16px/1 system-ui, sans-serif', color: NEON.gold });
     const heroNameText = document.createElement('span');
     heroNameText.textContent = equipped.label;
-    const heroPill = document.createElement('span');
-    heroPill.textContent = '장착';
-    css(heroPill, { font: '800 9px/1 system-ui, sans-serif', color: '#1a1205', background: NEON.gold, borderRadius: '5px', padding: '3px 6px' });
     heroName.appendChild(heroNameText);
-    heroName.appendChild(heroPill);
+    heroName.appendChild(this.equippedPill());
     const heroFinish = document.createElement('div');
     heroFinish.textContent = `${FINISH_LABEL[equipped.finish]} 마감`;
     css(heroFinish, { font: '500 11px/1 system-ui, sans-serif', color: '#8a93a3' });
@@ -1020,11 +1052,11 @@ export class MenuUI {
         const isUnlocked = unlocked.has(skin.id);
         const isEquipped = this.selectedSkin === skin.id;
 
-        const ball = document.createElement('span');
+        let ball: HTMLSpanElement;
         if (isUnlocked) {
-          const p = skinPreviewStyle(skin);
-          css(ball, { width: '42px', height: '42px', borderRadius: '50%', flex: '0 0 auto', background: p.background, boxShadow: p.shadow });
+          ball = this.ballSwatch(skin, 42, true);
         } else {
+          ball = document.createElement('span');
           css(ball, {
             width: '42px',
             height: '42px',
@@ -1070,10 +1102,7 @@ export class MenuUI {
         cell.appendChild(textWrap);
 
         if (isEquipped) {
-          const pill = document.createElement('span');
-          pill.textContent = '장착';
-          css(pill, { position: 'absolute', top: '7px', right: '8px', font: '800 9px/1 system-ui, sans-serif', color: '#1a1205', background: NEON.gold, borderRadius: '5px', padding: '2px 5px' });
-          cell.appendChild(pill);
+          cell.appendChild(this.equippedPill(true));
         }
 
         if (isUnlocked) {
@@ -1149,19 +1178,7 @@ export class MenuUI {
     };
     renderTab();
 
-    const back = document.createElement('button');
-    back.textContent = backLabel;
-    css(back, {
-      width: '100%',
-      padding: '11px',
-      minHeight: COARSE ? '44px' : '',
-      borderRadius: '10px',
-      border: '1px solid rgba(255,255,255,0.25)',
-      background: 'transparent',
-      color: NEON.text,
-      font: '700 14px/1 system-ui, sans-serif',
-      cursor: 'pointer',
-    });
+    const back = this.ghostButton(backLabel, { coarseMinHeight: '44px' });
     back.onclick = onBack;
     this.panel.appendChild(back);
 

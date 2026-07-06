@@ -52,13 +52,12 @@
   최대 파일인데 디자인 시스템을 인라인 복제 — `NEON.gold` 15× · cyan 8× · `rgba(255,255,255,…)` 29× · 폰트 문자열 40× 하드코딩, `theme.ts` import 0. (`Hud.ts`·`Controls.ts`는 올바르게 import함.)
   **fix**: `theme.ts`의 `NEON`/`FONT_UI`/`css`/`rgba` import로 교체. 팔레트 단일 편집점 확보.
 
-- [ ] **7. 공용 컴포넌트 빌더 도입** `[유지보수·Med]` · [Menu.ts:512](../src/ui/Menu.ts:512) — ⬜ **보류**(리뷰 후 별도 패스 권장)
+- [x] **7. 공용 컴포넌트 빌더 도입** `[유지보수·Med]` · [Menu.ts](../src/ui/Menu.ts) — ✅ 완료(빌더 4종 도입 + 손복사 10곳 접기, preview computed-style 바이트 동일 검증)
   프라이머리 버튼 스타일 블록이 4곳 손복사(start/재시작/handoff/resume), "장착" 배지·볼 스와치도 중복.
-  **fix**: `primaryButton(label, accent)`/`ghostButton`/`pill` 팩토리로 접기(파일 내 `chipButton`이 이미 패턴 증명).
-  ⚠️ 4개 버튼이 그라디언트·텍스트색·패딩·마진·minHeight가 제각각이라 바이트 동일 팩토리는 파라미터가 많고 회귀 위험. Menu.ts가 이미 #4·#6로 많이 바뀐 상태 → 이 변경집합 리뷰/커밋 후 집중 패스로 하는 게 안전.
+  **fix**: `primaryButton(label, accent, opts)`(5곳: start/again/handoff/resume/equip · accent=`fire`/`ice`/`gold`) · `ghostButton`(3곳: menu/back/quit · `danger`=포기) · `equippedPill`(2곳: 히어로/셀) · `ballSwatch`(2곳: 78/42px)로 접음. 색만 프리셋(`BTN_ACCENTS`)으로 묶고 크기(패딩·폰트·라운드)는 호출부가 제각각이라 옵션 인자 — **바이트 동일** 유지(fire/ghost/pill/swatch 픽셀 일치 실측).
 
-- [ ] **8. god-method 분해(부분 완료)** `[유지보수·Med]`
-  ✅ `GameState.update()` → `computeTimeScale()`/`updateRollAudio()` 추출 + 슬로모 이징을 순수함수 `slowmoScale()`로 export → **단위테스트 5건 추가**([tests/slowmo.test.ts](../tests/slowmo.test.ts)). ⬜ **남음**: `showMenu()` 218줄([Menu.ts:325](../src/ui/Menu.ts:325)) → 섹션별 빌더(`buildModeSection`/…) 분해. 순수 가독성 처링이고 Menu.ts가 이미 많이 바뀜 → #7과 함께 별도 패스 권장.
+- [x] **8. god-method 분해** `[유지보수·Med]` — ✅ 완료
+  ✅ `GameState.update()` → `computeTimeScale()`/`updateRollAudio()` 추출 + 슬로모 이징을 순수함수 `slowmoScale()`로 export → **단위테스트 5건 추가**([tests/slowmo.test.ts](../tests/slowmo.test.ts)). ✅ `showMenu()` 218줄 → 자족적 섹션 빌더 6개(`buildMatchupSection`(모드+상대+이름) · `buildDifficultySection` · `buildWeightSection` · `buildSkinEntry` · `buildStartButton` · `buildStatsFooter`)로 분해 → `showMenu`는 10줄 오케스트레이터. preview로 전 섹션 렌더·순서 확인.
 
 - [x] **9. "양쪽 동기" 중복 export 단일화** `[유지보수·Med, 잠재버그]` — ✅ 완료(`gauss`/`ENTRY_DIST`는 ai.ts에서 export→Controls import / 핀 프로파일은 `constants.PIN_PROFILE`로 승격해 Pin·Environment 공유. Boot 순환 import 회피 위해 Pin.ts 대신 constants에 둠)
   `gauss()`/`ENTRY_DIST`가 [Controls.ts:47](../src/input/Controls.ts:47)↔`ai.ts`에 복제("ai.ts와 동일" 주석), 핀 프로파일이 [Environment.ts:124](../src/scene/Environment.ts:124)↔`Pin.ts`에 복제("바꾸면 양쪽" 주석).
