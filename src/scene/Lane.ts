@@ -58,6 +58,8 @@ export class Lane {
     );
 
     // 오일 존 시각 힌트: 미세한 광택 시트 (어디서부터 꺾이는지 읽힌다)
+    // alphaMap으로 길이방향 양끝을 서서히 죽인다 — 앞끝(oilEndZ)의 또렷한 가로선이
+    // '레인 두 개 이어붙인' 이음새로 보이던 문제 제거(하드엣지→소프트 페이드). 가운데 광택은 유지.
     const oil = new THREE.Mesh(
       new THREE.PlaneGeometry(LANE_WIDTH, oilEndZ() - startZ),
       new THREE.MeshStandardMaterial({
@@ -65,6 +67,7 @@ export class Lane {
         transparent: true,
         opacity: 0.06,
         roughness: 0.12,
+        alphaMap: makeOilFadeAlpha(),
       }),
     );
     oil.rotation.x = -Math.PI / 2;
@@ -72,7 +75,9 @@ export class Lane {
     engine.addVisual(oil);
     this.oilMesh = oil;
 
-    // --- 양옆 거터(낮은 홈, 윗면 y=-0.13) + 바깥 벽 (데크 길이) ---
+    // --- 양옆 거터(낮은 홈, 윗면 y=-0.13) + 바깥 벽(킥백) — 전 길이 ---
+    // 실제 볼링처럼 핀덱 옆도 거터+벽. 옆으로 튄 핀은 벽(킥백)에 맞고 데크로 튕기거나 거터에 데드우드로 눕는다.
+    // 공(거터볼)은 거터 홈(y=-0.13, 벽보다 아래)을 그대로 흘러 뒤 피트로 빠진다.
     for (const side of [-1, 1]) {
       const gx = side * (half + gw / 2);
       const gutter = new THREE.Mesh(
@@ -91,26 +96,26 @@ export class Lane {
         gBody,
       );
 
-      // 거터 바깥 벽 (코스 이탈 방지). 벽 반두께(0.025)만큼 더 바깥에 둬 안쪽 면이 거터 바깥 끝에 맞게.
+      // 거터 바깥 벽 = 킥백. 튄 핀을 데크로 되튕겨 옆 레인으로 날아가는 걸 줄인다(실제 킥백 17~24"). 벽 반두께(0.025)만큼 바깥.
       const wx = side * (half + gw + 0.025);
       const wall = new THREE.Mesh(
-        new THREE.BoxGeometry(0.05, 0.3, len),
+        new THREE.BoxGeometry(0.05, 0.4, len),
         new THREE.MeshStandardMaterial({ color: 0x222831, roughness: 1, metalness: 0, envMapIntensity: 0 }),
       );
-      wall.position.set(wx, 0.1, midZ);
+      wall.position.set(wx, 0.15, midZ); // 바닥 -0.05 ~ 위 0.35 (구 top 0.25보다 높여 튕김 강화)
       wall.receiveShadow = true;
       engine.addVisual(wall);
 
       const wBody = engine.world.createRigidBody(
-        RAPIER.RigidBodyDesc.fixed().setTranslation(wx, 0.1, midZ),
+        RAPIER.RigidBodyDesc.fixed().setTranslation(wx, 0.15, midZ),
       );
-      engine.world.createCollider(RAPIER.ColliderDesc.cuboid(0.025, 0.15, len / 2), wBody);
+      engine.world.createCollider(RAPIER.ColliderDesc.cuboid(0.025, 0.2, len / 2), wBody);
     }
 
-    // --- 핀덱 뒤 피트(pit): 데크가 deckEnd에서 끊겨 공/핀이 낮은 바닥으로 굴러떨어진다.
-    //     낙하 깊이 y<-1 확보(리플레이 cutoff·시각적 '사라짐'). 뒷벽은 Environment 마스킹 월(≈21.03) 앞·아래라 안 겹침.
+    // --- 핀덱 뒤 피트(pit): 데크가 deckEnd에서 끊겨 공/핀이 낮은 바닥으로 굴러떨어진다(핀 뒤에만, 실제 볼링).
+    //     뒷벽은 Environment 마스킹 월(≈21.03) 앞·아래라 안 겹침. 옆은 피트가 아니라 거터+킥백(위 참고).
     const PIT_DEPTH = 0.85; // 데크 윗면(y=0) 대비 피트 바닥 깊이 — 얕게: 낙하 짧아 포물선 완만
-    const PIT_LEN = 0.7; // deckEnd(≈19.48) → 뒷벽(≈20.18). 짧게 잡아 공의 수평 비행(포물선)을 바로 끊고 수직 낙하
+    const PIT_LEN = 1.4; // deckEnd(≈19.48) → 뒷벽(≈20.88). 공이 뒷벽에 닿기 전 포물선으로 레인 레벨 아래(피트 안)까지 내려오게 충분히 길게 — 짧으면(구 0.7) 빠른 공이 레인 높이에서 뒷벽을 정면으로 때려 '퉁' 튕김. 마스킹월(≈21.03) 앞이라 여유.
     const pitHalfW = half + gw + 0.1; // 레인+거터 전폭 커버
     const pitMid = deckEnd + PIT_LEN / 2;
     const pitBackZ = deckEnd + PIT_LEN;
@@ -145,19 +150,26 @@ export class Lane {
     const backBody = engine.world.createRigidBody(
       RAPIER.RigidBodyDesc.fixed().setTranslation(0, wallCY, pitBackZ),
     );
+    // 마찰 0(Min): 구르는(탑스핀) 공이 뒷벽에 닿을 때 마찰로 벽을 타고 올라 '퉁' 튕기는 걸 막는다.
+    // 마찰이 없으면 전진속도만 죽고(반발 0) 회전은 벽에 토크를 못 줘 그대로 수직 낙하.
     engine.world.createCollider(
       RAPIER.ColliderDesc.cuboid(pitHalfW, wallH / 2, 0.05)
+        .setFriction(0)
+        .setFrictionCombineRule(RAPIER.CoefficientCombineRule.Min)
         .setRestitution(0)
         .setRestitutionCombineRule(RAPIER.CoefficientCombineRule.Min),
       backBody,
     );
 
     for (const side of [-1, 1]) {
+      // 피트 양옆 벽(콜라이더만, 뒤 피트 구간) — 떨어진 공/핀 이탈 방지.
       const sideBody = engine.world.createRigidBody(
         RAPIER.RigidBodyDesc.fixed().setTranslation(side * pitHalfW, wallCY, pitMid),
       );
       engine.world.createCollider(
         RAPIER.ColliderDesc.cuboid(0.05, wallH / 2, PIT_LEN / 2)
+          .setFriction(0) // 뒷벽과 동일 — 벽 타고 오르는 '퉁' 방지
+          .setFrictionCombineRule(RAPIER.CoefficientCombineRule.Min)
           .setRestitution(0)
           .setRestitutionCombineRule(RAPIER.CoefficientCombineRule.Min),
         sideBody,
@@ -184,4 +196,25 @@ export class Lane {
     this.oilMesh.geometry = new THREE.PlaneGeometry(LANE_WIDTH, ez - startZ);
     this.oilMesh.position.set(0, 0.0015, (startZ + ez) / 2);
   }
+}
+
+/**
+ * 오일 광택 시트의 길이방향 알파 페이드 (alphaMap용, green 채널).
+ * 양끝(파울라인 쪽·브레이크 지점 쪽)을 0으로 서서히 죽여 하드엣지를 없앤다 —
+ * 앞끝(oilEndZ)의 또렷한 가로선이 '레인 두 개 이어붙인' 이음새로 보이던 문제 제거.
+ * 대칭 그라데이션이라 plane UV 방향과 무관하게 양끝 모두 페이드된다.
+ */
+function makeOilFadeAlpha(): THREE.CanvasTexture {
+  const c = document.createElement('canvas');
+  c.width = 2;
+  c.height = 256;
+  const g = c.getContext('2d')!;
+  const grad = g.createLinearGradient(0, 0, 0, 256);
+  grad.addColorStop(0.0, '#000'); // 한쪽 끝 → 투명
+  grad.addColorStop(0.2, '#fff'); // 본체 (광택 유지 구간)
+  grad.addColorStop(0.8, '#fff');
+  grad.addColorStop(1.0, '#000'); // 반대 끝 → 투명 (브레이크 지점 하드엣지 제거)
+  g.fillStyle = grad;
+  g.fillRect(0, 0, 2, 256);
+  return new THREE.CanvasTexture(c);
 }
