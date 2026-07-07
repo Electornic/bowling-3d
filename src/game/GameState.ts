@@ -17,7 +17,7 @@ import { computeAiThrow, type AiProfile } from './ai';
 import { detectSplit } from './splits';
 import { recordGame } from './Stats';
 import { resetOil, advanceOilDrying, type OilPattern } from './oil';
-import { CLASSIC_SKIN, type BallSkin } from './rewards';
+import { CLASSIC_SKIN, RIVAL_SKINS, HOTSEAT_SKINS, type BallSkin } from './rewards';
 
 /**
  * 슬로모 배속 이징 (#8 추출 · 순수함수라 단위테스트 가능) — 진행도 p=timer/total(1→0)에 ease-out (1-p)²로
@@ -228,13 +228,17 @@ export class GameState {
   /** 메뉴 무게 슬라이더 → 사람 공 스펙. AI 턴엔 저장만 하고 사람 차례에 적용. */
   setHumanBallSpec(spec: BallSpec) {
     this.humanSpec = spec;
-    if (this.state === 'AIMING' && this.isHumanTurn()) this.ballObj.setSpec(spec);
+    // 메뉴 프리뷰(#1) OR 게임 중 사람 차례에 라이브 반영.
+    if (this.state === 'MENU' || (this.state === 'AIMING' && this.isHumanTurn())) this.ballObj.setSpec(spec);
   }
 
   /** 메뉴 스킨 시트 → 사람 볼 스킨 (외형만, 물리 무영향). AI 턴엔 저장만. */
   setBallSkin(skin: BallSkin) {
     this.humanSkin = skin;
-    if (this.state === 'AIMING' && this.isHumanTurn()) this.ballObj.setSkin(skin);
+    // 라이브 반영: 메뉴 프리뷰(뒤에 보이는 씬 공, #1) OR 게임 중 사람 차례(2P 좌석 고정색은 안 덮게).
+    if (this.state === 'MENU' || (this.state === 'AIMING' && this.isHumanTurn() && !this.isHotseat)) {
+      this.ballObj.setSkin(skin);
+    }
   }
 
   /** 입력에서 호출: 공 발사 (spin ∈ [-1,1] 좌/우 훅) */
@@ -583,10 +587,17 @@ export class GameState {
 
   private applyBallSpecForTurn() {
     const p = this.currentPlayer;
-    if (p?.ai) {
+    if (!p) return;
+    if (p.ai) {
+      // AI = 난이도별 색(신스랭크 + 은은한 글로우). key로 매핑, 미상은 클래식 폴백.
       this.ballObj.setSpec(makeBallSpec(p.ai.ballLb));
-      this.ballObj.setSkin(CLASSIC_SKIN); // AI는 항상 기본 스킨
+      this.ballObj.setSkin(RIVAL_SKINS[p.ai.key] ?? CLASSIC_SKIN);
+    } else if (this.isHotseat) {
+      // 2P 핫시트 = 좌석 고정색(개인 스킨 무시). 좌석 = 플레이어 인덱스.
+      this.ballObj.setSpec(this.humanSpec);
+      this.ballObj.setSkin(HOTSEAT_SKINS[this.current % HOTSEAT_SKINS.length]);
     } else {
+      // 솔로 / AI모드의 P1 = 내 스킨.
       this.ballObj.setSpec(this.humanSpec);
       this.ballObj.setSkin(this.humanSkin);
     }
