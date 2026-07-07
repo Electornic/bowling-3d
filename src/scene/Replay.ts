@@ -12,8 +12,10 @@ const REC_STRIDE = 2; // N 물리 스텝마다 1 스냅샷 (FIXED_DT=1/60 → 30
 const SNAP_DT = REC_STRIDE / 60; // 스냅샷 간 sim 간격
 const MAX_SNAPS = 360; // 안전 상한 (~24s sim) — 초과분 녹화 중단(임팩트는 앞쪽이라 무해)
 const REPLAY_WINDOW = 1.3; // [튜닝] 임팩트 직전 이 sim초 구간만 재생 — 짧은 리플레이(풀 레인 주행 스킵)
-const PLAYBACK_SPEED = 0.65; // [튜닝] 재생 배율 — 실시간 dt·이 배율로 sim buffer 진행 (↑=빠름, 1.0=실시간)
-const END_HOLD = 1.0; // [튜닝] 마지막(핀 산개) 프레임 프리즈 유지(실시간 s) — 스틸컷 슬램이 얹히는 구간
+const PLAYBACK_SPEED = 0.9; // [튜닝] 재생 배율 — 실시간 dt·이 배율로 sim buffer 진행 (↑=빠름, 1.0=실시간). 0.65→0.8→0.9 더 스냅.
+const END_HOLD = 0.65; // [튜닝] 핀 정리 완료 프레임 프리즈 유지(실시간 s) — 스틸컷 슬램이 얹히는 구간. 1.0→0.8→0.65 꼬리 더 짧게(슬램은 유지).
+const PIN_STILL_EPS = 0.008; // [튜닝] 스냅 간 핀 10개 위치 이동량 합(m). 이하 = 정지 — 리플레이 프리즈(종료) 시점 판정
+const PIN_STILL_HOLD = 4; // [튜닝] 연속 '정지' 스냅 수(~0.13s sim). 이만큼 지속돼야 핀 정리 완료로 확정(단발 정지 오검 방지)
 
 /**
  * 특별샷 리플레이 (스냅샷 방식, item 2 폴리싱 — 스트라이크 전용).
@@ -107,17 +109,20 @@ export class Replay {
     this.frozen = false;
     this.parkedCam = null; // 새 리플레이마다 파킹 해제 (다시 공을 따라가다 핀 앞에서 래치)
     this.onFreeze = onFreeze;
-    // cutoff = 공이 레일 벗어나는(핏 낙하 y↓ 또는 핀덱 한참 통과) 시각. 여기서 프리즈.
-    this.cutoff = (this.snaps.length - 1) * SNAP_DT;
+    // 임팩트 = 공이 레일을 벗어나는(핏 낙하 y↓ 또는 핀덱 한참 통과) 첫 스냅. 리드인·프리즈 계산의 기준점.
+    let impact = this.snaps.length - 1;
     for (let i = 0; i < this.snaps.length; i++) {
       const s = this.snaps[i];
       if (s[1] < -0.5 || s[2] > PIN_DECK_END + 2.0) {
-        this.cutoff = i * SNAP_DT;
+        impact = i;
         break;
       }
     }
+    // 프리즈(종료) = 임팩트 이후 핀이 멎는(정리 완료) 시각. 공이 먼저 핏으로 빠져도 핀이 다 쓰러질 때까지 재생.
+    // (버퍼는 strike=allSettled 후 발화라 정리 프레임까지 담겨 있고, 카메라는 이미 핀 앞 파킹.) 미정지면 버퍼 끝.
+    this.cutoff = this.pinSettleTime(impact);
     // 짧은 리플레이 — 임팩트 직전 REPLAY_WINDOW 구간부터 시작(풀 레인 주행 스킵).
-    this.playTime = Math.max(0, this.cutoff - REPLAY_WINDOW);
+    this.playTime = Math.max(0, impact * SNAP_DT - REPLAY_WINDOW);
     this.skipLayer.style.display = 'block';
     this.setPaused?.(true);
     return true;
@@ -126,6 +131,34 @@ export class Replay {
   /** 게임오버 등으로 즉시 접고 라이브 복귀. */
   cancel() {
     this.finish();
+  }
+
+  /**
+   * 임팩트(fromIdx) 이후 핀 10개가 멎는(정리 완료) 첫 시각(sim s) — 리플레이 프리즈 지점.
+   * 스냅 간 총 이동이 PIN_STILL_EPS 이하로 PIN_STILL_HOLD 연속 유지되면 정지로 확정.
+   * 버퍼 내내 안 멎으면(느린 롤·SETTLE_TIMEOUT) 버퍼 끝까지 재생.
+   */
+  private pinSettleTime(fromIdx: number): number {
+    const last = this.snaps.length - 1;
+    let still = 0;
+    for (let i = Math.max(fromIdx, 1); i <= last; i++) {
+      if (this.pinMovement(this.snaps[i - 1], this.snaps[i]) < PIN_STILL_EPS) {
+        if (++still >= PIN_STILL_HOLD) return i * SNAP_DT;
+      } else {
+        still = 0;
+      }
+    }
+    return last * SNAP_DT;
+  }
+
+  /** 두 스냅 사이 핀 10개 위치 이동량 합(m). 공(offset 0)은 제외 — 핏에서 굴러도 정리 판정에 영향 없게. */
+  private pinMovement(a: Float32Array, b: Float32Array): number {
+    let sum = 0;
+    for (let p = 1; p <= 10; p++) {
+      const o = p * FLOATS;
+      sum += Math.abs(a[o] - b[o]) + Math.abs(a[o + 1] - b[o + 1]) + Math.abs(a[o + 2] - b[o + 2]);
+    }
+    return sum;
   }
 
   update(dt: number) {
