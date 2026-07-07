@@ -41,6 +41,18 @@ const AIM_TAN = new THREE.Color(0xcdb892); // 레인색(끝 페이드 타겟)
 const AIM_DARK = new THREE.Color(0x0a0e16); // 외곽선 어두운색
 const AIM_SPIN_COL = new THREE.Color(); // 스핀색 스크래치(L=시안/R=앰버/0=흰색)
 const AIM_TMP_COL = new THREE.Color(); // lerp 스크래치
+const AIM_TIP = new THREE.Vector3(); // 조준선 끝점 월드좌표 스크래치 — 링 위치·카메라 거리(무할당)
+// 끝 마감: 조준선 폴리라인(Line2) 끝에 같은 획(core+case)으로 화살촉(∧)을 이어 붙인다 — 별도 마커/오브젝트가
+// 아니라 라인 지오메트리의 일부라 항상 선과 한 몸으로 자연스럽게 이어진다. 화살촉은 끝 접선(실제 진행 방향,
+// 훅 포함) 을 가리켜 "여기로 이렇게 굴러간다"를 함께 표현. 끝은 페이드 없이 또렷한 네온(우훅=앰버/그외=시안·아이스).
+const ARROW_PX = 0.03; // [튜닝] 화살촉 팔 길이 = 이 값 × 카메라거리(m). 거리 비례라 멀어도 화면상 크기 유지
+const ARROW_MIN = 0.13; // [튜닝] 팔 길이 하한(월드 m)
+const ARROW_MAX = 0.3; // [튜닝] 팔 길이 상한(월드 m)
+const ARROW_HALF = 0.5; // [튜닝] 화살촉 반각(rad, ≈29°) — 작을수록 뾰족/슬림
+// 끝 페이드(C) — 중간은 레인색으로 녹이되 화살촉 직전 되살려 '떠 보임' 제거.
+const FADE_MAX = 0.82; // [튜닝] 최대 페이드(레인색 혼합) — 중간부 소멸 강도
+const FADE_PEAK = 0.8; // [튜닝] 페이드가 최대가 되는 지점(0~1). 이후 화살촉 향해 하강
+const FADE_RECOVER = 0.72; // [튜닝] 끝에서 페이드 되돌리는 비율 — 화살촉 연결 또렷도(1=완전 복원)
 // 파워 차징 속도(단위 /초). 기존엔 프레임당 +0.018(프레임레이트 의존 — 고주사율/저FPS에서 속도가
 // 달라지는 버그)이었다. ×60fps = 1.08/s로 환산해 dt를 곱하면 어떤 FPS에서도 0→1 약 0.93초로 일정.
 const CHARGE_RATE = 1.08;
@@ -84,6 +96,7 @@ export class Controls {
   private readonly aimCaseGeo: LineGeometry;
   private readonly aimCoreMat: LineMaterial;
   private readonly aimCaseMat: LineMaterial;
+  private readonly camera: THREE.PerspectiveCamera; // 화살촉 팔 길이를 카메라 거리에 비례시킬 때 사용
   private readonly powerWrap: HTMLDivElement;
   private readonly gaugeFill: HTMLDivElement;
   private readonly spinWrap: HTMLDivElement;
@@ -93,11 +106,12 @@ export class Controls {
   private readonly spinValue: HTMLSpanElement;
 
   constructor(
-    engine: Engine, // 생성자에서 aimGroup을 씬에 추가할 때만 씀 — 저장 안 함(this.engine 미사용, #11)
+    engine: Engine, // aimGroup을 씬에 추가 + 카메라 참조 저장(화살촉 거리 스케일 A)에 사용
     private readonly game: GameState,
     private readonly ball: Ball,
   ) {
     ensureNeonStyles();
+    this.camera = engine.camera; // 화살촉 거리 스케일(A) — updateAimArrow의 tip↔카메라 거리
 
     // 조준 곡선 라인 — Line2(굵기 지원)로 실제 예측 경로를 그린다. THREE.Line은 브라우저가 linewidth를
     // 무시해 1px로만 나와 밝은 레인에서 안 보였음. 어두운 외곽선(case) + 밝은 코어(core) 2겹이라
@@ -135,7 +149,7 @@ export class Controls {
     coreLine.frustumCulled = false;
     this.aimGroup = new THREE.Group();
     this.aimGroup.add(caseLine, coreLine);
-    // 끝 화살촉(∧)은 별도 메시가 아니라 updateAimArrow에서 라인 지오메트리에 stroke로 이어 붙인다.
+    // 끝 화살촉(∧)은 별도 메시가 아니라 updateAimArrow에서 조준선 폴리라인(Line2) 끝에 stroke로 이어 붙인다.
     this.aimGroup.visible = false;
     engine.scene.add(this.aimGroup);
 
@@ -495,7 +509,7 @@ export class Controls {
     // 그냥 DRAW_Z까지만 적분하면 그 구간이 오일존(직진)이라 곡률이 거의 안 보였음. 균일 스케일이라 초기
     // 조준 방향(각도)은 불변. 조준선은 차징(파워 핑퐁)에 안 흔들리게 대표 파워로 고정(파워 체감은 게이지).
     const REF_Z = 14; // 곡률 기준 길이 — 드라이존(오일 끝 뒤) 훅까지 포함해 더 휜 모양을 5에 압축
-    const DRAW_Z = 5; // 실제 그리는 길이 (짧게)
+    const DRAW_Z = 5; // 실제 그리는 온스크린 길이(압축 후). 게임플레이 도움량은 aid별 endZ가 결정 — 이건 시각 길이만.
     const p = 0.6;
     // 조준 보조(P3): easy=풀 곡선(REF_Z까지) / normal=오일 존 끝까지만(직진 구간만, 훅 숨김) / pro=짧은 방향 표식.
     // normal/pro 종료점은 오일 존 안(hook=0)이라 곡선이 안 생겨 "스키드만 보여주고 훅은 직접 읽어라"가 된다.
@@ -570,25 +584,30 @@ export class Controls {
     const caseColors: number[] = [];
     const last = path.length - 1;
     for (let i = 0; i <= last; i++) {
-      const fade = Math.min(0.82, Math.pow(i / last, 2.0)); // 대부분 또렷, 끝만 살짝 페이드(중립 흰색 가독성↑)
+      // C: 중간은 레인색으로 녹이되(자연 소멸) 끝 화살촉 직전에선 페이드를 되돌려 또렷하게 — 화살촉이
+      // 선에서 떨어져 '떠 보이던' 문제 제거. 오르막(제곱) 후 FADE_PEAK 지나 하강.
+      const t = i / last;
+      const rise = Math.pow(Math.min(t / FADE_PEAK, 1), 2.0);
+      const settle = t > FADE_PEAK ? (t - FADE_PEAK) / (1 - FADE_PEAK) : 0;
+      const fade = FADE_MAX * rise * (1 - FADE_RECOVER * settle);
       tmp.copy(spinCol).lerp(tan, fade);
       coreColors.push(tmp.r, tmp.g, tmp.b);
       tmp.copy(dark).lerp(tan, fade);
       caseColors.push(tmp.r, tmp.g, tmp.b);
     }
-    // 끝 화살촉: 가이드라인과 같은 stroke(core+case)로 슬림한 ∧ 를 폴리라인에 이어 붙인다.
-    // 팁=마지막 점, 거기서 뒤쪽 좌우로 두 갈래. 되돌아오는 구간(좌갈래→팁)은 겹쳐서 안 보인다.
+    // 끝 화살촉: 가이드라인과 같은 stroke(core+case)로 슬림한 ∧ 를 폴리라인에 이어 붙인다. 팁=마지막 점,
+    // 거기서 뒤쪽 좌우로 두 갈래(진행 방향의 반대). 팔 길이는 카메라 거리 비례라 멀어도 화면상 크기 일정.
     const ex = positions[positions.length - 3]; // path[last].x * k
     const ez = positions[positions.length - 1]; // sz(path[last].z)
     let dx = ex - path[last - 1][0] * k;
     let dz = ez - sz(path[last - 1][1]);
     const dm = Math.hypot(dx, dz) || 1;
     dx /= dm;
-    dz /= dm; // 진행 방향 단위벡터
-    const AL = 0.17; // 화살촉 갈래 길이(월드 m)
-    const AA = 0.5; // 반각(rad, ≈29°) — 슬림한 화살표
-    const ca = Math.cos(AA);
-    const sa = Math.sin(AA);
+    dz /= dm; // 진행 방향 단위벡터(끝 접선 — 훅 곡률 반영)
+    const camDist = this.camera.position.distanceTo(AIM_TIP.set(ex, 0.02, ez));
+    const AL = Math.min(ARROW_MAX, Math.max(ARROW_MIN, ARROW_PX * camDist)); // 팔 길이(월드 m) — 거리 비례
+    const ca = Math.cos(ARROW_HALF);
+    const sa = Math.sin(ARROW_HALF);
     const bx = -dx;
     const bz = -dz; // 뒤 방향
     positions.push(
@@ -596,12 +615,18 @@ export class Controls {
       ex, 0.02, ez, // 팁으로 복귀(겹침)
       ex + (bx * ca + bz * sa) * AL, 0.02, ez + (-bx * sa + bz * ca) * AL, // 우 갈래
     );
-    // 팁 vertex + 화살촉 3점은 또렷한 스핀색(core)/어두운 외곽(case) — 페이드된 라인 끝 위에 또렷이 얹힌다.
-    coreColors[last * 3] = spinCol.r;
-    coreColors[last * 3 + 1] = spinCol.g;
-    coreColors[last * 3 + 2] = spinCol.b;
+    // 끝을 또렷하게: 팁 vertex + 화살촉 3점을 페이드 없는 네온(우훅=앰버/좌훅=시안/중립=아이스)으로,
+    // case는 어두운 외곽으로 고정 — 끝이 레인색에 녹지 않고 선의 뾰족한 끝으로 맺힌다.
+    const tipCol = this.spin > 0 ? NEON.amber : this.spin < 0 ? NEON.cyan : NEON.ice;
+    tmp.set(tipCol);
+    coreColors[last * 3] = tmp.r;
+    coreColors[last * 3 + 1] = tmp.g;
+    coreColors[last * 3 + 2] = tmp.b;
+    caseColors[last * 3] = dark.r;
+    caseColors[last * 3 + 1] = dark.g;
+    caseColors[last * 3 + 2] = dark.b;
     for (let n = 0; n < 3; n++) {
-      coreColors.push(spinCol.r, spinCol.g, spinCol.b);
+      coreColors.push(tmp.r, tmp.g, tmp.b);
       caseColors.push(dark.r, dark.g, dark.b);
     }
 
