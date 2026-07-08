@@ -2,7 +2,7 @@
 
 > 작성: 2026-06-16 (9차 커밋 `9fcc1de` UI 전면 개편 *이후* 실기기 재검토)
 > 베이스: iPhone 17 Pro 실기 스크린샷 3장(스핀 0 / L1.0 / R1.0) + 레퍼런스 조사 + 현 코드 정독
-> 관련 코드: [Controls.ts](../src/input/Controls.ts) · [Hud.ts](../src/ui/Hud.ts) · [theme.ts](../src/ui/theme.ts)
+> 관련 코드: [Controls.ts](../../src/input/Controls.ts) · [Hud.ts](../../src/ui/Hud.ts) · [theme.ts](../../src/ui/theme.ts)
 
 ---
 

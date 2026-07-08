@@ -25,48 +25,58 @@
 
 ## 2. 폴더 구조
 
+> 아래는 **현행 실제 구조**다. (외부 에셋 0개 — 도형·텍스처·사운드 전부 코드 생성이라 `public/assets/`는 없다.)
+
 ```
 bowling-3d/
-├─ index.html
+├─ index.html                진입 HTML (부팅 로더 CSS 인라인)
 ├─ package.json
 ├─ vite.config.ts
-├─ docs/
-│   └─ GAME_DESIGN.md        ← 이 문서
-├─ public/
-│   └─ assets/               정적 에셋 (Vite가 그대로 서빙)
-│       ├─ models/           GLTF (2차, M7)
-│       ├─ textures/         공 무늬·레인 나무결·핀 줄무늬 (2D)
-│       └─ sounds/           충돌·스트라이크·UI 음원
+├─ sim-carry.mjs             핀 캐리 밸런스 오프라인 시뮬 (CLI 그리드 스캔)
+├─ docs/                     설계·결정 문서 (GAME_DESIGN·DECISIONS·… / archive = 세션 로그)
+├─ src-tauri/                Tauri v2 셸 (데스크톱·모바일 패키징)
 ├─ tests/
-│   └─ scoreboard.test.ts    점수 계산 단위테스트 (Vitest)
+│   ├─ scoreboard.test.ts    점수 계산 단위테스트 (Vitest)
+│   └─ gameplay.test.ts      게임플레이·AI 투구 테스트
 └─ src/
     ├─ main.ts               진입점
     ├─ core/
-    │   ├─ Boot.ts           부팅: RAPIER init → 에셋 → 첫 프레임 → 로딩 제거
+    │   ├─ Boot.ts           부팅: RAPIER init → 조립 → 이벤트 배선 → 로딩 제거
     │   ├─ Engine.ts         three 렌더러 + rapier world, 조명/그림자/리사이즈
-    │   └─ Loop.ts           rAF + accumulator 고정 timestep, 렌더 보간
+    │   ├─ Loop.ts           rAF + accumulator 고정 timestep, 렌더 보간, timeScale
+    │   └─ device.ts         기기 성능 감지·품질 적응 (모바일)
     ├─ scene/
     │   ├─ Lane.ts           레인 바닥 + 거터 + 벽 (시각+콜라이더)
-    │   ├─ Ball.ts           공: 메시 + rigidBody (BallSpec로 mass 주입)
+    │   ├─ Environment.ts    볼링장 배경 (전광판·광고판·나무결 텍스처)
+    │   ├─ Ball.ts           공: 메시 + rigidBody + 스핀 측면력
     │   ├─ Pin.ts            핀 1개: 메시 + rigidBody
-    │   ├─ PinSet.ts         핀 10개 배치/리셋/쓰러짐 판정/데드우드 제거
-    │   └─ AssetFactory.ts   procedural 도형 생성 ↔ (M7) GLTF 로딩 교체점
+    │   ├─ PinSet.ts         핀 10개 배치/리셋/쓰러짐 판정/데드우드/setLayout
+    │   └─ Replay.ts         투구 리플레이 스냅샷·재생
     ├─ game/
-    │   ├─ GameState.ts      상태머신 (BOOT→MENU→PLAYING→GAME_OVER)
-    │   ├─ Frame.ts          프레임 1개 데이터 (투구 결과)
-    │   ├─ Scoreboard.ts     10프레임 점수 계산 (스트라이크/스페어/보너스/파울)
-    │   ├─ Throw.ts          조준→파워→스핀 입력을 공 초기 속도/회전으로 변환
-    │   ├─ BallSpec.ts       볼 무게 프리셋(7/10/14/16 lb)과 물리·연출 파라미터
-    │   └─ rules.ts          파울·핀판정·데드우드 규칙 상수와 판정 함수
+    │   ├─ GameState.ts      상태머신 (BOOT→MENU→PLAYING→GAME_OVER) + 모드 + 멀티플레이어
+    │   ├─ Scoreboard.ts     10프레임 점수 계산 (스트라이크/스페어/보너스/파울) + rollStats
+    │   ├─ BallSpec.ts       볼 무게(6~16 lb)와 물리·연출 파라미터
+    │   ├─ constants.ts      튜닝 상수 집결 (물리·연출·밸런스)
+    │   ├─ ai.ts             AI 라이벌 프로필·투구 계산 (난이도 사다리)
+    │   ├─ splits.ts         스플릿 감지
+    │   ├─ oil.ts            오일 패턴 상태 (프리셋·마름·예측선 난이도)
+    │   ├─ rewards.ts        업적 평가 + 코스메틱 스킨 해금
+    │   ├─ settings.ts       설정 (localStorage)
+    │   └─ Stats.ts          하이스코어·통계 기록 (localStorage)
     ├─ input/
-    │   └─ Controls.ts       포인터(마우스+터치)+키보드 → 추상 입력
+    │   └─ Controls.ts       포인터(마우스+터치)+키보드, 곡선 조준선·스핀/파워 게이지
     ├─ camera/
-    │   └─ CameraRig.ts      투구 추적 + 결과 줌 연출
+    │   └─ CameraRig.ts      상태별 뷰 연출, MENU 스웨이
     ├─ audio/
-    │   └─ SoundManager.ts   프리로드 + 충돌음(임펄스 기반)+UI음
+    │   ├─ SoundManager.ts   합성 충돌음 + 프리로드
+    │   ├─ roll.wav
+    │   └─ strike.wav
     └─ ui/
-        ├─ Hud.ts            점수판, 프레임 표시, 파워 게이지
-        └─ Menu.ts           시작 화면(볼 무게 슬라이더 포함) / 게임오버 / 재시작
+        ├─ Hud.ts            2인 점수표 + 배너
+        ├─ Menu.ts           시작/결과/핸드오프/볼 선택 오버레이
+        ├─ StillCut.ts       결과 스틸컷 연출
+        ├─ theme.ts          네온 글래스 UI 토큰 (WebGL 공용)
+        └─ styles/ui.css     정적 스타일·@keyframes
 ```
 
 ---
@@ -454,14 +464,16 @@ ball.setAngvel(spinToAngvel(spin));      // 4.1 스핀
 
 ## 11. 개발 마일스톤 (이 순서로 커밋)
 
-- [ ] **M0 셋업+인프라**: Vite+TS+three+rapier, 부팅 시퀀스, 조명/그림자/리사이즈, procedural 도형, 빈 씬에 큐브 낙하 확인
-- [ ] **M1 레인+공**: 레인·거터·벽, 공 1개 굴리기(임시 키보드 발사), 볼 무게→mass 주입, 물리 상수 1차 튜닝
-- [ ] **M2 핀**: 핀 10개 배치, 충돌·4.3 정밀 쓰러짐 판정
-- [ ] **M3 게임 흐름**: 상태머신(MENU→PLAYING→GAME_OVER), 데드우드 제거, 프레임 진행, 핀 리셋
-- [ ] **M4 점수**: Scoreboard 10프레임+스트라이크/스페어/파울, **Vitest 테스트**, HUD 표시
-- [ ] **M5 조작+볼선택**: 포인터+키보드 추상화, 조준선, 파워 게이지, 스핀, BallPicker 슬라이더(6~16 lb)
-- [ ] **M6 카메라**: 상태별 카메라 연출
-- [ ] **M7 폴리싱**: 사운드(contact force), GLTF 모델·텍스처, 오일 패턴 스핀, 모바일 터치, 배경/조명, 하이스코어(P2)
+> ✅ **M0~M7 전부 완료.** 아래는 착수 당시 계획 순서(역사 기록)다. 현행 구조는 §2, 튜닝·밸런스 결정 근거는 [DECISIONS.md](DECISIONS.md) 참조. (에셋은 계획의 GLTF 대신 **전부 procedural**로 귀결.)
+
+- [x] **M0 셋업+인프라**: Vite+TS+three+rapier, 부팅 시퀀스, 조명/그림자/리사이즈, procedural 도형, 빈 씬에 큐브 낙하 확인
+- [x] **M1 레인+공**: 레인·거터·벽, 공 1개 굴리기(임시 키보드 발사), 볼 무게→mass 주입, 물리 상수 1차 튜닝
+- [x] **M2 핀**: 핀 10개 배치, 충돌·4.3 정밀 쓰러짐 판정
+- [x] **M3 게임 흐름**: 상태머신(MENU→PLAYING→GAME_OVER), 데드우드 제거, 프레임 진행, 핀 리셋
+- [x] **M4 점수**: Scoreboard 10프레임+스트라이크/스페어/파울, **Vitest 테스트**, HUD 표시
+- [x] **M5 조작+볼선택**: 포인터+키보드 추상화, 조준선, 파워 게이지, 스핀, BallPicker 슬라이더(6~16 lb)
+- [x] **M6 카메라**: 상태별 카메라 연출
+- [x] **M7 폴리싱**: 사운드(contact force), 오일 패턴 스핀, 모바일 터치, 배경/조명, 하이스코어(P2)
 
 > M0~M2 = 프로토타입(검증), M3~M4 = 게임다움, M5~M7 = 재미·완성도.
 

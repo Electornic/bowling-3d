@@ -1,6 +1,6 @@
 # 모바일 대응 — 설계 문서
 
-> 작성: 2026-06-14 (6차 세션). 데스크톱(마우스 hover + 키보드) 전제로 만들어진 게임을
+> 데스크톱(마우스 hover + 키보드) 전제로 만들어진 게임을
 > 모바일 터치에서 정상 플레이 가능하게 만드는 작업의 진단 · 설계 · 단계 계획.
 > 본 문서는 **구현 전 설계 합의용**. 결정된 기본안은 각 절 머리에 표기하고, 검토한 대안도 함께 남긴다.
 
@@ -9,7 +9,7 @@
 ## 0. TL;DR
 
 - **핵심 막힘**: 터치엔 hover가 없어 "조준 후 차징"이 불가능 — 캔버스를 누르는 순간 곧장 파워 차징이 시작된다([Controls.ts:236](../src/input/Controls.ts)). 발사 인터랙션 모델 재설계가 1순위.
-- **발사안**: 두 후보 **ⓐ 풀백 슬링샷 / ⓑ 상대 드래그+홀드 차징** 보류(§2) — 실플레이 감 본 뒤 확정. ⓑ는 타이밍 압박이 잔존하고 ⓐ는 데스크톱과 손맛이 갈림. 어느 쪽이든 **멀티터치·pointercancel 견고성(§2.4)** 은 필수.
+- **발사안**: **ⓑ 상대 드래그+홀드 차징** 채택(§2) — ⓐ 풀백 슬링샷 대비 데스크톱과 파워 핑퐁을 공유(손맛 일관)하고 코드 변경이 작다. 실플레이서 타이밍 압박이 거슬리면 ⓐ 재검토. 어느 쪽이든 **멀티터치·pointercancel 견고성(§2.4)** 은 필수.
 - **나머지**: 반응형 UI 재배치(고정 px → 충돌·오버플로), 뷰포트/제스처 잠금(줌·당겨서새로고침 차단), safe-area, 가로 권장 안내.
 - **단계**: M0(플레이 가능) → M1(레이아웃) → M2(폴리시). M0만으로 "모바일에서 일단 굴러간다" 달성.
 
@@ -19,7 +19,7 @@
 
 ### 1.1 이미 되는 것
 - **포인터 통합** — 입력 전부 `pointerdown/move/up`. 마우스·터치가 같은 이벤트로 들어옴([Controls.ts:226](../src/input/Controls.ts)).
-- **스핀 드래그 바** — `spinTrack`에 `touchAction:'none'` + 드래그 핸들러가 있어 **터치로 스핀 설정 가능**([Controls.ts:146](../src/input/Controls.ts), [252](../src/input/Controls.ts)). → 로드맵의 "터치엔 스핀 입력 없음"([GAMEPLAY_ROADMAP.md:20](GAMEPLAY_ROADMAP.md)) 메모는 stale.
+- **스핀 드래그 바** — `spinTrack`에 `touchAction:'none'` + 드래그 핸들러가 있어 **터치로 스핀 설정 가능**([Controls.ts:146](../src/input/Controls.ts), [252](../src/input/Controls.ts)). → (구 로드맵의 "터치엔 스핀 입력 없음" 메모는 이 스핀 바로 해소됨 — [archive/GAMEPLAY_ROADMAP.md](archive/GAMEPLAY_ROADMAP.md).)
 - **해상도 대응** — 풀스크린 + `resize` 핸들러([Engine.ts:90](../src/core/Engine.ts)). `setPixelRatio(min(dpr,2))`, `maxCcdSubsteps=4`(저FPS 터널링 보완)는 모바일을 이미 고려.
 - **저FPS 물리 안전** — `Loop`의 `MAX_FRAME=0.25` 클램프([Loop.ts:52](../src/core/Loop.ts))로 프레임이 크게 벌어져도 스파이럴 없이 최대 15스텝만 진행. 고정 timestep이라 **물리·궤적은 프레임레이트 독립** — 저FPS는 *체감/렌더* 문제지 물리 깨짐이 아니다.
 - **오디오 언락(이미 됨)** — `SoundManager`가 `pointerdown`/`keydown`에서 `AudioContext.resume()`([SoundManager.ts:15](../src/audio/SoundManager.ts)). 모바일 자동재생 정책의 첫 제스처 언락은 **신규 작업 아님**. (단 `new AudioContext()`만 — 구형 iOS 대상이면 `webkitAudioContext` 폴백 한 줄 검토.)
@@ -38,7 +38,7 @@
 
 ## 2. 설계 결정 — 터치 발사 인터랙션 모델
 
-> **상태: ⓑ 확정(2026-06-14).** 두 후보 — ⓐ 풀백 슬링샷 / ⓑ 상대 드래그 + 홀드 차징 — 중
+> **상태: ⓑ 확정.** 두 후보 — ⓐ 풀백 슬링샷 / ⓑ 상대 드래그 + 홀드 차징 — 중
 > **ⓑ(상대 드래그 + 홀드 차징)** 를 채택해 구현. 데스크톱과 파워 핑퐁을 공유(손맛 일관)하고 코드
 > 변경이 작은 쪽. 실플레이 후 타이밍 압박(§2.2)이 거슬리면 ⓐ로 재검토. (탈락: 스와이프 통합 / 온스크린 분리.)
 
@@ -52,7 +52,7 @@
 | 제스처 | 한 번의 드래그: **세로 거리=파워, 가로=조준**, 릴리스=발사 | down에서 차징 시작(파워 핑퐁), **드래그 가로=조준 델타**, 릴리스=발사 |
 | 조준-파워 분리 | **완전 분리** — 타이밍 압박 없음, 거리로 파워 확정 | **부분 분리** — 위치 편향은 제거되나 *파워 핑퐁이 누르는 즉시 돌아 타이밍 압박은 잔존* (아래 2.2) |
 | 코드 변경량 | 중 — 파워를 핑퐁→드래그 거리로 교체(터치 한정), 발사 트리거 재배선 | 소 — 차징/핑퐁/발사·스핀 바 재사용, `pointermove` 절대→상대 + anchor 기록만 |
-| 데스크톱과의 손맛 | **분기**(핑퐁 파워는 데스크톱만) — 로드맵 P3 "릴리스 타이밍" 스킬 메타와 플랫폼 갈림 | **동일**(핑퐁 파워 공유) |
+| 데스크톱과의 손맛 | **분기**(핑퐁 파워는 데스크톱만) — "릴리스 타이밍" 스킬 메타([DECISIONS.md](DECISIONS.md) §2)와 플랫폼 갈림 | **동일**(핑퐁 파워 공유) |
 | 볼링다움 | 높음(끌어당겨 굴림) | 보통 |
 
 스핀(두 안 공통): 기존 하단 드래그 바 재사용. 던지기 전 미리 세팅(값 유지) → 이후 발사 제스처. 한 손가락 순차 흐름. (플릭 스핀은 조준 드래그와 충돌 → 보류.) 실측 모바일 볼링 사례에선 **드래그에 커브를 줘 스핀** 또는 **둘째 손가락으로 스핀**도 쓰이나, 우리 하단 바가 더 단순·저위험이라 우선 유지(단 바 자체가 터치 타깃으로 작음 → §3.1).
@@ -205,9 +205,4 @@ canvas     { touch-action: none; }         /* 게임 표면: 브라우저 제스
 | 터치 타깃 최소 크기 | WCAG 2.2 §2.5.8=24px(AA), Apple HIG=44pt, Material=48dp, 권장 44 | [WCAG 2.5.8 guide](https://www.allaccessible.org/blog/wcag-258-target-size-minimum-implementation-guide), [LogRocket target sizes](https://blog.logrocket.com/ux-design/all-accessible-touch-target-sizes/) |
 | three.js 모바일 최적화 | pixelRatio cap · shadowMap 512/`autoUpdate=false` · antialias off(boot) · 비가시 시 frameloop 정지 | [Codrops 2025](https://tympanus.net/codrops/2025/02/11/building-efficient-three-js-scenes-optimize-performance-while-maintaining-quality/), [utsubo 100 tips](https://www.utsubo.com/blog/threejs-best-practices-100-tips) |
 
----
-
-## 부록 B — 문서 정합성 TODO
-- [GAMEPLAY_ROADMAP.md:20](GAMEPLAY_ROADMAP.md) "터치엔 스핀 입력 없음" → 스핀 바로 해소됨(stale). 모바일 착수 확정 시 본 문서로 대체 참조.
-- [GAMEPLAY_ROADMAP.md:108](GAMEPLAY_ROADMAP.md) P3 "터치 스핀 입력"(플릭 안) → 본 문서 §2.3 대안으로 흡수.
-- [PROGRESS.md:100](PROGRESS.md) "모바일 터치 검증" 체크 → §8 체크리스트로 구체화.
+> 이 문서가 대체·흡수한 옛 로그(터치 스핀 입력·모바일 검증 항목 등)의 원본은 [archive/GAMEPLAY_ROADMAP.md](archive/GAMEPLAY_ROADMAP.md)·[archive/PROGRESS.md](archive/PROGRESS.md)에 동결돼 있다.

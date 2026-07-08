@@ -15,12 +15,12 @@
 
 13차 보상 시스템을 실제로 iPhone에서 보다가 나온 UI/UX 문제들을 수정. **전부 브라우저(375/402px) 실관측 검증, tsc 0 · vitest 32/32 · 13차분과 함께 `f46e7be` 커밋.**
 
-- **보상 스킨 시트 → "컬렉션" 시트로 리디자인** ([Menu.ts](../src/ui/Menu.ts) `showSkins`): 16px 점 스와치가 휑하던 문제 → **42px 미리보기 볼**(CSS 그라데이션으로 메탈릭/새틴/글로우/크롬 마감 근사, 3D 미사용 `skinPreviewStyle()`) + 장착 골드테두리/`장착` 배지 + 잠금 시 🔒+해금조건. **업적 섹션 신설**(6개 ✓/🔒 + 해금 스킨 + `N/6 달성`·`N/7 해금` 진행도, `collectionHeader()`). 제목 `볼 스킨`→`🎨 컬렉션`, 메뉴 진입 버튼도 `🎨 컬렉션 ·`. → REWARDS.md §10 "전용 스킨 시트"가 이 구현으로 갱신됨(컬렉션+업적 한 시트).
-- **[DEV] 보상 전체해금 줄 제거** ([Boot.ts](../src/core/Boot.ts)): 13차 ④의 `recordRewards(ACHIEVEMENTS…)` 부팅 자동해금 제거 → 실제 진행 상태로 시작(잠금조건/토스트가 보임). 테스트는 콘솔 `__unlockAllRewards()`/`__resetRewards()` 유지. **(13차 핸드오프 "커밋 전 제거 필수" 완료.)**
-- **포기 = 네이티브 confirm() → 앱 내부 오버레이** ([Menu.ts](../src/ui/Menu.ts) `showForfeitConfirm` + [Boot.ts](../src/core/Boot.ts) `forfeit`): iOS 시뮬레이터/웹뷰/PWA에서 `confirm()`이 안 뜨고 falsy 반환 → 포기 먹통이던 버그. 메뉴/결과와 같은 DOM 오버레이(`게임을 포기할까요?` + 계속하기/포기)로 교체, 전 플랫폼 동작. **(13차 ① "Esc/☰ → confirm" 노트를 대체.)**
-- **☰ 메뉴 버튼 위치** ([Hud.ts](../src/ui/Hud.ts)): 점수판이 상단 중앙정렬 풀폭(≈96vw)이라 좌상단 ☰ 버튼이 플레이어1 이름칸과 겹침 → 점수판 `top` `10px`→`56px`(버튼 높이 40+여백 아래)로 내려 세로 분리(프레임 폭=가독성 유지).
-- **상단 safe-area 침범 해소** ([Menu.ts](../src/ui/Menu.ts) 백드롭): 컬렉션 시트가 `maxHeight:90dvh` 꽉 차 중앙정렬 시 상단 여백 41px<노치 59pt → 침범. 백드롭에 `padding: max(env(safe-area-inset-*), 12~16px)`+`border-box`+`height:100dvh`, 패널 `maxHeight 90dvh→100%`. 메뉴/결과/컬렉션/포기 오버레이 전부 안전(시뮬 인셋 59px 주입 시 상단 여백 59px 확인).
-- **패널 폭 통일** ([Menu.ts](../src/ui/Menu.ts) 패널): 모바일 `minWidth:auto`라 내용 좁은 컬렉션이 메뉴보다 홀쭉 → `width: min(360px,92vw)`+`border-box`로 뷰 무관 고정폭(402px서 360px, 오버플로 없음 확인).
+- **보상 스킨 시트 → "컬렉션" 시트로 리디자인** ([Menu.ts](../../src/ui/Menu.ts) `showSkins`): 16px 점 스와치가 휑하던 문제 → **42px 미리보기 볼**(CSS 그라데이션으로 메탈릭/새틴/글로우/크롬 마감 근사, 3D 미사용 `skinPreviewStyle()`) + 장착 골드테두리/`장착` 배지 + 잠금 시 🔒+해금조건. **업적 섹션 신설**(6개 ✓/🔒 + 해금 스킨 + `N/6 달성`·`N/7 해금` 진행도, `collectionHeader()`). 제목 `볼 스킨`→`🎨 컬렉션`, 메뉴 진입 버튼도 `🎨 컬렉션 ·`. → REWARDS.md §10 "전용 스킨 시트"가 이 구현으로 갱신됨(컬렉션+업적 한 시트).
+- **[DEV] 보상 전체해금 줄 제거** ([Boot.ts](../../src/core/Boot.ts)): 13차 ④의 `recordRewards(ACHIEVEMENTS…)` 부팅 자동해금 제거 → 실제 진행 상태로 시작(잠금조건/토스트가 보임). 테스트는 콘솔 `__unlockAllRewards()`/`__resetRewards()` 유지. **(13차 핸드오프 "커밋 전 제거 필수" 완료.)**
+- **포기 = 네이티브 confirm() → 앱 내부 오버레이** ([Menu.ts](../../src/ui/Menu.ts) `showForfeitConfirm` + [Boot.ts](../../src/core/Boot.ts) `forfeit`): iOS 시뮬레이터/웹뷰/PWA에서 `confirm()`이 안 뜨고 falsy 반환 → 포기 먹통이던 버그. 메뉴/결과와 같은 DOM 오버레이(`게임을 포기할까요?` + 계속하기/포기)로 교체, 전 플랫폼 동작. **(13차 ① "Esc/☰ → confirm" 노트를 대체.)**
+- **☰ 메뉴 버튼 위치** ([Hud.ts](../../src/ui/Hud.ts)): 점수판이 상단 중앙정렬 풀폭(≈96vw)이라 좌상단 ☰ 버튼이 플레이어1 이름칸과 겹침 → 점수판 `top` `10px`→`56px`(버튼 높이 40+여백 아래)로 내려 세로 분리(프레임 폭=가독성 유지).
+- **상단 safe-area 침범 해소** ([Menu.ts](../../src/ui/Menu.ts) 백드롭): 컬렉션 시트가 `maxHeight:90dvh` 꽉 차 중앙정렬 시 상단 여백 41px<노치 59pt → 침범. 백드롭에 `padding: max(env(safe-area-inset-*), 12~16px)`+`border-box`+`height:100dvh`, 패널 `maxHeight 90dvh→100%`. 메뉴/결과/컬렉션/포기 오버레이 전부 안전(시뮬 인셋 59px 주입 시 상단 여백 59px 확인).
+- **패널 폭 통일** ([Menu.ts](../../src/ui/Menu.ts) 패널): 모바일 `minWidth:auto`라 내용 좁은 컬렉션이 메뉴보다 홀쭉 → `width: min(360px,92vw)`+`border-box`로 뷰 무관 고정폭(402px서 360px, 오버플로 없음 확인).
 - **남은 것**: iPhone 실기 검증 · (큰 거) P3 릴리스 타이밍 · 보상 P5/bloom · ④ 실물 에셋. (AI 이름은 **초보/중수/고수**로 확정됨. 커밋은 `f46e7be`로 완료.)
 
 ## 13차 세션에 한 일 (구현 상황 점검 + 문서 정합 + ③ 승리 보상 구현)
@@ -32,7 +32,7 @@
 - **[REWARDS.md](./REWARDS.md) 코드 참조 재검증 + 모순 정리**: §11/§12 라인 참조 거의 정확(`Engine.ts:54/57/80-82`·`Ball.ts:37/52/97`·`Stats`/`GameState`/`BallSpec`/`ai` 심볼 일치, `GameSummary{winner, frames, players[].ai:boolean, score}` 일치). 미세 드리프트(Lane `envMapIntensity:0` `:80`→`:81`, `AiProfile.key`는 `string`). **모순 2건 해소**: ① §11 glow 트레이드오프 "(미결)" ↔ §16 #6 "재조정 안 함" → §16으로 통일(수용) ② obsidian이 §16 #1=v1인데 §6=stretch → §6 기준(P5)으로 통일, v1=7종 확정. 크롬 가독성을 §14 P2 완료 게이트로 명시.
 - **③ 승리 보상 구현([REWARDS.md](./REWARDS.md) §14 P1~P4, bloom 분리)**: 신규 `src/game/rewards.ts`(스킨 7종 카탈로그 + 업적 core 6 + localStorage `bowling3d.rewards.v1` + 순수함수 `evaluateAchievements`/`maxConsecutiveStrikes`). `Ball.setSkin()`+`applyMaterial()`(머티리얼 파라미터만 — 물리/AI 사다리 무영향) + `decorColor` 그립 재색(`Ball.ts:52` 묻힘 이슈 동시 해결). `GameState`: `PlayerSummary`에 `aiKey`/`rolls` 추가, `setBallSkin`(외형만), AI는 classic 고정. `Menu`: 스킨 시트(`showSkins` — 잠금+해금조건, 컬렉션 겸용) + 결과 화면 해금 토스트+즉시 장착 버튼. `Boot`: gameOver에서 평가·기록·`SoundManager.playUnlock()` 딩, 저장 스킨 부팅 시 적용. **검증: tsc 클린 · vitest 32/32(+1 skip, 신규 rewards 10) · 프로덕션 빌드 OK.** glow 4종(ember/volt/galaxy/sunset)은 bloom 전까지 "밝은 색" 강등(설계대로). **남은 것: 브라우저/iPhone에서 스킨 시트·해금 토스트·크롬 가독성(`envMapIntensity` 실측, §14 P2 게이트) 확인. P5(stretch 업적·obsidian/holo/pulse·애니 스킨·bloom)는 미착수.**
 
-- **인게임 메뉴/포기 + AI 라이벌 리네이밍(이름 미확정)**: ① [Boot.ts](../src/core/Boot.ts)에 게임 중 좌상단 "☰ 메뉴" 버튼(Loop onFrame에서 매치 중에만 노출) + Esc → confirm 후 `toMenu()`+메뉴 복귀(기록 미저장). ② AI 칩 "난이도" 단어 충돌 제거: `AiProfile.difficulty` 필드 제거, 칩=이름만(평균점수 숨김), 라이벌 식별은 `key`(kim/han/yoon) 유지 → 저장 호환. ③ **AI 이름 미확정** — 현실(김부장)→별명(꾸준이)→동물(거북이)→전래동화(흥부/홍길동/놀부)까지 돌렸으나 "삘 안 옴". 가설: 네온 신스웨이브 톤에 정겨운 이름이 안 붙음 → 쿨/스타일리시(**정석·제로·올인** / **PULSE·BLADE·JOKER**) 후보로 다음 세션 결정. **현재 코드엔 흥부/홍길동/놀부**가 들어가 있음(임시). ④ **[DEV] Boot.ts에 보상 전체해금 1줄**(`recordRewards(ACHIEVEMENTS…)`) — 사용자 테스트용, **커밋/배포 전 제거 필수**(있으면 해금 토스트 안 뜸). 검증: tsc 클린·vitest 32/32·빌드 OK. **→ 14차에 부팅 자동해금 제거(콘솔 `__unlockAllRewards()`만 유지), `f46e7be` 커밋.**
+- **인게임 메뉴/포기 + AI 라이벌 리네이밍(이름 미확정)**: ① [Boot.ts](../../src/core/Boot.ts)에 게임 중 좌상단 "☰ 메뉴" 버튼(Loop onFrame에서 매치 중에만 노출) + Esc → confirm 후 `toMenu()`+메뉴 복귀(기록 미저장). ② AI 칩 "난이도" 단어 충돌 제거: `AiProfile.difficulty` 필드 제거, 칩=이름만(평균점수 숨김), 라이벌 식별은 `key`(kim/han/yoon) 유지 → 저장 호환. ③ **AI 이름 미확정** — 현실(김부장)→별명(꾸준이)→동물(거북이)→전래동화(흥부/홍길동/놀부)까지 돌렸으나 "삘 안 옴". 가설: 네온 신스웨이브 톤에 정겨운 이름이 안 붙음 → 쿨/스타일리시(**정석·제로·올인** / **PULSE·BLADE·JOKER**) 후보로 다음 세션 결정. **현재 코드엔 흥부/홍길동/놀부**가 들어가 있음(임시). ④ **[DEV] Boot.ts에 보상 전체해금 1줄**(`recordRewards(ACHIEVEMENTS…)`) — 사용자 테스트용, **커밋/배포 전 제거 필수**(있으면 해금 토스트 안 뜸). 검증: tsc 클린·vitest 32/32·빌드 OK. **→ 14차에 부팅 자동해금 제거(콘솔 `__unlockAllRewards()`만 유지), `f46e7be` 커밋.**
 
 ## 12차 세션에 한 일 (P3 숙련 깊이 — 오일 메타 + 예측선, `d57c9a6` 커밋)
 
@@ -85,10 +85,10 @@
 > 발단: P2 ⑥(충돌 시각효과)를 "카메라 셰이크/FOV 펀치"로 시도했으나 **"볼이 핀에 닿는데 화면 진동은 비현실적"** 피드백 → 카메라 효과 전면 폐기. 충격은 핀 물리(fly-out)·사운드로 표현하는 방침 확정. 그 과정에서 거터볼 버그·렌더링 점멸 발견.
 
 1. **느린 거터볼 "끝까지 안 굴러가고 레인 끝에 멈춤" 수정** (검증 완료) — 헤드리스 repro(`__engine.step`+`__game.update` 동기 스텝)로 원인 규명:
-   - **거터 채널이 공보다 좁음**: 바깥 벽([Lane.ts](../src/scene/Lane.ts))이 거터 바닥을 2.5cm 침범 → 실효 채널 0.205m < 공 지름 0.218m → 공이 레인 끝 날카로운 모서리에 끼어(perch) 그 위를 타고 가다 멈춤. → **벽을 바깥으로 이동(`wx = side*(half+gw+0.025)`)해 거터 정상 폭(0.23m)**.
+   - **거터 채널이 공보다 좁음**: 바깥 벽([Lane.ts](../../src/scene/Lane.ts))이 거터 바닥을 2.5cm 침범 → 실효 채널 0.205m < 공 지름 0.218m → 공이 레인 끝 날카로운 모서리에 끼어(perch) 그 위를 타고 가다 멈춤. → **벽을 바깥으로 이동(`wx = side*(half+gw+0.025)`)해 거터 정상 폭(0.23m)**.
    - **거터 진입 시 골로 안착 + 끝까지 굴림**: `GameState.settleGutterPerch()` — 공 중심이 레인 끝(±LANE_WIDTH/2) 넘으면 거터 골로 떨궈넣고 핀 쪽 끝까지 갈 속도 부여(투구당 1회 플래그). 정상 투구 오탐 0(repro 확인).
 2. **핀 선형감쇠 0.8→0.7** (`PIN_LINEAR_DAMPING`) — 손맛(덜 묵직). sim-carry에 `--flyout` 감쇠 스윕 + 흩어짐 메트릭 추가해 트레이드오프 측정: **0.35 밑은 직구가 훅 추월(훅-최적 붕괴)=마지노선**, 반발 올리기는 즉시 훅-최적 깨짐(폐기). AI 매치 sim 재실행 → **사다리 135/232/167 불변**(노이즈 수준, 재튜닝 불요).
-3. **임팩트 사운드 서브베이스** ([SoundManager.ts](../src/audio/SoundManager.ts) `crash`) — 큰 스트라이크에 70→34Hz 흉부 thump(intensity 게이트, 작은 히트엔 0).
+3. **임팩트 사운드 서브베이스** ([SoundManager.ts](../../src/audio/SoundManager.ts) `crash`) — 큰 스트라이크에 70→34Hz 흉부 thump(intensity 게이트, 작은 히트엔 0).
 
 검증: tsc 클린 + vitest 22/22 + 헤드리스 repro(거터볼 z≈20 뒤끝 도달, 정상투구 오탐0) + iPhone 실플레이 OK. develop 브랜치 `140c18e` 커밋·푸시.
 
@@ -96,8 +96,8 @@
 
 계획·검토 문서: [SPIN_FEEL_AND_AI_LADDER.md](./SPIN_FEEL_AND_AI_LADDER.md) (웹서치 물리 정합 재검토 포함).
 
-1. **① 스핀 손맛 — `spin^0.7` 입력 곡선** (`constants.ts` `SPIN_POW=0.7`/`effectiveSpin()`, [Ball.ts](../src/scene/Ball.ts) 발사·[Controls.ts](../src/input/Controls.ts) 예측선 공용). sim-carry 확장(스핀 레버 CLI + 파워×스핀 그리드 + 막판 곡률 출력)으로 **물리 레버 전수 스캔**: `ROLL_RATIO`/`SLIP_EPS`/`FRICTION_K`/`OIL_END_Z`/`HOOK_RAMP` 전부 **저/미드스핀 dead zone을 못 살림(가드만 붕괴) 확정**. 훅은 횡슬립 비율 ∝ 스핀이라 어떤 물리 레버도 풀스핀 가드를 안 깨고 약스핀을 못 살린다 → 스핀 *입력*을 `spin^0.7`로 리매핑(1.0 고정점 = 풀스핀·전 가드 −30cm·4/31·7/31·65cm **자동 불변**, 저/미드 막판스냅 **+40%**). 사용자 손맛 OK.
-2. **② AI 난이도 사다리** — 헤드리스 매치 sim 신규([tests/ai-match-sim.test.ts](../tests/ai-match-sim.test.ts): vitest `.ts`·`runIf(AI_SIM)` 가드·`constants`/`computeAiThrow`/`totalScore` import·투구별 Rapier 핀=드리프트 0). **캘리브레이션 버그 발견·수정**: AI 직구가 `POCKET_X_STRAIGHT=0`(헤드핀 정면=노즈히트=스플릿)을 노려 스트라이크가 안 났음(점수가 jitter 무관 ~120-156에 뭉친 진짜 원인) → 미세스윕으로 실제 포켓 −7cm 확인 → `POCKET_X_STRAIGHT` 0→**−0.07**, `POCKET_X_HOOK` 0.067→**0.05**. jitter 튜닝(N=200): **김부장 130(쉬움)·한프로 228(어려움)·도박사 윤 169±28(고변동·sd 최대)**, 김↔한 98점차. `HOOK_DRIFT_HOUSE=0.33`(12차에 `HOOK_DRIFT_FULL`에서 리네임)은 `effectiveSpin(1)=1`이라 ①과 무관히 유효(윤 재측정 불필요). 메뉴 칩에 `난이도` 표시([Menu.ts](../src/ui/Menu.ts), `AiProfile.difficulty` 신규).
+1. **① 스핀 손맛 — `spin^0.7` 입력 곡선** (`constants.ts` `SPIN_POW=0.7`/`effectiveSpin()`, [Ball.ts](../../src/scene/Ball.ts) 발사·[Controls.ts](../../src/input/Controls.ts) 예측선 공용). sim-carry 확장(스핀 레버 CLI + 파워×스핀 그리드 + 막판 곡률 출력)으로 **물리 레버 전수 스캔**: `ROLL_RATIO`/`SLIP_EPS`/`FRICTION_K`/`OIL_END_Z`/`HOOK_RAMP` 전부 **저/미드스핀 dead zone을 못 살림(가드만 붕괴) 확정**. 훅은 횡슬립 비율 ∝ 스핀이라 어떤 물리 레버도 풀스핀 가드를 안 깨고 약스핀을 못 살린다 → 스핀 *입력*을 `spin^0.7`로 리매핑(1.0 고정점 = 풀스핀·전 가드 −30cm·4/31·7/31·65cm **자동 불변**, 저/미드 막판스냅 **+40%**). 사용자 손맛 OK.
+2. **② AI 난이도 사다리** — 헤드리스 매치 sim 신규([tests/ai-match-sim.test.ts](../../tests/ai-match-sim.test.ts): vitest `.ts`·`runIf(AI_SIM)` 가드·`constants`/`computeAiThrow`/`totalScore` import·투구별 Rapier 핀=드리프트 0). **캘리브레이션 버그 발견·수정**: AI 직구가 `POCKET_X_STRAIGHT=0`(헤드핀 정면=노즈히트=스플릿)을 노려 스트라이크가 안 났음(점수가 jitter 무관 ~120-156에 뭉친 진짜 원인) → 미세스윕으로 실제 포켓 −7cm 확인 → `POCKET_X_STRAIGHT` 0→**−0.07**, `POCKET_X_HOOK` 0.067→**0.05**. jitter 튜닝(N=200): **김부장 130(쉬움)·한프로 228(어려움)·도박사 윤 169±28(고변동·sd 최대)**, 김↔한 98점차. `HOOK_DRIFT_HOUSE=0.33`(12차에 `HOOK_DRIFT_FULL`에서 리네임)은 `effectiveSpin(1)=1`이라 ①과 무관히 유효(윤 재측정 불필요). 메뉴 칩에 `난이도` 표시([Menu.ts](../../src/ui/Menu.ts), `AiProfile.difficulty` 신규).
 
 검증: tsc 클린 + **vitest 22/22**(+ 매치 sim 1 skipped, `AI_SIM=1`로 실행) + 브라우저 메뉴 확인. 인사이트는 `knowledge-hub-private/game-dev/ai-difficulty-via-aim-variance.md`에 정리.
 
