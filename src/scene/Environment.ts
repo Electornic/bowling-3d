@@ -8,6 +8,7 @@ import {
   PIN_SPACING,
   ROW_GAP,
   PIN_PROFILE,
+  MOOD,
 } from '../game/constants';
 import { NEON, rgba } from '../ui/theme'; // 네온 팔레트 단일소스(#5) — 씬 머티리얼·캔버스가 theme.ts와 같은 상수 공유(드리프트 0)
 
@@ -108,9 +109,12 @@ export class Environment {
   private readonly screenTex: THREE.CanvasTexture;
   private time = 0;
   private lastDraw = -1; // 전광판 마지막 재드로우 시각(#2 스로틀). -1 = 첫 프레임 강제 드로우.
-  private announceText = '';
-  private announceColor: string = NEON.pink;
-  private announceUntil = 0;
+  // 무드 상태(B): 스코어 이벤트를 텍스트 없이 에너지로만 반영. update(dt)에서 매 프레임 이징, drawScreen이 소비.
+  private energy: number = MOOD.baseEnergy; // 지속 열기(스트라이크 연속). base로 자연 냉각
+  private flash = 0; // 순간 버스트(스트라이크=1 / 스페어=spareFlash). 지수 감쇠
+  private dip = 0; // 거터 브라운아웃(1→0). 지수 감쇠
+  private readonly tint = new THREE.Color(NEON.cyan); // 현재 무드 틴트(이징됨) — 하우스 기본=시안
+  private readonly tintTarget = new THREE.Color(NEON.cyan); // 목표 틴트(현재 플레이어 색)
 
   constructor(engine: Engine) {
     const len = LANE_END_Z - LANE_START_Z;
@@ -294,19 +298,37 @@ export class Environment {
     }
   }
 
-  /** 이벤트(스트라이크/스페어 등)를 전광판에 큼지막하게 띄움 (Boot.onEvent에서 호출) */
-  announce(text: string, color: string = NEON.pink) {
-    this.announceText = text;
-    this.announceColor = color;
-    this.announceUntil = this.time + 2.2;
+  /** 턴 전환 → 현재 플레이어 네온 색으로 무드 틴트 크로스페이드 (Boot: turn 이벤트) */
+  setActivePlayerTint(colorHex: string) {
+    this.tintTarget.set(colorHex);
   }
 
-  /** 매 렌더 프레임 호출 (Boot.onFrame) — 전광판 애니메이션 갱신 */
+  /**
+   * 스코어 이벤트 → 비텍스트 무드 펄스 (Boot.onEvent). 텍스트는 스틸컷이 담당, 여기선 "에너지"만.
+   * strike: 연속수만큼 열기↑ + 풀 플래시 / spare: 작은 플래시 / gutter: 브라운아웃(열기는 자연 냉각).
+   */
+  pulse(kind: 'strike' | 'spare' | 'gutter', streak = 0) {
+    if (kind === 'strike') {
+      this.energy = Math.max(this.energy, Math.min(1, MOOD.baseEnergy + MOOD.streakStep * streak));
+      this.flash = 1;
+    } else if (kind === 'spare') {
+      this.flash = Math.max(this.flash, MOOD.spareFlash);
+    } else {
+      this.dip = 1; // 거터 = 순간 디밍/플리커
+    }
+  }
+
+  /** 매 렌더 프레임 호출 (Boot.onFrame) — 무드 상태 적분 + 전광판 애니메이션 갱신 */
   update(dt: number) {
     this.time += dt;
-    // 재드로우 스로틀(#2): drawScreen()은 그라디언트2 + 태양 + 그리드 33선 + 마퀴를 매번 다시 그리고
-    // 768×256 텍스처를 통째 재업로드한다. 스크롤(0.3/s)·마퀴(80px/s)·announce 펄스(~2.5Hz)는 모두
-    // 24fps에서 무손실이므로 ~1/24초 간격으로만 갱신 → 렌더 비용 절반↓ (섀도우맵 정적화와 결 맞춤).
+    // 무드는 매 프레임 dt 정확히 적분 (재드로우 스로틀과 무관 — 엔벨로프 타이밍 보존).
+    this.energy += (MOOD.baseEnergy - this.energy) * (1 - Math.exp(-dt / MOOD.energyTau));
+    this.flash *= Math.exp(-dt / MOOD.flashTau);
+    this.dip *= Math.exp(-dt / MOOD.dipTau);
+    this.tint.lerp(this.tintTarget, 1 - Math.exp(-dt / MOOD.tintTau));
+    // 재드로우 스로틀(#2): drawScreen()은 그라디언트2 + 태양 + 그리드 33선 + 마퀴 + 무드 오버레이를
+    // 매번 다시 그리고 768×256 텍스처를 통째 재업로드한다. 스크롤·마퀴·플래시/충격파는 24fps에서
+    // 충분히 매끄러우므로 ~1/24초 간격으로만 갱신 → 렌더 비용 절반↓ (무드 적분은 위에서 매 프레임).
     if (this.time - this.lastDraw >= 1 / 24) {
       this.lastDraw = this.time;
       this.drawScreen();
@@ -314,7 +336,7 @@ export class Environment {
     }
   }
 
-  /** 전광판 한 프레임 렌더 (신스웨이브 + 스크롤 마퀴 + 이벤트 어나운스) */
+  /** 전광판 한 프레임 렌더 (신스웨이브 + 무드 반응: 틴트/열기/플래시/디밍) */
   private drawScreen() {
     const ctx = this.screenCtx;
     const W = ctx.canvas.width;
@@ -322,6 +344,9 @@ export class Environment {
     const t = this.time;
     const cx = W / 2;
     const horizon = H * 0.5;
+    // 무드: 열기(+아이들 호흡) → 팔레트 밝기·태양 반경·스크롤 속도. 플래시/디밍은 순간 오버레이.
+    const glow = Math.max(0, Math.min(1, this.energy + MOOD.idleBreath * Math.sin(t * 1.7)));
+    const tintCss = '#' + this.tint.getHexString();
 
     const sky = ctx.createLinearGradient(0, 0, 0, H);
     sky.addColorStop(0, '#1a0b30');
@@ -330,12 +355,12 @@ export class Environment {
     ctx.fillStyle = sky;
     ctx.fillRect(0, 0, W, H);
 
-    // 태양 (수평선 위 반원 + 가로 스트라이프)
+    // 태양 (수평선 위 반원 + 가로 스트라이프) — 열기로 반경↑
     ctx.save();
     ctx.beginPath();
     ctx.rect(0, 0, W, horizon);
     ctx.clip();
-    const sunR = H * 0.36;
+    const sunR = H * 0.36 * (1 + 0.16 * glow);
     const sun = ctx.createLinearGradient(0, horizon - sunR, 0, horizon);
     sun.addColorStop(0, NEON.amber);
     sun.addColorStop(0.55, '#ff6aa6'); // 핑크 중간톤 — 팔레트 토큰 아님(그라디언트 전용)이라 리터럴 유지
@@ -351,13 +376,13 @@ export class Environment {
     }
     ctx.restore();
 
-    // 바닥 그리드 (스크롤)
+    // 바닥 그리드 (스크롤) — 열기로 스크롤 가속 + 라인 밝기↑
     ctx.lineWidth = 2;
-    const scroll = (t * 0.3) % 1;
+    const scroll = (t * (0.3 + 0.9 * glow)) % 1;
     for (let i = 0; i < 16; i++) {
       const f = (i + scroll) / 16;
       const y = horizon + (H - horizon) * f * f;
-      ctx.strokeStyle = rgba(NEON.cyan, 0.1 + 0.55 * f);
+      ctx.strokeStyle = rgba(NEON.cyan, (0.1 + 0.55 * f) * (0.8 + 0.5 * glow));
       ctx.beginPath();
       ctx.moveTo(0, y);
       ctx.lineTo(W, y);
@@ -371,7 +396,11 @@ export class Environment {
       ctx.stroke();
     }
 
-    // 상단 스크롤 마퀴
+    // 플레이어 틴트 워시 — 전체를 현재 플레이어 색으로 은은히 바이어스(열기 클수록 진하게)
+    ctx.fillStyle = rgba(tintCss, 0.06 + 0.1 * glow);
+    ctx.fillRect(0, 0, W, H);
+
+    // 상단 스크롤 마퀴 (브랜딩 — 정보 아님, 항상 유지)
     ctx.save();
     ctx.font = 'bold 26px sans-serif';
     ctx.textBaseline = 'top';
@@ -384,25 +413,26 @@ export class Environment {
     for (let x = -off; x < W; x += mw) ctx.fillText(msg, x, 8);
     ctx.restore();
 
-    // 이벤트 어나운스 (스트라이크/스페어)
-    if (this.time < this.announceUntil) {
-      const left = this.announceUntil - this.time;
-      const pulse = 1 + 0.1 * Math.sin(t * 16);
+    // 플래시(스트라이크/스페어) — 골드 블룸 + 밖으로 퍼지는 충격파 링. 가산합성으로 '쾅'.
+    if (this.flash > 0.02) {
       ctx.save();
-      ctx.translate(cx, horizon + 6);
-      ctx.scale(pulse, pulse);
-      ctx.globalAlpha = Math.min(1, left * 1.8);
-      ctx.font = 'bold 76px sans-serif';
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.shadowColor = this.announceColor;
-      ctx.shadowBlur = 34;
-      ctx.fillStyle = this.announceColor;
-      ctx.fillText(this.announceText, 0, 0);
-      ctx.lineWidth = 2;
-      ctx.strokeStyle = 'rgba(255,255,255,0.9)';
-      ctx.strokeText(this.announceText, 0, 0);
+      ctx.globalCompositeOperation = 'lighter';
+      ctx.fillStyle = rgba('#ffe6b0', 0.5 * this.flash);
+      ctx.fillRect(0, 0, W, H);
+      const ringR = H * 0.9 * (1 - this.flash); // flash 1→0 감쇠에 따라 반경 0→max 확장
+      ctx.strokeStyle = rgba('#fff2cc', this.flash * 0.9);
+      ctx.lineWidth = 6 * this.flash + 1;
+      ctx.beginPath();
+      ctx.arc(cx, horizon, ringR, 0, Math.PI * 2);
+      ctx.stroke();
       ctx.restore();
+    }
+
+    // 디밍(거터) — 전체 브라운아웃 + 빠른 플리커
+    if (this.dip > 0.02) {
+      const flick = 0.7 + 0.3 * Math.sin(t * 48);
+      ctx.fillStyle = rgba('#000000', 0.6 * this.dip * flick);
+      ctx.fillRect(0, 0, W, H);
     }
   }
 }

@@ -205,28 +205,36 @@ function buildScene(engine: Engine): {
         const label =
           e.streak >= 4 ? `${e.streak} BAGGER!!` : e.streak === 3 ? 'TURKEY!!' : e.streak === 2 ? 'DOUBLE!' : 'STRIKE!';
         const sub = e.streak >= 2 ? `${e.streak}연속 · ON FIRE` : '스트라이크';
-        // 스트라이크 = 풀연출: 짧은 리플레이 → 프리즈에 스틸컷 슬램. 녹화 부족 시 즉시 스틸컷.
-        if (!replay.start(() => stillCut.show('strike', label, sub))) stillCut.show('strike', label, sub);
+        // 스트라이크 = 풀연출: 짧은 리플레이 → 프리즈에 스틸컷 슬램 + 전광판 플레어를 "동시에".
+        // pulse를 콜백 안에 둬야 리플레이 끝난 뒤(스틸컷 뜨는 순간) 터진다 — 리플레이 중 미리 새지 않게.
+        const slam = () => {
+          stillCut.show('strike', label, sub);
+          environment.pulse('strike', e.streak); // 전광판 = 텍스트 없이 무드만(열기↑ + 골드 플래시)
+        };
+        if (!replay.start(slam)) slam(); // 녹화 부족 시 즉시 (스틸컷+무드 함께)
         break;
       }
       case 'spare':
         stillCut.show('spare', 'SPARE!', '스페어 정리'); // 스페어 = 스틸컷만 (리플레이 X)
+        environment.pulse('spare'); // 전광판 = 시안 톤 작은 무드 펄스
         break;
       case 'gutter':
         stillCut.show('gutter', 'GUTTER', '0 핀'); // 거터 = 디플레이팅 스틸컷 (축하 X)
+        environment.pulse('gutter'); // 전광판 = 순간 브라운아웃/플리커
         break;
       case 'split':
-        environment.announce(`${e.label} 스플릿!`, '#ef6a6a');
-        break;
+        break; // 스플릿 '경고'는 전광판에 안 띄움 (무드 스크린=좋은 순간만). 감지는 splitConverted 판정에 계속 사용.
       case 'splitConverted':
-        environment.announce(`${e.label} 변환!`, '#4ade80');
+        // 스플릿 클리어 = 사실상 최고의 스페어 → 스페어 스틸컷+무드로 흡수. 서브만 '스플릿 정리!'로 명장면 인정.
+        // (구분 없이 완전 동일하게 하려면 서브를 '스페어 정리'로 바꾸면 됨.)
+        stillCut.show('spare', 'SPARE!', `${e.label} 스플릿 정리!`);
+        environment.pulse('spare');
         break;
       case 'turn':
-        // AI 차례: 전광판 배너. 사람 차례 + 로컬 교대전(isHotseat): 기기 핸드오프 차단 오버레이 +
-        // 입력 잠금. (vs AI에서 사람으로 돌아오는 건 같은 사람이라 핸드오프 불필요 → isHotseat 게이트.)
-        if (e.ai) {
-          environment.announce(`${e.playerName} 차례`, '#aab3c2');
-        } else if (game.isHotseat) {
+        // 턴 전환 → 전광판 무드 틴트를 현재 플레이어 색으로 크로스페이드(멀티에서만 발화).
+        // 로컬 교대전(사람 차례 + isHotseat): 기기 핸드오프 차단 오버레이 + 입력 잠금.
+        environment.setActivePlayerTint(game.accentHex());
+        if (!e.ai && game.isHotseat) {
           game.inputLocked = true;
           menu.showHandoff(e.playerName, () => {
             game.inputLocked = false;

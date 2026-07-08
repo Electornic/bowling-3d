@@ -603,6 +603,22 @@ export class GameState {
     }
   }
 
+  /**
+   * 현재 플레이어 네온 강조색(#rrggbb) — 전광판 무드 틴트용. applyBallSpecForTurn과 같은 선택 규칙.
+   * AI=신스랭크색 / 2P핫시트=좌석색 / 솔로=내 스킨색. (turn 이벤트 시점엔 current가 이미 갱신됨.)
+   */
+  accentHex(): string {
+    const p = this.currentPlayer;
+    const skin = !p
+      ? CLASSIC_SKIN
+      : p.ai
+        ? RIVAL_SKINS[p.ai.key] ?? CLASSIC_SKIN
+        : this.isHotseat
+          ? HOTSEAT_SKINS[this.current % HOTSEAT_SKINS.length] ?? CLASSIC_SKIN
+          : this.humanSkin;
+    return '#' + (skin?.color ?? 0x22d3ee).toString(16).padStart(6, '0'); // 폴백=하우스 시안(NEON.cyan)
+  }
+
   private refreshHud() {
     this.hud.update({
       state: this.state,
