@@ -39,8 +39,27 @@ const PREVIEW_DT = 0.08; // 예측 경로 적분 스텝 (s)
 // tan/dark는 불변 상수, spinCol은 스핀 따라 .set()으로 갱신, tmp는 lerp 스크래치.
 const AIM_TAN = new THREE.Color(0xcdb892); // 레인색(끝 페이드 타겟)
 const AIM_DARK = new THREE.Color(0x0a0e16); // 외곽선 어두운색
-const AIM_SPIN_COL = new THREE.Color(); // 스핀색 스크래치(L=시안/R=앰버/0=흰색)
+const AIM_SPIN_COL = new THREE.Color(); // 스핀색 스크래치(중립→방향색, |spin| 비례)
+const AIM_DIR_COL = new THREE.Color(); // 방향색 스크래치(L=시안 / R=앰버) — 선·화살촉이 공유
 const AIM_TMP_COL = new THREE.Color(); // lerp 스크래치
+// 스핀 크기 = 조준선 색 농도. 예전엔 방향만 아는 하드 스위치라 0.3과 1.0이 화면상 같아 보였고,
+// 카메라를 near로 당긴 뒤로는 곡률로도 구분이 안 됐다(최대 스핀도 조준 화면에선 거의 직선).
+// 바닥값 — 0에서 곧장 올라가면 약한 스핀(0.1)이 흰색에 묻혀 '방향 없음'으로 읽힌다. 0.3부터 시작해
+// 있다/없다는 항상 보이게 하고, 그 위를 크기에 비례시킨다.
+const SPIN_TINT_FLOOR = 0.22;
+// 데스크톱 스핀 HUD 노출 시간(초). 값이 바뀐 뒤 이만큼만 떠 있다 사라진다.
+const SPIN_HUD_HOLD = 1.4;
+// 스핀 해상도 — 한쪽 20단계. 값 공간 전체(휠·드래그)가 이 배수만 갖는다.
+const SPIN_STEP = 0.05;
+// 휠 레이트 리밋(ms). 부호만 쓰는 구현이라 이벤트 1개 = 1스텝인데, 트랙패드 관성은 이벤트를 수백 개
+// 뿜어서 한 번 튕기면 값이 끝까지 날아갔다(원하는 값에 못 멈춤). 시간으로 막으면 1초에 최대 ~16스텝이라
+// 관성이 아무리 뿜어도 그 위로 못 올라가고, 디텐트 마우스는 원래 이보다 느려 영향을 안 받는다 —
+// 두 기기가 같은 속도로 수렴한다. deltaY 크기가 아니라 시간을 재는 게 핵심(트랙패드 delta는 못 믿는다).
+const SPIN_WHEEL_MIN_MS = 60;
+// 중립색(스핀 0)을 흰색에서 흐린 청회색으로 내렸다. 흰색 기준이면 앰버(#ffd86b)가 흰색 바로 옆이라
+// 그 사이를 아무리 나눠도 0.3과 1.0이 구분이 안 된다(실측: 둘 다 거의 흰색). 중립을 낮추면 크기가
+// 채도뿐 아니라 **밝기**로도 표현돼 폭이 넓어진다 — 스핀 0은 차분한 가이드, 풀스핀은 형광 네온.
+const AIM_NEUTRAL = 0xa8b2c8;
 const AIM_TIP = new THREE.Vector3(); // 조준선 끝점 월드좌표 스크래치 — 링 위치·카메라 거리(무할당)
 // 끝 마감: 조준선 폴리라인(Line2) 끝에 같은 획(core+case)으로 화살촉(∧)을 이어 붙인다 — 별도 마커/오브젝트가
 // 아니라 라인 지오메트리의 일부라 항상 선과 한 몸으로 자연스럽게 이어진다. 화살촉은 끝 접선(실제 진행 방향,
@@ -82,6 +101,10 @@ export class Controls {
   private chargeDir = 1;
   private draggingSpin = false;
   private wasAiming = false;
+  // 데스크톱 스핀 HUD 트랜지언트 — 남은 노출 시간(초)과 직전 프레임 스핀값
+  private spinHudT = 0;
+  private lastSpinShown = 0;
+  private lastWheelMs = 0; // 휠 레이트 리밋 타임스탬프
   // 조준선 재빌드 캐시 키(#1) — 입력(조준·스핀·보조·오일끝·볼물성) 불변이면 재적분·재업로드 스킵.
   private lastAimKey = '';
 
@@ -103,7 +126,6 @@ export class Controls {
   private readonly spinTrack: HTMLDivElement;
   private readonly spinFill: HTMLDivElement;
   private readonly spinThumb: HTMLDivElement;
-  private readonly spinValue: HTMLSpanElement;
 
   constructor(
     engine: Engine, // aimGroup을 씬에 추가 + 카메라 참조 저장(화살촉 거리 스케일 A)에 사용
@@ -246,6 +268,10 @@ export class Controls {
       display: 'flex',
       flexDirection: 'column',
       gap: '6px',
+      // 데스크톱은 숨긴 채 시작 — 방향·크기는 조준선 색이 상시로 말하므로 하단 패널은 정밀 확인용.
+      // 휠로 값을 바꾼 순간에만 떴다 사라진다. 터치는 이 바가 유일한 스핀 입력이라 상시 노출.
+      opacity: this.coarse ? '1' : '0',
+      transition: 'opacity 0.28s ease',
     });
 
     // 헤더: "스핀" 라벨 + 현재 수치
@@ -258,14 +284,6 @@ export class Controls {
       color: NEON.dim,
       textTransform: 'uppercase',
       flex: '0 0 auto',
-    });
-    this.spinValue = document.createElement('span');
-    css(this.spinValue, {
-      font: "700 12px/1 ui-monospace, 'SF Mono', monospace",
-      color: NEON.dim,
-      flex: '0 0 auto',
-      minWidth: '66px',
-      textAlign: 'right',
     });
 
     // 드래그 가능한 트랙 (중앙=0, 좌/우로 차오름).
@@ -281,7 +299,8 @@ export class Controls {
       background: this.coarse ? 'transparent' : 'rgba(255,255,255,0.1)',
       border: this.coarse ? 'none' : `1px solid ${rgba(NEON.cyan, 0.25)}`,
       borderRadius: '999px',
-      pointerEvents: 'auto',
+      // 데스크톱은 휠·Q/E가 입력을 담당하고 바는 표시기 — 숨겨진 상태로 클릭되면 사고라 아예 끈다.
+      pointerEvents: this.coarse ? 'auto' : 'none',
       cursor: 'ew-resize',
       touchAction: 'none',
     });
@@ -341,7 +360,7 @@ export class Controls {
     spinTrack.appendChild(this.spinThumb);
 
     const spinHint = document.createElement('div');
-    spinHint.textContent = this.coarse ? '드래그로 좌/우 스핀' : '휠 ◀ ▶ 또는 드래그 · Q/E';
+    spinHint.textContent = this.coarse ? '드래그로 좌/우 스핀' : '휠 ◀ ▶ · Q/E';
     css(spinHint, {
       font: FONT_UI,
       fontSize: '9px',
@@ -354,7 +373,6 @@ export class Controls {
     const spinHeader = document.createElement('div'); // 2단 상단: 라벨 ↔ 현재 수치
     css(spinHeader, { display: 'flex', justifyContent: 'space-between', alignItems: 'center' });
     spinHeader.appendChild(spinLabel);
-    spinHeader.appendChild(this.spinValue);
 
     spinWrap.appendChild(spinHeader);
     spinWrap.appendChild(spinTrack);
@@ -369,12 +387,12 @@ export class Controls {
     return (e.target as HTMLElement)?.tagName === 'CANVAS';
   }
 
-  /** 스핀 바 위 포인터 x → spin ∈ [-1,1] (0.1 단위, Q/E와 동일 해상도) */
+  /** 스핀 바 위 포인터 x → spin ∈ [-1,1] (SPIN_STEP 단위 — 휠과 같은 값 공간) */
   private setSpinFromPointer(clientX: number) {
     const r = this.spinTrack.getBoundingClientRect();
     const ratio = (clientX - r.left) / r.width; // 0..1
     const s = Math.max(-1, Math.min(1, ratio * 2 - 1));
-    this.spin = Math.round(s * 10) / 10;
+    this.spin = Math.round(s / SPIN_STEP) * SPIN_STEP;
   }
 
   private bindEvents() {
@@ -463,8 +481,14 @@ export class Controls {
       (e) => {
         if (this.game.state !== 'AIMING' || !this.game.isHumanTurn()) return;
         if (!this.onCanvas(e)) return; // 스핀 바 위에선 드래그가 담당
-        const step = Math.sign(e.deltaY) * 0.1; // 아래 = 오른쪽 훅(R) · 위 = 왼쪽 훅(L)
-        this.spin = Math.max(-1, Math.min(1, Math.round((this.spin + step) * 10) / 10));
+        const now = performance.now();
+        if (now - this.lastWheelMs < SPIN_WHEEL_MIN_MS) {
+          e.preventDefault(); // 리밋에 걸린 이벤트도 스크롤은 막는다
+          return;
+        }
+        this.lastWheelMs = now;
+        const step = Math.sign(e.deltaY) * SPIN_STEP; // 아래 = 오른쪽 훅(R) · 위 = 왼쪽 훅(L)
+        this.spin = Math.max(-1, Math.min(1, Math.round((this.spin + step) * 100) / 100));
         e.preventDefault();
       },
       { passive: false }, // 기본 스크롤 차단 (body가 overflow:hidden이라 실효는 없지만 명시)
@@ -494,13 +518,17 @@ export class Controls {
     this.spinThumb.style.left = `${50 + s * 50}%`;
     this.spinThumb.style.borderColor = s === 0 ? NEON.ice : dirColor;
     this.spinThumb.style.boxShadow = `0 0 8px ${rgba(s === 0 ? NEON.ice : dirColor, 0.85)}`;
-    if (s === 0) {
-      this.spinValue.textContent = '0';
-      this.spinValue.style.color = NEON.dim;
-    } else {
-      this.spinValue.textContent = s < 0 ? `◀ L ${Math.abs(s).toFixed(1)}` : `R ${s.toFixed(1)} ▶`;
-      this.spinValue.style.color = dirColor;
+    // 데스크톱 트랜지언트 노출: 값이 바뀐 뒤 SPIN_HUD_HOLD 동안만 띄운다. 발사 직후 throwBall이
+    // spin을 0으로 리셋하며 값이 '변하는' 것도 노출로 세지 않도록 조준 중일 때만 타이머를 건다.
+    // lastSpinShown은 매 프레임 갱신 — 안 그러면 리셋된 0이 다음 조준 턴에서 변화로 잡힌다.
+    if (!this.coarse) {
+      const aimingNow = this.game.state === 'AIMING' && this.game.isHumanTurn();
+      if (s !== this.lastSpinShown && aimingNow) this.spinHudT = SPIN_HUD_HOLD;
+      this.lastSpinShown = s;
+      if (this.spinHudT > 0) this.spinHudT = Math.max(0, this.spinHudT - dt);
+      this.spinWrap.style.opacity = this.spinHudT > 0 ? '1' : '0';
     }
+
 
     // 메뉴/AI 턴엔 입력 UI 전체 숨김 (로드맵 P1/P1.5)
     const inGame = this.game.state !== 'MENU' && this.game.isHumanTurn();
@@ -590,9 +618,13 @@ export class Controls {
     const positions: number[] = [];
     for (let i = 0; i < path.length; i++) positions.push(path[i][0] * k, 0.02, sz(path[i][1]));
 
-    // 색: L=시안 / R=앰버 / 0=흰색. 끝으로 갈수록 레인색(tan)으로 페이드 → 레인에 자연스럽게 녹아듦.
-    // 모듈 스크래치 재사용(무할당) — spinCol만 스핀 따라 갱신, tan/dark는 불변, tmp는 lerp용.
-    const spinCol = AIM_SPIN_COL.set(this.spin < 0 ? NEON.cyan : this.spin > 0 ? NEON.amber : 0xffffff);
+    // 색: 중립(청회색)에서 방향색(L=시안 / R=앰버)으로 |spin| 비례 lerp — 방향뿐 아니라 **크기**까지 화면
+    // 중앙에서 읽힌다(휠로 조준 중 스핀을 굴리게 되면서 필요해진 정보). 끝으로 갈수록 레인색(tan)으로
+    // 페이드 → 레인에 자연스럽게 녹아듦. 모듈 스크래치 재사용(무할당) — tan/dark 불변, tmp는 lerp용.
+    const spinMag = Math.abs(this.spin);
+    const spinT = spinMag > 0 ? SPIN_TINT_FLOOR + (1 - SPIN_TINT_FLOOR) * spinMag : 0;
+    const dirCol = AIM_DIR_COL.set(this.spin < 0 ? NEON.cyan : NEON.amber); // 화살촉과 공유
+    const spinCol = AIM_SPIN_COL.set(AIM_NEUTRAL).lerp(dirCol, spinT);
     const tan = AIM_TAN;
     const dark = AIM_DARK;
     const tmp = AIM_TMP_COL;
@@ -631,10 +663,10 @@ export class Controls {
       ex, 0.02, ez, // 팁으로 복귀(겹침)
       ex + (bx * ca + bz * sa) * AL, 0.02, ez + (-bx * sa + bz * ca) * AL, // 우 갈래
     );
-    // 끝을 또렷하게: 팁 vertex + 화살촉 3점을 페이드 없는 네온(우훅=앰버/좌훅=시안/중립=아이스)으로,
-    // case는 어두운 외곽으로 고정 — 끝이 레인색에 녹지 않고 선의 뾰족한 끝으로 맺힌다.
-    const tipCol = this.spin > 0 ? NEON.amber : this.spin < 0 ? NEON.cyan : NEON.ice;
-    tmp.set(tipCol);
+    // 끝을 또렷하게: 팁 vertex + 화살촉 3점을 페이드 없는 네온으로, case는 어두운 외곽으로 고정 —
+    // 끝이 레인색에 녹지 않고 선의 뾰족한 끝으로 맺힌다. 농도는 선 본체와 같은 spinT를 써서
+    // 중립(아이스)→방향색으로 같이 물든다 — 선은 옅은데 촉만 진하면 크기 신호가 어긋난다.
+    tmp.set(NEON.ice).lerp(dirCol, spinT);
     coreColors[last * 3] = tmp.r;
     coreColors[last * 3 + 1] = tmp.g;
     coreColors[last * 3 + 2] = tmp.b;
