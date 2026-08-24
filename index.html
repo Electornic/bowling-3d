@@ -17,7 +17,11 @@
         -webkit-user-select: none; user-select: none; -webkit-touch-callout: none;
       }
       /* 게임 표면: 브라우저 제스처(핀치/더블탭 줌·스크롤) 전부 차단 — 입력은 우리가 처리 */
-      canvas { display: block; touch-action: none; }
+      /* cursor:none — 데스크톱은 마우스 X가 곧 조준값(Controls: aim = f(clientX))이라 조준선+화살촉이
+         이미 포인터 역할을 한다. 화살표는 정보 중복인 데다 세로 위치가 조준과 무관해 오해를 부른다.
+         캔버스에만 걸면 메뉴 backdrop(fixed inset:0)·HUD·스핀바는 별개 엘리먼트라 각자 커서가 그대로
+         살아난다 — 커서가 실제로 필요한 순간엔 항상 보인다. */
+      canvas { display: block; touch-action: none; cursor: none; }
 
       /* 터미널 부팅 로더 — 게임 네온(시안+마젠타) 톤. 정적 HTML이라 모듈/WASM 로드와 병렬로 즉시 타이핑 시작. */
       /* z-index 1000: 메뉴(40)·도크·안내(50) 등 모든 UI 위에. 메뉴는 boot() 중 미리 만들어지므로
