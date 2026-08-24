@@ -13,6 +13,29 @@ const _v2 = new THREE.Vector3();
 const clamp = THREE.MathUtils.clamp;
 const lerp = THREE.MathUtils.lerp;
 
+// 릴리스 카메라 — 공 뒤 로우 체이스 (2026-08-19 실측으로 확정)
+//
+// 이전 값(팔로우 4.5m·높이 1.5·하한 -4.0·λ6)은 초기 커밋 이후 한 번도 튜닝된 적이 없었고,
+// 조준 카메라와 서로를 모른 채 각각 정해져 있었다. 그래서 릴리스 순간 카메라가 조준 위치보다
+// **뒤로 0.81m, 위로 0.38m** 움직였다 — 공은 앞으로 가는데 카메라는 멀어지는 방향.
+// "굴리면 공이 툭 작아진다"의 정체가 원근이 아니라 이 계단식 전환이었다.
+//
+// 실측 (1280x720, 동일 투구):   릴리스지름  최소지름   후퇴    상승   훅 진폭
+//   구 4.5m 상수                  9.9%      3.6%    0.69m  0.34m   20.4px
+//   현 2.5m 상수                 10.6%      6.0%    0      0.11m   38.9px
+//
+// 훅 진폭 = 백엔드(오일 끝~임팩트 직전)에서 공이 레인 대비 화면에서 움직이는 폭. 눈에 보이는 훅의
+// 크기다. 가까울수록 잘 보인다 — 횡변위의 화면 픽셀은 거리에 반비례하므로. "멀리서 봐야 궤적이
+// 보인다"는 직관은 경로의 존재에는 맞지만 꺾임의 해상도에는 반대다. 핀은 어느 거리에서도 프레임을
+// 벗어나지 않는다(전 구간 검증).
+const AIM_PZ = -2.7; // 조준 카메라 z. 팔로우 하한이 이보다 뒤면 릴리스에서 후퇴가 생긴다 → 하한으로 쓴다.
+const FOLLOW_DIST = 2.5; // 공 뒤 거리(m)
+const FOLLOW_Y = 0.85; // 팔로우 높이(m). 조준 1.12보다 낮아 릴리스에 카메라가 공 쪽으로 내려앉는다
+// (버그였던 상승과 반대 방향). 핀덱 접근 블렌드가 1.25로 끌어올리므로 낮게 깔수록 핀 앞에서
+// '일어서는' 비트가 산다: 높이 0.85→1.18, 시선 6.6°→10.8°. 1.5였을 땐 오히려 내려가서 그 비트가
+// 아예 없었다(9.3°→11.1°, 2도뿐).
+const FOLLOW_SMOOTH = 8; // 스무딩 λ. 6이면 8m/s에서 지연만 1.7m라 실효 추적거리가 크게 부푼다.
+
 /**
  * 상태별 카메라 연출 (도안 §9). 목표 위치/타겟을 프레임레이트 독립 스무딩으로 보간.
  * AIMING 로우앵글(원근 강조) → ROLLING 공 뒤 실시간 팔로우 → SETTLING 핀 클로즈업.
@@ -54,6 +77,7 @@ export class CameraRig {
     this.pushHold = PUSHIN_HOLD;
   }
 
+
   update(dt: number) {
     const cam = this.engine.camera;
     if (!this.inited) {
@@ -62,11 +86,11 @@ export class CameraRig {
     }
     const b = this.ball.mesh.position; // raw 물리 위치(60fps 끊김) 대신 보간된 메시 위치를 추적
 
-    // 기본 = 공 뒤 4.5m 팔로우 캠 (ROLLING·거터 SETTLING 공용).
-    // 스무딩 지연(≈v/6 ≈ 1.5m)이 있어도 공은 늘 전방에 잡힌다. 핀덱 근처(z>13)는 정지.
+    // 기본 = 공 뒤 로우 체이스 (ROLLING·거터 SETTLING 공용, 상수는 파일 상단).
+    // 하한이 조준 위치라 릴리스에서 뒤로 밀리지 않는다. 핀덱 근처(z>13)는 정지.
     let px = clamp(b.x * 0.4, -1, 1);
-    let py = 1.5;
-    let pz = clamp(b.z - 4.5, -4.0, 13.0);
+    let py = FOLLOW_Y;
+    let pz = clamp(b.z - FOLLOW_DIST, AIM_PZ, 13.0);
     let tx = clamp(b.x * 0.8, -1.2, 1.2);
     let ty = 0.1;
     let tz = Math.min(b.z + 4, 20);
@@ -82,7 +106,7 @@ export class CameraRig {
         break;
       case 'AIMING':
         // 낮고 가까운 1인칭 느낌 — 레인이 화면을 채우고 원근이 살도록
-        px = 0; py = 1.12; pz = -2.7;
+        px = 0; py = 1.12; pz = AIM_PZ;
         tx = 0; ty = -0.05; tz = 7.5;
         break;
       case 'ROLLING':
@@ -102,7 +126,7 @@ export class CameraRig {
         tx = 0; ty = 0.3; tz = 18.8;
     }
 
-    const k = 1 - Math.exp(-6 * dt); // 프레임레이트 독립 스무딩 (도안 §B.6)
+    const k = 1 - Math.exp(-FOLLOW_SMOOTH * dt); // 프레임레이트 독립 스무딩 (도안 §B.6)
     this.basePos.lerp(_v.set(px, py, pz), k);
     cam.position.copy(this.basePos);
 

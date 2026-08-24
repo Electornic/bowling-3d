@@ -67,14 +67,6 @@ export const RIVAL_SKINS: Record<string, BallSkin> = {
   yoon: { id: 'rival-yoon', label: '중수', finish: 'glow', color: 0xa855f7, roughness: 0.4, metalness: 0.3, emissive: 0xa855f7, emissiveIntensity: 0.5, decorColor: 0x2a1147 },
   han: { id: 'rival-han', label: '고수', finish: 'glow', color: 0xf0369b, roughness: 0.4, metalness: 0.3, emissive: 0xf0369b, emissiveIntensity: 0.5, decorColor: 0x4a0a2e },
 };
-// 2P 핫시트: 좌석 고정색(개인 스킨 무시). P1=블루 / P2=레드 (+3·4인 예비 대비색).
-export const HOTSEAT_SKINS: BallSkin[] = [
-  { id: 'seat-p1', label: 'P1', finish: 'glow', color: 0x3b82f6, roughness: 0.4, metalness: 0.35, emissive: 0x3b82f6, emissiveIntensity: 0.3, decorColor: 0x0a1e42 },
-  { id: 'seat-p2', label: 'P2', finish: 'glow', color: 0xff5a36, roughness: 0.4, metalness: 0.35, emissive: 0xff5a36, emissiveIntensity: 0.3, decorColor: 0x4a1408 },
-  { id: 'seat-p3', label: 'P3', finish: 'glow', color: 0x34d399, roughness: 0.4, metalness: 0.35, emissive: 0x34d399, emissiveIntensity: 0.3, decorColor: 0x0a3a2a },
-  { id: 'seat-p4', label: 'P4', finish: 'glow', color: 0xfbbf24, roughness: 0.4, metalness: 0.35, emissive: 0xfbbf24, emissiveIntensity: 0.3, decorColor: 0x4a3606 },
-];
-
 /** v1 업적(§6 core 6). 전부 gameOver 데이터로 판정. */
 export const ACHIEVEMENTS: Achievement[] = [
   { id: 'first_game', badge: '첫 발걸음', desc: '첫 게임 완주', icon: '🎳', reward: 'satin', tier: 'core' },
