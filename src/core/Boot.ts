@@ -149,7 +149,7 @@ function maybeShowOrientationHint() {
 
 /**
  * 씬 + 게임 + UI 조립 (M5).
- * 입력은 Controls(마우스 조준/파워 차징 + Q/E 스핀), 무게는 시작 메뉴 무게 슬라이더.
+ * 입력은 Controls(마우스 조준/파워 차징 + 휠 스핀), 무게는 시작 메뉴 무게 슬라이더.
  */
 function buildScene(engine: Engine): {
   game: GameState;

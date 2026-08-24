@@ -89,7 +89,7 @@ const POWER_SWEET_HI = RELEASE_SWEET_HI;
  * - 마우스: X → 조준(aim) hover 상시 갱신, 누르고 있으면 파워 핑퐁 차징, 떼면 발사.
  * - 터치(ⓑ): hover가 없어 **누른 채 좌우 드래그**로 조준(anchor 기준 상대), 동시에 파워 핑퐁
  *   차징, 떼면 발사. `isPrimary`/`pointerId`로 단일 포인터만 차징, `pointercancel`로 고착 방지.
- * - 스핀: Q/E 키 또는 하단 스핀 바 **드래그**(좌=훅L, 우=훅R), 수치 피드백.
+ * - 스핀: 데스크톱은 **휠**(레이트 리밋 + SPIN_STEP), 터치는 하단 스핀 바 **드래그**(좌=훅L, 우=훅R).
  *   터치 환경에선 스핀 바 히트영역·썸을 키운다(§3.1).
  * UI 요소(슬라이더 등) 위 포인터는 무시(canvas 타겟만 차징/조준).
  */
@@ -252,7 +252,7 @@ export class Controls {
     gaugeTrack.appendChild(zoneLine); // 앞: 경계선(채움 위로도 보이게)
     powerWrap.appendChild(gaugeTrack);
 
-    // === 스핀 게이지 (파워 위) — Q/E 또는 드래그로 좌/우 훅 설정 ===
+    // === 스핀 게이지 (파워 위) — 휠(데스크톱) 또는 드래그(터치)로 좌/우 훅 설정 ===
     const spinWrap = (this.spinWrap = document.createElement('div'));
     applyPanel(spinWrap, NEON.cyan); // 파워와 동일 액센트로 통일 (입력 쌍)
     css(spinWrap, {
@@ -299,7 +299,7 @@ export class Controls {
       background: this.coarse ? 'transparent' : 'rgba(255,255,255,0.1)',
       border: this.coarse ? 'none' : `1px solid ${rgba(NEON.cyan, 0.25)}`,
       borderRadius: '999px',
-      // 데스크톱은 휠·Q/E가 입력을 담당하고 바는 표시기 — 숨겨진 상태로 클릭되면 사고라 아예 끈다.
+      // 데스크톱은 휠이 입력을 담당하고 바는 표시기 — 숨겨진 상태로 클릭되면 사고라 아예 끈다.
       pointerEvents: this.coarse ? 'auto' : 'none',
       cursor: 'ew-resize',
       touchAction: 'none',
@@ -360,7 +360,7 @@ export class Controls {
     spinTrack.appendChild(this.spinThumb);
 
     const spinHint = document.createElement('div');
-    spinHint.textContent = this.coarse ? '드래그로 좌/우 스핀' : '휠 ◀ ▶ · Q/E';
+    spinHint.textContent = this.coarse ? '드래그로 좌/우 스핀' : '휠 ◀ ▶';
     css(spinHint, {
       font: FONT_UI,
       fontSize: '9px',
@@ -466,12 +466,6 @@ export class Controls {
       this.setSpinFromPointer(e.clientX);
       e.preventDefault();
     });
-    window.addEventListener('keydown', (e) => {
-      if (this.game.state !== 'AIMING' || !this.game.isHumanTurn()) return;
-      if (e.code === 'KeyQ') this.spin = Math.max(-1, Math.round((this.spin - 0.2) * 10) / 10);
-      else if (e.code === 'KeyE') this.spin = Math.min(1, Math.round((this.spin + 0.2) * 10) / 10);
-    });
-
     // 휠 = 스핀 (데스크톱 주 조작). 조준은 마우스 X, 파워는 버튼이라 마우스가 이미 두 축을 쓴다.
     // 스핀 바로 손을 옮기면 캔버스 복귀 시 조준이 그 자리로 튀어 "스핀→조준" 순서가 강제됐다.
     // 휠은 커서를 안 움직이는 유일한 축 — 조준을 유지한 채, 차징 중에도 스핀만 바꿀 수 있다.
