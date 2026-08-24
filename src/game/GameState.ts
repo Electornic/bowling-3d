@@ -234,6 +234,9 @@ export class GameState {
   /** 입력에서 호출: 공 발사 (spin ∈ [-1,1] 좌/우 훅) */
   throwBall(aim: number, power: number, spin = 0) {
     if (this.state !== 'AIMING' || !this.players.length) return;
+    // 핀세터 연출은 조준과 겹쳐 돌아간다 — 다 끝나기 전에 던지면 중간 높이의 핀을 세어버리므로
+    // 여기서 최종 상태로 확정한다(결과는 연출을 끝까지 본 것과 동일).
+    this.pins.finishCycle();
     this.standingAtThrow = this.pins.standingCount();
     this.ballObj.launch(aim, power, spin);
     this.state = 'ROLLING';
@@ -274,6 +277,9 @@ export class GameState {
 
   /** Loop의 물리 스텝마다 호출 */
   update(dt: number) {
+    // 핀세터 연출은 상태머신과 독립으로 굴린다 — 얼리 리턴 뒤에 두면 마지막 프레임 직후
+    // GAME_OVER로 넘어갈 때 핀이 공중에 뜬 채 얼어붙는다.
+    this.pins.update(dt);
     if (this.state === 'MENU' || this.state === 'GAME_OVER' || !this.players.length) return;
 
     // 오일/드라이 마찰 전환 (단일 바닥 콜라이더, Lane.updateFriction 참고).
@@ -431,7 +437,7 @@ export class GameState {
       }
       this.finishFrame();
     } else {
-      this.pins.respot(); // 선 핀은 제자리에 똑바로 재배치 + 데드우드 치움 (자동 핀세터 리스팟)
+      this.pins.runCycle('respot'); // 자동 핀세터 — 스윕이 데드우드를 밀고 선 핀을 스폿에 되놓는다
       p.ball = 2;
       this.ballObj.reset();
       this.state = 'AIMING';
@@ -460,8 +466,8 @@ export class GameState {
     }
 
     if (p.ball === 1) {
-      if (standing === 0) this.pins.resetAll();
-      else this.pins.respot();
+      if (standing === 0) this.pins.runCycle('rack');
+      else this.pins.runCycle('respot');
       p.ball = 2;
       this.ballObj.reset();
       this.state = 'AIMING';
@@ -469,8 +475,8 @@ export class GameState {
     } else if (p.ball === 2) {
       const earnedBonus = f[0] === 10 || f[0] + f[1] === 10; // 1구 스트라이크 또는 스페어
       if (earnedBonus) {
-        if (standing === 0) this.pins.resetAll();
-        else this.pins.respot();
+        if (standing === 0) this.pins.runCycle('rack');
+        else this.pins.runCycle('respot');
         p.ball = 3;
         this.ballObj.reset();
         this.state = 'AIMING';
@@ -523,7 +529,7 @@ export class GameState {
       if (!this.players[next].done) {
         const switched = next !== this.current;
         this.current = next;
-        this.pins.resetAll();
+        this.pins.runCycle('rack');
         this.ballObj.reset();
         this.applyBallSpecForTurn();
         this.state = 'AIMING';
