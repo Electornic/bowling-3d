@@ -36,7 +36,20 @@ export const PIN_STRIPES: readonly (readonly [number, number])[] = [
 ];
 export const PIN_MASS = 1.5;
 export const PIN_SPACING = 0.3048; // 핀 중심거리 12인치
-export const GUTTER_WIDTH = 0.23;
+export const GUTTER_WIDTH = 0.23; // 규격 9.25in=235mm
+export const GUTTER_DEPTH = 0.0476; // 규격 1.875in. 얕아서 공이 레인 모서리 위로 기댈 수 있다 →
+// 코너 핀(7·10)까지 11.6mm 파고든다(실측). 실제 채널은 곡면이라 공이 가운데 앉아 안 닿지만,
+// Rapier엔 오목 프리미티브가 없다. 그래서 형상 대신 **콜리전 그룹**으로 보장한다(아래).
+
+// --- 콜리전 그룹 (Rapier: (membership<<16)|filter, 상호작용 조건 = 양방향 비트 교집합) ---
+// 거터에 들어간 공은 핀과 물리적으로 만나지 않는다. USBC도 "공이 레인을 벗어나면 그 투구의
+// 핀폴은 인정하지 않는다"이므로 규칙과 어긋나지 않는다 — 오히려 규칙 그대로다.
+// 핀 멤버십은 PIN 비트 **하나만** 이어야 한다. 다른 비트를 섞으면 공의 필터가 그 비트로
+// 통과해버려 잠금이 풀린다.
+export const GROUP_PIN = 0x0002;
+export const PIN_COLLISION_GROUPS = (GROUP_PIN << 16) | 0xffff; // 핀: PIN 소속, 전부와 충돌
+export const BALL_GROUPS_ALL = 0xffffffff;
+export const BALL_GROUPS_NO_PINS = (0xffff << 16) | (0xffff & ~GROUP_PIN);
 export const BALL_START_Z = -1; // 공 시작 (파울라인 뒤)
 
 // --- 핀 배치 (정삼각형) ---

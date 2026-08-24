@@ -9,6 +9,7 @@ import {
   PIN_LINEAR_DAMPING,
   PIN_PROFILE,
   PIN_STRIPES,
+  PIN_COLLISION_GROUPS,
 } from '../game/constants';
 
 export const PIN_RADIUS = 0.06; // 콜라이더 반경 (도안 §4.4: ≥0.06, 터널링 방지)
@@ -82,6 +83,7 @@ export class Pin {
         .setRestitution(PIN_RESTITUTION)
         .setFriction(0.3)
         .setFrictionCombineRule(RAPIER.CoefficientCombineRule.Max)
+        .setCollisionGroups(PIN_COLLISION_GROUPS) // 거터볼 잠금을 위해 핀만 별도 소속
         .setActiveEvents(RAPIER.ActiveEvents.CONTACT_FORCE_EVENTS)
         .setContactForceEventThreshold(2),
       this.body,

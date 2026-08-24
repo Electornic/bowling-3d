@@ -14,6 +14,8 @@ import {
   effectiveSpin,
   ROLL_RATIO,
   BALL_FRICTION,
+  BALL_GROUPS_ALL,
+  BALL_GROUPS_NO_PINS,
 } from '../game/constants';
 import { hookFactor } from '../game/oil';
 import type { BallSpec } from '../game/BallSpec';
@@ -168,9 +170,20 @@ export class Ball {
     );
   }
 
+  /**
+   * 핀과의 충돌 on/off. 거터로 빠진 공을 잠그는 용도 — 규격 깊이(47.6mm) 거터는 얕아서
+   * 공이 레인 모서리 위로 기대며 코너 핀(7·10)까지 11.6mm 파고든다(실측). 실제 채널은 곡면이라
+   * 공이 가운데 앉아 안 닿지만 Rapier엔 오목 프리미티브가 없다. 형상 튜닝은 확률이고 이건 보장이다.
+   * USBC도 "공이 레인을 벗어나면 그 투구의 핀폴은 인정하지 않는다"이므로 규칙과 일치한다.
+   */
+  setPinCollision(on: boolean) {
+    this.collider.setCollisionGroups(on ? BALL_GROUPS_ALL : BALL_GROUPS_NO_PINS);
+  }
+
   reset() {
     this.body.setTranslation({ x: 0, y: BALL_RADIUS, z: BALL_START_Z }, true);
     this.body.setLinvel({ x: 0, y: 0, z: 0 }, true);
     this.body.setAngvel({ x: 0, y: 0, z: 0 }, true);
+    this.setPinCollision(true); // 다음 투구를 위해 잠금 해제
   }
 }

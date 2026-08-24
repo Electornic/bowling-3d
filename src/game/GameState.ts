@@ -309,6 +309,10 @@ export class GameState {
       this.ballObj.applySpinForce(dt); // 훅 측면력 (도안 §4.1)
       const t = this.ballObj.body.translation();
       const inGutter = Math.abs(t.x) > LANE_WIDTH / 2 - BALL_RADIUS;
+      // 공 중심이 레인을 완전히 벗어나면 그 투구 내내 핀과의 충돌을 끈다(래치 — 다시 안 켠다).
+      // 튕겨 돌아와도 마찬가지다: USBC상 공이 레인을 벗어난 뒤의 핀폴은 어차피 인정되지 않는다.
+      // ballObj.reset()이 다음 투구에서 되돌린다.
+      if (Math.abs(t.x) > LANE_WIDTH / 2) this.ballObj.setPinCollision(false);
       // 핀존 통과 / 거터 / 레인 밖 낙하 (도안 §4.2 전환 조건)
       if (t.z > PIN_DECK_END || inGutter || t.y < -2) {
         this.state = 'SETTLING';

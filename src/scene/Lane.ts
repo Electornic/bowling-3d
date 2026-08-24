@@ -5,6 +5,7 @@ import { getRapier } from '../core/Boot';
 import {
   LANE_WIDTH,
   GUTTER_WIDTH,
+  GUTTER_DEPTH,
   PIN_DECK_END,
   LANE_FRICTION_OIL,
   LANE_FRICTION_DRY,
@@ -84,12 +85,14 @@ export class Lane {
         new THREE.BoxGeometry(gw, 0.1, len),
         new THREE.MeshStandardMaterial({ color: 0x14181f, roughness: 1, envMapIntensity: 0 }), // 무광
       );
-      gutter.position.set(gx, -0.18, midZ); // 레인보다 0.13 낮음 → 공이 빠지면 핀 못 닿음
+      // 규격 깊이(47.6mm). 예전 0.13은 "공 중심을 레인면 아래로 눌러 옆면이 막게" 하려던 값인데,
+      // 그 역할은 이제 콜리전 그룹(GameState의 거터 래치)이 확실하게 대신한다.
+      gutter.position.set(gx, -GUTTER_DEPTH - 0.05, midZ);
       gutter.receiveShadow = true;
       engine.addVisual(gutter);
 
       const gBody = engine.world.createRigidBody(
-        RAPIER.RigidBodyDesc.fixed().setTranslation(gx, -0.18, midZ),
+        RAPIER.RigidBodyDesc.fixed().setTranslation(gx, -GUTTER_DEPTH - 0.05, midZ),
       );
       engine.world.createCollider(
         RAPIER.ColliderDesc.cuboid(gw / 2, 0.05, len / 2).setFriction(0.08),
