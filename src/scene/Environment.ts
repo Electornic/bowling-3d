@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { makePinGeometry } from './Pin';
 import type { Engine } from '../core/Engine';
 import {
   LANE_WIDTH,
@@ -7,7 +8,6 @@ import {
   HEADPIN_Z,
   PIN_SPACING,
   ROW_GAP,
-  PIN_PROFILE,
 } from '../game/constants';
 import { NEON, rgba } from '../ui/theme'; // 네온 팔레트 단일소스(#5) — 씬 머티리얼·캔버스가 theme.ts와 같은 상수 공유(드리프트 0)
 
@@ -124,9 +124,10 @@ export class Environment {
     const matRail = new THREE.MeshStandardMaterial({ color: 0x2a3140, roughness: 0.85 });
     // 배경 장식 핀 — 진짜 핀(Pin.ts)과 같은 병 실루엣 LatheGeometry. (예전 단순 원뿔 실린더라 어색했음.)
     // base가 y=0, 꼭대기 y≈0.38. 배경이라 세그먼트는 적게(12). 프로파일은 constants.PIN_PROFILE 단일소스 공유(#9).
-    const pinProfile = PIN_PROFILE.map(([r, y]) => new THREE.Vector2(r, y));
-    const pinGeo = new THREE.LatheGeometry(pinProfile, 12);
-    const pinMat = new THREE.MeshStandardMaterial({ color: 0xf0ece4, roughness: 0.5 });
+    // 진짜 핀과 같은 헬퍼 — 목 빨간 띠까지 공유한다(한쪽만 민무늬면 같은 화면에서 티가 난다).
+    // 세그먼트는 12→16만: 장식이라 항상 멀리 있고 4레인 × 10개 = 40개다.
+    const pinGeo = makePinGeometry(16);
+    const pinMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.5 });
 
     // --- 옆 레인 ×2 (양쪽, 장식용) ---
     for (const side of [-1, 1]) {
