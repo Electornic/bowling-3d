@@ -39,6 +39,16 @@ const TABLE_Y_UP = 1.5; // 테이블 대기(마스킹 뒤)
 const TABLE_Y_GRIP = 0.43; // 핀 머리를 무는 높이
 const TABLE_Y_LIFT = 0.93; // 물고 올라간 높이
 const TABLE_PIN_DROP = TABLE_Y_GRIP - PIN_HEIGHT / 2; // 테이블 y → 물린 핀 y 오프셋
+// 판금 테이블 치수. 실제 pin table은 슬래브가 아니라 **구멍 뚫린 판금**이다(AMF 특허 US5876290:
+// "generally planar ... with a plurality of pin openings, and lips ... around the periphery of each
+// of the openings"). 볼러가 보는 건 그 판의 밑면 — 핀 삼각형과 같은 배치의 구멍 10개다.
+const TBL_THICK = 0.05; // 판 두께
+const TBL_HOLE_R = 0.05; // 구멍 반경 — 목(23mm)보다 크고 배(60mm)보다 작다
+const TBL_PAD = 0.19; // 핀 삼각형 바깥 여백
+const FINGER_Y = -TBL_THICK / 2 - 0.03; // 핑거가 판 아래로 내려온 높이(테이블 로컬)
+const GRIP_OPEN = TBL_HOLE_R + 0.014; // 벌어진 핑거 간격(중심에서)
+const GRIP_CLOSED = 0.026; // 목을 문 간격 — 목 반지름 23mm에 맞물린다
+const M4 = new THREE.Matrix4(); // 인스턴스 행렬 스크래치(무할당)
 
 const smooth = (k: number) => k * k * (3 - 2 * k);
 const lerp = (a: number, b: number, k: number) => a + (b - a) * k;
@@ -58,7 +68,9 @@ export class PinSet {
   // 치울 핀과 내려놓을 핀이 같은 객체다. 하나로 합쳐두면 스윕이 stash한 핀을 같은 프레임의
   // hold()가 즉시 되살려 데드우드가 영영 안 사라진다(실측: rack 사이클 내내 10개 보임).
   private readonly sweepBar: THREE.Mesh;
-  private readonly pinTable: THREE.Mesh;
+  private readonly pinTable: THREE.Group; // 판 + 핑거 묶음 (y만 움직인다)
+  private readonly fingers: THREE.InstancedMesh; // 구멍당 2개 × 10 = 20
+  private readonly holeXZ: { x: number; z: number }[] = []; // 테이블 로컬 구멍 좌표
 
   constructor(engine: Engine) {
     PIN_ROWS.forEach((cols, r) => {
@@ -86,21 +98,72 @@ export class PinSet {
     engine.scene.add(this.sweepBar);
 
     // 핀 테이블(스포팅 테이블) — 핀을 무는 기계 뭉치. 이게 보여야 핀의 상하 운동이 기계로 읽힌다.
-    // 핀덱 삼각형을 덮는 판 하나로 충분하다(그리퍼 셀까지 모델링할 필요 없음 — 거리에서 안 읽힌다).
+    // 상자 슬래브로 만들었더니 여전히 짜쳤는데, 실제 판의 정체성은 **구멍 10개**였다.
     const deckMidZ = (HEADPIN_Z + PIN_DECK_END) / 2;
-    this.pinTable = new THREE.Mesh(
-      new THREE.BoxGeometry(LANE_WIDTH - 0.05, 0.07, PIN_DECK_END - HEADPIN_Z + 0.42),
-      new THREE.MeshStandardMaterial({
-        color: 0x20262f,
-        metalness: 0.75,
-        roughness: 0.3,
-        emissive: 0x0d2f3a,
-        emissiveIntensity: 0.5,
-      }),
+    const halfW = LANE_WIDTH / 2 - 0.02;
+    const halfD = (PIN_DECK_END - HEADPIN_Z) / 2 + TBL_PAD;
+    // Shape는 XY 평면 — 나중에 rotateX(-90°)로 눕힌다. 그때 shape의 +y가 월드 -z가 되므로
+    // 구멍의 z는 부호를 뒤집어 넣는다. 구멍 배치는 핀과 같은 PIN_ROWS/PIN_SPACING에서 뽑아
+    // 어긋날 여지를 없앤다.
+    const plate = new THREE.Shape();
+    plate.moveTo(-halfW, -halfD);
+    plate.lineTo(halfW, -halfD);
+    plate.lineTo(halfW, halfD);
+    plate.lineTo(-halfW, halfD);
+    plate.closePath();
+    PIN_ROWS.forEach((cols, r) => {
+      for (const c of cols) {
+        const hx = c * PIN_SPACING;
+        const hz = HEADPIN_Z + r * ROW_GAP - deckMidZ;
+        this.holeXZ.push({ x: hx, z: hz });
+        const hole = new THREE.Path();
+        hole.absarc(hx, -hz, TBL_HOLE_R, 0, Math.PI * 2, true);
+        plate.holes.push(hole);
+      }
+    });
+    // bevel = 구멍 둘레와 판 외곽의 '립'. 판금이 접혀 올라간 그 느낌을 싸게 낸다.
+    const plateGeo = new THREE.ExtrudeGeometry(plate, {
+      depth: TBL_THICK,
+      bevelEnabled: true,
+      bevelThickness: 0.008,
+      bevelSize: 0.006,
+      bevelSegments: 1,
+      curveSegments: 14,
+    });
+    plateGeo.rotateX(-Math.PI / 2);
+    plateGeo.translate(0, -TBL_THICK / 2, 0);
+    const steel = new THREE.MeshStandardMaterial({
+      color: 0x8b939e, // 강판 — 이전 0x20262f는 거의 검정이라 어두운 핀덱에 묻혔다
+      metalness: 0.9,
+      roughness: 0.28,
+    });
+    this.pinTable = new THREE.Group();
+    this.pinTable.add(new THREE.Mesh(plateGeo, steel));
+
+    // 그리퍼 핑거 — 구멍마다 양쪽 2개. 목을 무는 순간이 보여야 '기계가 집는다'가 완성된다.
+    this.fingers = new THREE.InstancedMesh(
+      new THREE.BoxGeometry(0.012, 0.06, 0.012),
+      new THREE.MeshStandardMaterial({ color: 0xb8c0cb, metalness: 0.95, roughness: 0.22 }),
+      this.holeXZ.length * 2,
     );
+    this.pinTable.add(this.fingers);
+    this.setGrip(0);
     this.pinTable.position.set(0, TABLE_Y_UP, deckMidZ);
     this.pinTable.visible = false;
     engine.scene.add(this.pinTable);
+  }
+
+  /** 그리퍼 개폐 — k=0 벌어짐, k=1 목을 문 상태 */
+  private setGrip(k: number) {
+    const spread = lerp(GRIP_OPEN, GRIP_CLOSED, k);
+    let n = 0;
+    for (const h of this.holeXZ) {
+      for (const side of [-1, 1]) {
+        M4.makeTranslation(h.x + side * spread, FINGER_Y, h.z);
+        this.fingers.setMatrixAt(n++, M4);
+      }
+    }
+    this.fingers.instanceMatrix.needsUpdate = true;
   }
 
   /**
@@ -146,6 +209,7 @@ export class PinSet {
     this.sweepBar.position.set(0, BAR_Y_UP, BAR_Z0);
     this.pinTable.visible = false;
     this.pinTable.position.y = TABLE_Y_UP;
+    this.setGrip(0);
   }
 
   /** Loop 물리 스텝마다 — 사이클 연출 진행 */
@@ -166,15 +230,19 @@ export class PinSet {
       const k = smooth(t / CY_GUARD);
       bar.visible = true;
       bar.position.set(0, lerp(BAR_Y_UP, BAR_Y_DOWN, k), BAR_Z0);
+      this.setGrip(0); // 벌린 채 대기
     } else if (t < CY_GRIP) {
       // ② 테이블 하강 → 목을 문다. 아직 핀은 스폿에 서 있다(물리는 그대로).
       const k = smooth((t - CY_GUARD) / (CY_GRIP - CY_GUARD));
       tbl.visible = true;
       tbl.position.y = lerp(TABLE_Y_UP, TABLE_Y_GRIP, k);
+      // 다 내려온 뒤에 문다 — 내려오면서 물면 핑거가 핀을 통과하는 것처럼 보인다
+      this.setGrip(smooth(Math.max(0, (k - 0.65) / 0.35)));
     } else if (t < CY_LIFT) {
       // ③ 테이블이 핀을 들고 상승
       const k = smooth((t - CY_GRIP) / (CY_LIFT - CY_GRIP));
       tbl.position.y = lerp(TABLE_Y_GRIP, TABLE_Y_LIFT, k);
+      this.setGrip(1);
       carry(tbl.position.y, this.cycleHold);
     } else if (t < CY_SWEEP) {
       // ④ 스윕 전진 — 지나간 z의 데드우드가 피트로
@@ -200,6 +268,7 @@ export class PinSet {
     } else if (t < CY_END) {
       // ⑦ 테이블·스윕 상승 — 핀은 스폿에 고정된 채 남는다
       const k = smooth((t - CY_SET) / (CY_END - CY_SET));
+      this.setGrip(1 - k); // 놓으면서 벌어진다
       tbl.position.y = lerp(TABLE_Y_GRIP, TABLE_Y_UP, k);
       bar.position.set(0, lerp(BAR_Y_DOWN, BAR_Y_UP, k), BAR_Z0);
       for (const p of this.cyclePlace) p.hold(spotY);
