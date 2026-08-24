@@ -320,6 +320,9 @@ export class GameState {
       this.settleGutterPerch(); // 레인 끝 모서리에 얹힌 느린 거터볼을 골로 굴려넣음 (perch 버그 보정)
       const done = this.pins.allSettled() && this.ballGoneOrStopped();
       if (done || this.settleTimer > SETTLE_TIMEOUT) {
+        // 거터·킥백으로 나간 핀은 데드우드 — 점수 세기 전에 치운다. isStanding()이 이미
+        // 쓰러짐으로 세고 있어 점수는 안 바뀌고, 꼿꼿이 선 채 남아 있던 모습만 사라진다.
+        this.pins.clearOffLane();
         this.score();
       }
     }

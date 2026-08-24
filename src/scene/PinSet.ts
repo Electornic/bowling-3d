@@ -24,13 +24,16 @@ const UP_COS_45 = Math.cos(Math.PI / 4); // ≈0.707
 //   ④ 스윕 전진 — 데드우드를 피트로   ⑤ 스윕 가드 복귀
 //   ⑥ 테이블 하강 — 핀을 스폿에 놓음   ⑦ 테이블·스윕 상승
 // 총 2.45초. 조준·점수집계와 겹쳐 돌므로 체감 대기는 여전히 0이다.
-const CY_GUARD = 0.3;
-const CY_GRIP = 0.65;
-const CY_LIFT = 0.9;
-const CY_SWEEP = 1.45;
-const CY_RETURN = 1.75;
-const CY_SET = 2.15;
-const CY_END = 2.45;
+// 총 4.05초. 첫 판정은 2.45초였는데 "너무 빠르다" — 실기계는 5~8초고 그중 눈에 보이는
+// 테이블·스윕 구간만도 4초 안팎이다. 조준과 병렬로 도니 길어져도 체감 대기는 그대로 0이지만,
+// 플레이어가 다 끝나기 전에 던지면 finishCycle()이 스냅한다(결과는 동일, 연출만 잘림).
+const CY_GUARD = 0.55;
+const CY_GRIP = 1.15;
+const CY_LIFT = 1.55;
+const CY_SWEEP = 2.55;
+const CY_RETURN = 3.0;
+const CY_SET = 3.6;
+const CY_END = 4.05;
 const BAR_Y_UP = 1.2; // 스윕 바 대기 높이(마스킹 뒤)
 const BAR_Y_DOWN = 0.15; // 가드/쓸기 높이
 const BAR_Z0 = HEADPIN_Z - 0.45; // 볼러 쪽 — 가드 위치이자 쓸기 시작점
@@ -291,6 +294,25 @@ export class PinSet {
     // 회전된 (0,1,0)의 y성분 = cos(tilt)
     const upY = 1 - 2 * (q.x * q.x + q.z * q.z);
     return upY > UP_COS_45 && t.y > PIN_HEIGHT * 0.25;
+  }
+
+  /**
+   * 레인 밖(거터·킥백)으로 나간 핀을 즉시 치운다 — 실제 볼링에서도 채널에 들어간 핀은
+   * 데드우드라 다시 세우지 않는다. isStanding()이 이미 |x|>LANE_WIDTH/2를 쓰러짐으로 세므로
+   * 점수는 원래 맞았고, **보이는 것만** 꼿꼿이 선 핀으로 남아 있었다.
+   *
+   * 형상으로 막으려던 시도는 둘 다 실패했다(실측):
+   *   · 평평한 거터 → 틸트 0°로 10/10 완벽 직립
+   *   · V홈       → 오히려 악화. V블록은 원통을 붙잡는 가장 안정적인 형상이다
+   *   · 20° 경사면 → 20/20이 2~15°로 잔존. 거터 폭이 0.23m뿐이라 핀이 킥백 벽에 기댄다.
+   *                  게다가 공이 벽에 쓸려 느려졌다(3초에 16.93→15.24m)
+   * 벽이 있는 한 기댈 곳이 없어지지 않으므로 규칙 층이 옳은 자리다.
+   */
+  clearOffLane() {
+    for (const p of this.pins) {
+      const t = p.body.translation();
+      if (Math.abs(t.x) > LANE_WIDTH / 2 && t.y > -1) p.stash();
+    }
   }
 
   /** 현재 서 있는 핀 수 */
