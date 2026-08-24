@@ -502,7 +502,7 @@ export class MenuUI {
     css(help, { marginTop: '8px', font: '500 11px/1.6 system-ui, sans-serif', color: '#6b7686' });
     help.textContent = COARSE
       ? '누른 채 좌우로 조준 · 떼면 파워 발사 · 하단 바 = 스핀'
-      : '마우스 이동 = 조준 · 꾹 눌렀다 떼기 = 파워 발사 · Q/E = 좌/우 스핀';
+      : '마우스 이동 = 조준 · 꾹 눌렀다 떼기 = 파워 발사 · 휠 = 좌/우 스핀';
     this.panel.appendChild(help);
   }
 
@@ -663,7 +663,7 @@ export class MenuUI {
     });
     help.innerHTML = COARSE
       ? '🎯 <b>드래그</b> 조준 · <b>홀드</b> 파워 · <b>하단 바</b> 스핀'
-      : '🎯 <b>마우스</b> 조준 · <b>꾹 눌렀다 떼기</b> 파워 · <b>Q / E</b> 스핀';
+      : '🎯 <b>마우스</b> 조준 · <b>꾹 눌렀다 떼기</b> 파워 · <b>휠</b> 스핀';
     this.panel.appendChild(help);
 
     // 계속하기 (주 버튼)

@@ -341,7 +341,7 @@ export class Controls {
     spinTrack.appendChild(this.spinThumb);
 
     const spinHint = document.createElement('div');
-    spinHint.textContent = this.coarse ? '드래그로 좌/우 스핀' : '드래그 또는 Q ◀ ▶ E';
+    spinHint.textContent = this.coarse ? '드래그로 좌/우 스핀' : '휠 ◀ ▶ 또는 드래그 · Q/E';
     css(spinHint, {
       font: FONT_UI,
       fontSize: '9px',
@@ -365,7 +365,7 @@ export class Controls {
     this.bindEvents();
   }
 
-  private onCanvas(e: PointerEvent): boolean {
+  private onCanvas(e: Event): boolean {
     return (e.target as HTMLElement)?.tagName === 'CANVAS';
   }
 
@@ -453,6 +453,22 @@ export class Controls {
       if (e.code === 'KeyQ') this.spin = Math.max(-1, Math.round((this.spin - 0.2) * 10) / 10);
       else if (e.code === 'KeyE') this.spin = Math.min(1, Math.round((this.spin + 0.2) * 10) / 10);
     });
+
+    // 휠 = 스핀 (데스크톱 주 조작). 조준은 마우스 X, 파워는 버튼이라 마우스가 이미 두 축을 쓴다.
+    // 스핀 바로 손을 옮기면 캔버스 복귀 시 조준이 그 자리로 튀어 "스핀→조준" 순서가 강제됐다.
+    // 휠은 커서를 안 움직이는 유일한 축 — 조준을 유지한 채, 차징 중에도 스핀만 바꿀 수 있다.
+    // 트랙패드 관성 스크롤은 deltaY가 폭주하므로 크기를 버리고 부호만 쓴다(1노치 = 0.1, 드래그와 동해상도).
+    window.addEventListener(
+      'wheel',
+      (e) => {
+        if (this.game.state !== 'AIMING' || !this.game.isHumanTurn()) return;
+        if (!this.onCanvas(e)) return; // 스핀 바 위에선 드래그가 담당
+        const step = Math.sign(e.deltaY) * 0.1; // 아래 = 오른쪽 훅(R) · 위 = 왼쪽 훅(L)
+        this.spin = Math.max(-1, Math.min(1, Math.round((this.spin + step) * 10) / 10));
+        e.preventDefault();
+      },
+      { passive: false }, // 기본 스크롤 차단 (body가 overflow:hidden이라 실효는 없지만 명시)
+    );
   }
 
   /** 매 렌더 프레임 (Loop onFrame, dt=프레임 초): 파워 차징 + 조준선/스핀 게이지 갱신 */
