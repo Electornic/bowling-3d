@@ -10,6 +10,7 @@ import {
   LANE_WIDTH,
   PIN_ROWS,
   PIN_DECK_END,
+  GUTTER_WIDTH,
 } from '../game/constants';
 import { PIN_NUMBERS } from '../game/splits';
 
@@ -35,7 +36,13 @@ const CY_RETURN = 3.0;
 const CY_SET = 3.6;
 const CY_END = 4.05;
 const BAR_Y_UP = 1.2; // 스윕 바 대기 높이(마스킹 뒤)
-const BAR_Y_DOWN = 0.15; // 가드/쓸기 높이
+// 쓸기 높이. 바 높이 0.52라 아래 끝이 -0.17 — 거터 바닥(-0.13)보다 낮아야 거터의 핀까지 민다.
+// 예전 0.15(아래 끝 0.0)는 레인 위만 훑고 거터를 그냥 지나쳤다.
+const BAR_Y_DOWN = 0.09;
+const BAR_H = 0.52; // 바 높이 — 거터 바닥까지 닿는다
+// 폭: 레인 + 양쪽 거터 전체. 실제 스윕도 "핀 스탠드 구간 및 인접 거터"를 함께 치운다
+// (AMF 특허 US2250503). 예전 LANE_WIDTH+0.1은 거터에 닿지도 않았다.
+const BAR_W = LANE_WIDTH + 2 * GUTTER_WIDTH + 0.06;
 const BAR_Z0 = HEADPIN_Z - 0.45; // 볼러 쪽 — 가드 위치이자 쓸기 시작점
 const BAR_Z1 = PIN_DECK_END + 0.35; // 피트 쪽 끝 — 데드우드를 넘겨버리는 지점
 const TABLE_Y_UP = 1.5; // 테이블 대기(마스킹 뒤)
@@ -87,7 +94,7 @@ export class PinSet {
     // 스윕 바(레이크) — 물리 바디가 아니라 순수 비주얼이다. 데드우드를 실제로 밀어내면 핀이 튀거나
     // 끼는 사고가 나므로, 바가 지나가는 z를 넘긴 핀을 stash()로 치우는 방식이 훨씬 싸고 안정적이다.
     this.sweepBar = new THREE.Mesh(
-      new THREE.BoxGeometry(LANE_WIDTH + 0.1, 0.3, 0.05),
+      new THREE.BoxGeometry(BAR_W, BAR_H, 0.05),
       new THREE.MeshStandardMaterial({
         color: 0x161c28,
         metalness: 0.65,
@@ -294,25 +301,6 @@ export class PinSet {
     // 회전된 (0,1,0)의 y성분 = cos(tilt)
     const upY = 1 - 2 * (q.x * q.x + q.z * q.z);
     return upY > UP_COS_45 && t.y > PIN_HEIGHT * 0.25;
-  }
-
-  /**
-   * 레인 밖(거터·킥백)으로 나간 핀을 즉시 치운다 — 실제 볼링에서도 채널에 들어간 핀은
-   * 데드우드라 다시 세우지 않는다. isStanding()이 이미 |x|>LANE_WIDTH/2를 쓰러짐으로 세므로
-   * 점수는 원래 맞았고, **보이는 것만** 꼿꼿이 선 핀으로 남아 있었다.
-   *
-   * 형상으로 막으려던 시도는 둘 다 실패했다(실측):
-   *   · 평평한 거터 → 틸트 0°로 10/10 완벽 직립
-   *   · V홈       → 오히려 악화. V블록은 원통을 붙잡는 가장 안정적인 형상이다
-   *   · 20° 경사면 → 20/20이 2~15°로 잔존. 거터 폭이 0.23m뿐이라 핀이 킥백 벽에 기댄다.
-   *                  게다가 공이 벽에 쓸려 느려졌다(3초에 16.93→15.24m)
-   * 벽이 있는 한 기댈 곳이 없어지지 않으므로 규칙 층이 옳은 자리다.
-   */
-  clearOffLane() {
-    for (const p of this.pins) {
-      const t = p.body.translation();
-      if (Math.abs(t.x) > LANE_WIDTH / 2 && t.y > -1) p.stash();
-    }
   }
 
   /** 현재 서 있는 핀 수 */
