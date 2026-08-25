@@ -49,8 +49,12 @@ const BAR_Y_UP = 1.2; // 스윕 바 대기 높이(마스킹 뒤)
 // 레이크의 모습이 이 '가드 자세'다 — 데크에 딱 붙어 있는 게 아니라 핀 몸통 중간에 걸쳐 있다.
 // 아래 끝 0.06으로 데크와 살짝 뜨는데, 실기계도 데크 위 클리어런스가 있고 기능상으로도 문제없다:
 // 데드우드 밀어내기는 바의 **z**로만 판정하므로 높이는 순수하게 보이는 문제다.
-const BAR_Y_DOWN = 0.18;
-const BAR_H = 0.24;
+// 블레이드는 얕은 판이다. 실제 레이크는 레인에서 63⅜in(1.61m) 높이의 축에서 팔로 매달려
+// 내려오고, 판 자체는 그 끝에 달린 얕은 슬랫이다. 0.24m(핀 높이의 63%)는 너무 두꺼워서
+// 핀 위쪽 21%만 보였다. 0.14m로 줄이고 핀 중간에 걸치면 0.09~0.23 —
+// 아래 24% + 위 39% = **핀의 63%가 드러난다**(가드 자세는 유지).
+const BAR_Y_DOWN = 0.16;
+const BAR_H = 0.14;
 // 판 두께. 5cm는 핀 지름(121mm)의 절반이라 판금이 아니라 슬래브였다. 실제 스윕 시트는 2~3mm인데
 // 그대로 쓰면 이 거리에서 사라지거나 깜빡이므로 14mm로 절충.
 const BAR_T = 0.014;
@@ -143,10 +147,10 @@ export class PinSet {
     // 상단 보강 테두리 — 실제 판금은 위쪽을 접어 보강한다. 살짝 밝고 두꺼운 띠 하나로
     // '평면'이 '만들어진 부품'이 된다(멀리서 읽히는 건 이 명암 단차뿐이다).
     const lip = new THREE.Mesh(
-      new THREE.BoxGeometry(BAR_W, 0.04, 0.032), // 접힌 보강 테두리 — 시트보다 두껍게 튀어나온다
+      new THREE.BoxGeometry(BAR_W, 0.026, 0.03), // 접힌 보강 테두리 — 시트보다 두껍게 튀어나온다
       new THREE.MeshStandardMaterial({ color: 0xb3bbc7, metalness: 0.9, roughness: 0.28 }),
     );
-    lip.position.y = BAR_H / 2 - 0.02;
+    lip.position.y = BAR_H / 2 - 0.013;
     this.sweepBar.add(lip);
     // 네온 액센트 — 씬이 네온 온 다크라 기계만 무채색이면 이질적이다. 상단 모서리의 발광선은
     // 멀어도 '바가 지나간다'를 읽히게 하는 신호가 된다.
@@ -160,19 +164,19 @@ export class PinSet {
         roughness: 1,
       }),
     );
-    accent.position.set(0, BAR_H / 2 - 0.05, -BAR_T / 2 - 0.007); // 볼러 쪽 면, 테두리 바로 아래
+    accent.position.set(0, BAR_H / 2 - 0.036, -BAR_T / 2 - 0.007); // 볼러 쪽 면, 테두리 바로 아래
     this.sweepBar.add(accent);
-    // 양 끝 캐리지 — 실제 스윕은 레일 위 캐리지에 실려 체인으로 끌린다. 이게 없으면 판이
-    // 허공에 떠서 미끄러지는 것처럼 보인다(테이블은 요크가 있어 '매달린 기계'로 읽히는데
-    // 바만 붙잡는 게 없었다). 실루엣 양쪽 끝을 세로로 세워 덩어리도 만든다.
+    // 양 끝 지지 팔 — 실제 레이크는 레인에서 1.61m 높이의 축에 매달려 내려온다. 팔이 없으면
+    // 판이 허공에 떠서 미끄러지는 것처럼 보인다(테이블은 요크가 있어 '매달린 기계'로 읽히는데
+    // 바만 붙잡는 게 없었다). 위로 길게 뻗어 매달린 구조를 만든다.
     const carriageMat = new THREE.MeshStandardMaterial({
       color: 0x4d5560,
       metalness: 0.8,
       roughness: 0.38,
     });
     for (const side of [-1, 1]) {
-      const post = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.34, 0.07), carriageMat);
-      post.position.set(side * (BAR_W / 2 - 0.035), BAR_H / 2 + 0.1, 0);
+      const post = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.6, 0.06), carriageMat);
+      post.position.set(side * (BAR_W / 2 - 0.03), BAR_H / 2 + 0.3, 0);
       this.sweepBar.add(post);
     }
     this.sweepBar.position.set(0, BAR_Y_UP, BAR_Z0);
