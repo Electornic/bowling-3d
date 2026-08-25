@@ -38,8 +38,11 @@ const CY_END = 4.05;
 const BAR_Y_UP = 1.2; // 스윕 바 대기 높이(마스킹 뒤)
 // 쓸기 높이. 바 높이 0.52라 아래 끝이 -0.17 — 거터 바닥(-0.13)보다 낮아야 거터의 핀까지 민다.
 // 예전 0.15(아래 끝 0.0)는 레인 위만 훑고 거터를 그냥 지나쳤다.
-const BAR_Y_DOWN = 0.09;
-const BAR_H = 0.52; // 바 높이 — 거터 바닥까지 닿는다
+// 거터를 규격(47.6mm)으로 얕게 바꾼 뒤에도 바 높이는 옛 거터(130mm) 기준 0.52m로 남아 있었다.
+// 필요 이상으로 큰 벽이라 '회색 판때기'로 보였다. 아래 끝 -0.07(거터 바닥 -0.0476 아래),
+// 위 끝 0.33(핀 0.38보다 살짝 낮게 — 실제 스윕 블레이드도 핀 높이 언저리다).
+const BAR_Y_DOWN = 0.13;
+const BAR_H = 0.4;
 // 폭: 레인 + 양쪽 거터 전체. 실제 스윕도 "핀 스탠드 구간 및 인접 거터"를 함께 치운다
 // (AMF 특허 US2250503). 예전 LANE_WIDTH+0.1은 거터에 닿지도 않았다.
 const BAR_W = LANE_WIDTH + 2 * GUTTER_WIDTH + 0.06;
@@ -148,6 +151,19 @@ export class PinSet {
     );
     accent.position.set(0, BAR_H / 2 - 0.055, -0.048); // 볼러 쪽 면, 테두리 바로 아래
     this.sweepBar.add(accent);
+    // 양 끝 캐리지 — 실제 스윕은 레일 위 캐리지에 실려 체인으로 끌린다. 이게 없으면 판이
+    // 허공에 떠서 미끄러지는 것처럼 보인다(테이블은 요크가 있어 '매달린 기계'로 읽히는데
+    // 바만 붙잡는 게 없었다). 실루엣 양쪽 끝을 세로로 세워 덩어리도 만든다.
+    const carriageMat = new THREE.MeshStandardMaterial({
+      color: 0x4d5560,
+      metalness: 0.8,
+      roughness: 0.38,
+    });
+    for (const side of [-1, 1]) {
+      const post = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.34, 0.1), carriageMat);
+      post.position.set(side * (BAR_W / 2 - 0.035), BAR_H / 2 + 0.1, 0);
+      this.sweepBar.add(post);
+    }
     this.sweepBar.position.set(0, BAR_Y_UP, BAR_Z0);
     this.sweepBar.visible = false;
     engine.scene.add(this.sweepBar);
