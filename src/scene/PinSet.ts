@@ -90,6 +90,7 @@ export class PinSet {
   // 핀세터 사이클 — cycleT < 0 이면 유휴. runCycle()로 시작, update(dt)가 굴리고, finishCycle()이 확정.
   private cycleT = -1;
   private cycleSweep: Pin[] = []; // 이번 사이클에 치울 데드우드
+  private cycleRack = false; // rack 모드면 ②③(집기·들기)을 건너뛴다 — 집을 핀이 없다
   private readonly cyclePushed = new Set<Pin>(); // 스윕이 이미 밀어낸 핀(중복 가속 방지)
   // 리스팟 시작 시점의 실제 포즈. hold()가 곧장 home·직립으로 덮으면 기울어 있던 핀이 한 프레임에
   // 튀어 오른다 — 여기서 출발해 ③ 동안 보간해야 '집어서 바로 세운다'로 읽힌다.
@@ -244,6 +245,7 @@ export class PinSet {
       this.cycleSweep = [...this.pins];
       this.cyclePlace = [...this.pins];
     }
+    this.cycleRack = mode === 'rack';
     this.cyclePushed.clear();
     this.cycleFrom.clear();
     for (const p of this.cycleHold) {
@@ -284,9 +286,16 @@ export class PinSet {
   update(dt: number) {
     if (this.cycleT < 0) return;
     this.cycleT += dt;
-    const t = this.cycleT;
+    // rack(스트라이크·2구 후)은 집어 올릴 핀이 없다. 그런데도 ②③을 돌면 테이블이 **빈손으로**
+    // 내려갔다 올라오는 헛동작 0.85초가 생긴다 — 실제 기계는 그 경우 레이크가 쓸고 새 랙이
+    // 내려오는 게 전부다. 가드 이후 구간을 통째로 건너뛰어 3.05초로 줄인다.
+    const t = this.cycleT + (this.cycleRack && this.cycleT > CY_GUARD ? CY_LIFT - CY_GUARD : 0);
     const bar = this.sweepBar;
     const tbl = this.pinTable;
+    // 테이블 가시성은 **여기 한 줄에서만** 정한다. 구간마다 흩어서 대입했더니 앞 사이클 상태가
+    // 새어 rack에서도 0.54초에 나타났다(실측). respot은 ②부터, rack은 ⑥부터 — rack은 ②③을
+    // 건너뛰므로 그 전에는 애초에 존재하지 않는다.
+    tbl.visible = this.cycleRack ? t >= CY_RETURN : t >= CY_GUARD;
     const spotY = PIN_HEIGHT / 2;
     /** 물린 핀을 테이블에 붙여 함께 움직인다 — '기계가 든다'로 읽히게 하는 부분 */
     const carry = (tableY: number, pins: Pin[]) => {
@@ -321,7 +330,6 @@ export class PinSet {
     } else if (t < CY_GRIP) {
       // ② 테이블 하강 → 목을 문다. 아직 핀은 스폿에 서 있다(물리는 그대로).
       const k = (t - CY_GUARD) / (CY_GRIP - CY_GUARD);
-      tbl.visible = true;
       tbl.position.y = lerp(TABLE_Y_UP, TABLE_Y_GRIP, easeIn(k)); // 바닥에 속도를 실은 채 도착
       // 반환점에서 정확히 다 물리도록 하강 후반 40%에 걸쳐 닫는다. 핑거는 목 둘레로 '가로로'
       // 좁혀지므로 내려오면서 닫혀도 핀을 관통하는 것처럼 보이지 않는다.
@@ -362,7 +370,7 @@ export class PinSet {
       // ⑥ 테이블 하강 — 스폿에 놓는다. rack이면 새 10개가 여기서 처음 나타난다.
       const k = smooth((t - CY_RETURN) / (CY_SET - CY_RETURN));
       bar.position.set(0, BAR_Y_DOWN, BAR_Z0);
-      tbl.position.y = lerp(TABLE_Y_LIFT, TABLE_Y_GRIP, k);
+      tbl.position.y = lerp(this.cycleRack ? TABLE_Y_UP : TABLE_Y_LIFT, TABLE_Y_GRIP, k);
       carry(tbl.position.y, this.cyclePlace);
     } else if (t < CY_END) {
       // ⑦ 테이블·스윕 상승 — 핀은 스폿에 고정된 채 남는다
