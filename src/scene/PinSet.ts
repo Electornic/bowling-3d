@@ -41,8 +41,15 @@ const BAR_Y_UP = 1.2; // 스윕 바 대기 높이(마스킹 뒤)
 // 거터를 규격(47.6mm)으로 얕게 바꾼 뒤에도 바 높이는 옛 거터(130mm) 기준 0.52m로 남아 있었다.
 // 필요 이상으로 큰 벽이라 '회색 판때기'로 보였다. 아래 끝 -0.07(거터 바닥 -0.0476 아래),
 // 위 끝 0.33(핀 0.38보다 살짝 낮게 — 실제 스윕 블레이드도 핀 높이 언저리다).
-const BAR_Y_DOWN = 0.13;
-const BAR_H = 0.4;
+// 높이 0.40m는 핀(0.38m)과 거의 같아 핀을 통째로 가리는 '벽'이 됐다. 0.24m로 낮추면 아래
+// 끝은 그대로 -0.07(거터 바닥 -0.0476 아래)이면서 위 끝이 0.17 — 핀 상단 55%가 바 위로
+// 드러나 '벽이 지나간다'가 아니라 '레이크가 훑는다'로 읽힌다.
+// 물리적으로도 충분하다: 접촉점 0.17이 핀 무게중심(≈0.14)보다 위라 넘어뜨린다.
+const BAR_Y_DOWN = 0.05;
+const BAR_H = 0.24;
+// 판 두께. 5cm는 핀 지름(121mm)의 절반이라 판금이 아니라 슬래브였다. 실제 스윕 시트는 2~3mm인데
+// 그대로 쓰면 이 거리에서 사라지거나 깜빡이므로 14mm로 절충.
+const BAR_T = 0.014;
 // 폭: 레인 + 양쪽 거터 전체. 실제 스윕도 "핀 스탠드 구간 및 인접 거터"를 함께 치운다
 // (AMF 특허 US2250503). 예전 LANE_WIDTH+0.1은 거터에 닿지도 않았다.
 const BAR_W = LANE_WIDTH + 2 * GUTTER_WIDTH + 0.06;
@@ -125,17 +132,17 @@ export class PinSet {
     this.sweepBar = new THREE.Group();
     this.sweepBar.add(
       new THREE.Mesh(
-        new THREE.BoxGeometry(BAR_W, BAR_H, 0.05),
+        new THREE.BoxGeometry(BAR_W, BAR_H, BAR_T),
         new THREE.MeshStandardMaterial({ color: 0x8f98a6, metalness: 0.85, roughness: 0.35 }),
       ),
     );
     // 상단 보강 테두리 — 실제 판금은 위쪽을 접어 보강한다. 살짝 밝고 두꺼운 띠 하나로
     // '평면'이 '만들어진 부품'이 된다(멀리서 읽히는 건 이 명암 단차뿐이다).
     const lip = new THREE.Mesh(
-      new THREE.BoxGeometry(BAR_W, 0.055, 0.08),
+      new THREE.BoxGeometry(BAR_W, 0.04, 0.032), // 접힌 보강 테두리 — 시트보다 두껍게 튀어나온다
       new THREE.MeshStandardMaterial({ color: 0xb3bbc7, metalness: 0.9, roughness: 0.28 }),
     );
-    lip.position.y = BAR_H / 2 - 0.0275;
+    lip.position.y = BAR_H / 2 - 0.02;
     this.sweepBar.add(lip);
     // 네온 액센트 — 씬이 네온 온 다크라 기계만 무채색이면 이질적이다. 상단 모서리의 발광선은
     // 멀어도 '바가 지나간다'를 읽히게 하는 신호가 된다.
@@ -149,7 +156,7 @@ export class PinSet {
         roughness: 1,
       }),
     );
-    accent.position.set(0, BAR_H / 2 - 0.055, -0.048); // 볼러 쪽 면, 테두리 바로 아래
+    accent.position.set(0, BAR_H / 2 - 0.05, -BAR_T / 2 - 0.007); // 볼러 쪽 면, 테두리 바로 아래
     this.sweepBar.add(accent);
     // 양 끝 캐리지 — 실제 스윕은 레일 위 캐리지에 실려 체인으로 끌린다. 이게 없으면 판이
     // 허공에 떠서 미끄러지는 것처럼 보인다(테이블은 요크가 있어 '매달린 기계'로 읽히는데
@@ -160,7 +167,7 @@ export class PinSet {
       roughness: 0.38,
     });
     for (const side of [-1, 1]) {
-      const post = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.34, 0.1), carriageMat);
+      const post = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.34, 0.07), carriageMat);
       post.position.set(side * (BAR_W / 2 - 0.035), BAR_H / 2 + 0.1, 0);
       this.sweepBar.add(post);
     }
