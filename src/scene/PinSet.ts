@@ -55,7 +55,16 @@ const TABLE_PIN_DROP = TABLE_Y_GRIP - PIN_HEIGHT / 2; // 테이블 y → 물린 
 const TBL_THICK = 0.05; // 판 두께
 const TBL_HOLE_R = 0.05; // 구멍 반경 — 목(23mm)보다 크고 배(60mm)보다 작다
 const TBL_PAD = 0.19; // 핀 삼각형 바깥 여백
-const FINGER_Y = -TBL_THICK / 2 - 0.03; // 핑거가 판 아래로 내려온 높이(테이블 로컬)
+// 실루엣: 판 하나(두께 5cm)만 있으면 18m 밖에서 '떠 있는 막대'로 보인다. 이 거리에선 디테일이
+// 아니라 **덩어리감**이 읽힌다 — 위로 요크 몸통, 아래로 스포팅 컵을 붙여 세로 폭을
+// 0.05m → 0.32m(6.4배)로 키운다.
+const CUP_R = 0.052; // 컵 반경 — 핀 크라운(0.0295)보다 크고 구멍(0.05)에 맞물린다
+const CUP_H = 0.075; // 컵 길이. 잡으면 핀 머리 위 50mm가 컵 안으로 들어간다
+const CUP_Y = -TBL_THICK / 2 - CUP_H / 2; // 판 바로 아래에 매달림
+const YOKE_Y = TBL_THICK / 2 + 0.075; // 판 위 몸통 중심
+// 핑거는 컵보다 더 아래로 내려 실루엣의 톱니를 만든다. 겸사겸사 위치도 바로잡힌다 —
+// 잡는 높이가 월드 0.285~0.345로 핀 목(0.254~0.32)에 정확히 걸린다(실제 respot cell도 목을 문다).
+const FINGER_Y = -0.115;
 const GRIP_OPEN = TBL_HOLE_R + 0.014; // 벌어진 핑거 간격(중심에서)
 const GRIP_CLOSED = 0.026; // 목을 문 간격 — 목 반지름 23mm에 맞물린다
 const M4 = new THREE.Matrix4(); // 인스턴스 행렬 스크래치(무할당)
@@ -162,6 +171,33 @@ export class PinSet {
     });
     this.pinTable = new THREE.Group();
     this.pinTable.add(new THREE.Mesh(plateGeo, steel));
+
+    // 요크 몸통 — 컵을 지지하는 기계 덩어리. 실루엣 상단을 채운다.
+    const yoke = new THREE.Mesh(
+      new THREE.BoxGeometry(0.4, 0.15, 0.7),
+      new THREE.MeshStandardMaterial({ color: 0x4d5560, metalness: 0.8, roughness: 0.38 }),
+    );
+    yoke.position.y = YOKE_Y;
+    this.pinTable.add(yoke);
+
+    // 스포팅 컵 10개 — 구멍이 뚫린 판보다 이게 훨씬 잘 읽힌다. 판 밑면은 거의 안 보이지만
+    // 아래로 매달린 컵은 옆에서도 보여 아랫변을 톱니로 만든다(= 기계로 읽히는 실루엣).
+    const cups = new THREE.InstancedMesh(
+      new THREE.CylinderGeometry(CUP_R, CUP_R, CUP_H, 12, 1, true), // openEnded — 핀이 안으로 들어간다
+      new THREE.MeshStandardMaterial({
+        color: 0x6f7885,
+        metalness: 0.85,
+        roughness: 0.3,
+        side: THREE.DoubleSide, // 열린 원통이라 안쪽 면도 보여야 한다
+      }),
+      this.holeXZ.length,
+    );
+    this.holeXZ.forEach((h, i) => {
+      M4.makeTranslation(h.x, CUP_Y, h.z);
+      cups.setMatrixAt(i, M4);
+    });
+    cups.instanceMatrix.needsUpdate = true;
+    this.pinTable.add(cups);
 
     // 그리퍼 핑거 — 구멍마다 양쪽 2개. 목을 무는 순간이 보여야 '기계가 집는다'가 완성된다.
     this.fingers = new THREE.InstancedMesh(
