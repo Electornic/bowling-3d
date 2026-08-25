@@ -65,6 +65,11 @@ const SWEEP_PUSH_Z = 3.2; // 스윕이 데드우드를 미는 속도(m/s) — �
 const SWEEP_PUSH_Y = 0.45; // 살짝 튀어올라야 바닥에 끌리지 않고 넘어간다
 
 const smooth = (k: number) => k * k * (3 - 2 * k);
+// ②→③ 반환점 전용. 양쪽 다 smoothstep이면 경계에서 속도가 0으로 죽어 테이블이 바닥에서
+// '딱 멈췄다' 다시 올라간다. 하강은 가속만(도착 속도 최대), 상승은 감속만(출발 속도 최대)으로
+// 두면 속도 크기가 이어지고 부호만 뒤집혀 — 멈춤 없이 반전으로 읽힌다.
+const easeIn = (k: number) => k * k;
+const easeOut = (k: number) => 1 - (1 - k) * (1 - k);
 const lerp = (a: number, b: number, k: number) => a + (b - a) * k;
 
 /**
@@ -198,7 +203,7 @@ export class PinSet {
       this.cycleSweep = this.pins.filter((p) => !this.isStanding(p));
       this.cyclePlace = this.cycleHold;
     } else {
-      // 프레임 사이 — 남은 게 있든 없든 전부 쓸어내고, 새 랙 10개가 ④에서 처음 나타난다
+      // 프레임 사이 — 남은 게 있든 없든 전부 쓸어내고, 새 랙 10개가 ⑥에서 처음 나타난다
       this.cycleHold = [];
       this.cycleSweep = [...this.pins];
       this.cyclePlace = [...this.pins];
@@ -279,14 +284,15 @@ export class PinSet {
       this.setGrip(0); // 벌린 채 대기
     } else if (t < CY_GRIP) {
       // ② 테이블 하강 → 목을 문다. 아직 핀은 스폿에 서 있다(물리는 그대로).
-      const k = smooth((t - CY_GUARD) / (CY_GRIP - CY_GUARD));
+      const k = (t - CY_GUARD) / (CY_GRIP - CY_GUARD);
       tbl.visible = true;
-      tbl.position.y = lerp(TABLE_Y_UP, TABLE_Y_GRIP, k);
-      // 다 내려온 뒤에 문다 — 내려오면서 물면 핑거가 핀을 통과하는 것처럼 보인다
-      this.setGrip(smooth(Math.max(0, (k - 0.65) / 0.35)));
+      tbl.position.y = lerp(TABLE_Y_UP, TABLE_Y_GRIP, easeIn(k)); // 바닥에 속도를 실은 채 도착
+      // 반환점에서 정확히 다 물리도록 하강 후반 40%에 걸쳐 닫는다. 핑거는 목 둘레로 '가로로'
+      // 좁혀지므로 내려오면서 닫혀도 핀을 관통하는 것처럼 보이지 않는다.
+      this.setGrip(smooth(Math.max(0, (k - 0.6) / 0.4)));
     } else if (t < CY_LIFT) {
       // ③ 테이블이 핀을 들고 상승
-      const k = smooth((t - CY_GRIP) / (CY_LIFT - CY_GRIP));
+      const k = easeOut((t - CY_GRIP) / (CY_LIFT - CY_GRIP)); // 멈춤 없이 곧바로 반전해 상승
       tbl.position.y = lerp(TABLE_Y_GRIP, TABLE_Y_LIFT, k);
       this.setGrip(1);
       // 들어올리는 동안 자세·위치를 함께 편다 — 기울어 있던 핀이 한 프레임에 튀지 않는다
