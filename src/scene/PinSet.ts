@@ -59,6 +59,10 @@ const FINGER_Y = -TBL_THICK / 2 - 0.03; // 핑거가 판 아래로 내려온 높
 const GRIP_OPEN = TBL_HOLE_R + 0.014; // 벌어진 핑거 간격(중심에서)
 const GRIP_CLOSED = 0.026; // 목을 문 간격 — 목 반지름 23mm에 맞물린다
 const M4 = new THREE.Matrix4(); // 인스턴스 행렬 스크래치(무할당)
+const Q_FROM = new THREE.Quaternion(); // 리스팟 자세 보간 스크래치
+const Q_TO = new THREE.Quaternion();
+const SWEEP_PUSH_Z = 3.2; // 스윕이 데드우드를 미는 속도(m/s) — 피트까지 굴러가는 데 충분
+const SWEEP_PUSH_Y = 0.45; // 살짝 튀어올라야 바닥에 끌리지 않고 넘어간다
 
 const smooth = (k: number) => k * k * (3 - 2 * k);
 const lerp = (a: number, b: number, k: number) => a + (b - a) * k;
@@ -72,6 +76,10 @@ export class PinSet {
   // 핀세터 사이클 — cycleT < 0 이면 유휴. runCycle()로 시작, update(dt)가 굴리고, finishCycle()이 확정.
   private cycleT = -1;
   private cycleSweep: Pin[] = []; // 이번 사이클에 치울 데드우드
+  private readonly cyclePushed = new Set<Pin>(); // 스윕이 이미 밀어낸 핀(중복 가속 방지)
+  // 리스팟 시작 시점의 실제 포즈. hold()가 곧장 home·직립으로 덮으면 기울어 있던 핀이 한 프레임에
+  // 튀어 오른다 — 여기서 출발해 ③ 동안 보간해야 '집어서 바로 세운다'로 읽힌다.
+  private readonly cycleFrom = new Map<Pin, { x: number; z: number; q: THREE.Quaternion }>();
   private cycleHold: Pin[] = []; // ①~③ 동안 공중에 들려 있는 핀 (스윕을 피해 있는 잔존 핀)
   private cyclePlace: Pin[] = []; // ④에서 스폿으로 내려놓을 핀
   // hold와 place를 나눠야 하는 이유: rack 모드는 '전부 쓸어내고 새로 10개를 내린다'라서
@@ -195,6 +203,13 @@ export class PinSet {
       this.cycleSweep = [...this.pins];
       this.cyclePlace = [...this.pins];
     }
+    this.cyclePushed.clear();
+    this.cycleFrom.clear();
+    for (const p of this.cycleHold) {
+      const tr = p.body.translation();
+      const rt = p.body.rotation();
+      this.cycleFrom.set(p, { x: tr.x, z: tr.z, q: new THREE.Quaternion(rt.x, rt.y, rt.z, rt.w) });
+    }
     this.cycleT = 0;
   }
 
@@ -215,6 +230,8 @@ export class PinSet {
     this.cycleSweep = [];
     this.cycleHold = [];
     this.cyclePlace = [];
+    this.cyclePushed.clear();
+    this.cycleFrom.clear();
     this.sweepBar.visible = false;
     this.sweepBar.position.set(0, BAR_Y_UP, BAR_Z0);
     this.pinTable.visible = false;
@@ -233,6 +250,25 @@ export class PinSet {
     /** 물린 핀을 테이블에 붙여 함께 움직인다 — '기계가 든다'로 읽히게 하는 부분 */
     const carry = (tableY: number, pins: Pin[]) => {
       for (const p of pins) p.hold(tableY - TABLE_PIN_DROP);
+    };
+    /** ③ 전용 — 잡힌 순간의 실제 포즈에서 home·직립으로 보간하며 올린다(순간이동 제거) */
+    const carryFrom = (tableY: number, s01: number) => {
+      const y = tableY - TABLE_PIN_DROP;
+      for (const p of this.cycleHold) {
+        const f = this.cycleFrom.get(p);
+        if (!f) {
+          p.hold(y);
+          continue;
+        }
+        Q_FROM.copy(f.q);
+        Q_TO.identity();
+        Q_FROM.slerp(Q_TO, s01);
+        p.hold(y, {
+          x: lerp(f.x, p.home.x, s01),
+          z: lerp(f.z, p.home.z, s01),
+          q: { x: Q_FROM.x, y: Q_FROM.y, z: Q_FROM.z, w: Q_FROM.w },
+        });
+      }
     };
 
     if (t < CY_GUARD) {
@@ -253,16 +289,27 @@ export class PinSet {
       const k = smooth((t - CY_GRIP) / (CY_LIFT - CY_GRIP));
       tbl.position.y = lerp(TABLE_Y_GRIP, TABLE_Y_LIFT, k);
       this.setGrip(1);
-      carry(tbl.position.y, this.cycleHold);
+      // 들어올리는 동안 자세·위치를 함께 편다 — 기울어 있던 핀이 한 프레임에 튀지 않는다
+      carryFrom(tbl.position.y, k);
     } else if (t < CY_SWEEP) {
       // ④ 스윕 전진 — 지나간 z의 데드우드가 피트로
-      const k = (t - CY_LIFT) / (CY_SWEEP - CY_LIFT);
+      // 선형이면 바가 순간 최고속으로 출발해 순간 정지한다 — 다른 구간과 달리 여기만 이징이 없었다
+      const k = smooth((t - CY_LIFT) / (CY_SWEEP - CY_LIFT));
       tbl.position.y = TABLE_Y_LIFT;
       carry(TABLE_Y_LIFT, this.cycleHold);
       const z = lerp(BAR_Z0, BAR_Z1, k);
       bar.position.set(0, BAR_Y_DOWN, z);
+      // 데드우드는 지우는 게 아니라 **민다**. 즉시 stash하면 바 앞에서 핀이 사라져 버린다.
+      // 속도만 주고 물리에 맡기면 피트로 굴러 넘어가고, 남은 건 finishCycle()이 치운다.
       for (const p of this.cycleSweep) {
-        if (p.body.translation().z <= z) p.stash();
+        if (this.cyclePushed.has(p)) continue;
+        if (p.body.translation().z > z) continue;
+        this.cyclePushed.add(p);
+        // 핀의 평상시 선형 감쇠(흩어짐 억제용)가 밀기를 먹어버린다 — 3.2m/s로 밀어도 0.34m에서
+        // 멈춰 피트(z≈19.5)에 못 닿았다(실측). 밀리는 동안만 0으로 두고 reset/stash가 되돌린다.
+        p.body.setLinearDamping(0);
+        p.body.setLinvel({ x: 0, y: SWEEP_PUSH_Y, z: SWEEP_PUSH_Z }, true);
+        p.body.setAngvel({ x: 6, y: 0, z: 0 }, true); // 앞으로 구르는 회전
       }
     } else if (t < CY_RETURN) {
       // ⑤ 스윕 가드 복귀

@@ -95,6 +95,7 @@ export class Pin {
   /** 핀을 home 위치에 똑바로 세워 리셋 (속도 0) */
   reset() {
     this.mesh.visible = true;
+    this.body.setLinearDamping(PIN_LINEAR_DAMPING); // 스윕이 0으로 낮춰뒀을 수 있다
     this.body.setTranslation({ x: this.home.x, y: PIN_HEIGHT / 2, z: this.home.z }, true);
     this.body.setRotation({ x: 0, y: 0, z: 0, w: 1 }, true);
     this.body.setLinvel({ x: 0, y: 0, z: 0 }, true);
@@ -102,14 +103,15 @@ export class Pin {
   }
 
   /**
-   * 핀세터 사이클용 — home 스폿 **위** 지정 높이에 똑바로 고정한다(매 프레임 호출 전제).
+   * 핀세터 사이클용 — 지정 높이에 고정한다(매 프레임 호출 전제). pose를 주면 그 위치·자세로,
+   * 생략하면 home 스폿에 똑바로. 리스팟은 pose를 실제 자세→직립으로 보간해 넘겨 튐을 없앤다.
    * 다이나믹 바디를 키네마틱으로 바꾸는 대신 매 프레임 위치·자세·속도를 덮어써서
    * 중력이 누적되지 않게 한다. 사이클이 끝나면 reset()이 정확히 스폿에 내려놓는다.
    */
-  hold(y: number) {
+  hold(y: number, pose?: { x: number; z: number; q: RAPIER.Rotation }) {
     this.mesh.visible = true;
-    this.body.setTranslation({ x: this.home.x, y, z: this.home.z }, true);
-    this.body.setRotation({ x: 0, y: 0, z: 0, w: 1 }, true);
+    this.body.setTranslation({ x: pose?.x ?? this.home.x, y, z: pose?.z ?? this.home.z }, true);
+    this.body.setRotation(pose?.q ?? { x: 0, y: 0, z: 0, w: 1 }, true);
     this.body.setLinvel({ x: 0, y: 0, z: 0 }, true);
     this.body.setAngvel({ x: 0, y: 0, z: 0 }, true);
   }
@@ -117,6 +119,7 @@ export class Pin {
   /** 쓰러진 핀(데드우드)을 레인 밖으로 치움 (도안 §6 CLEAR_DEADWOOD) */
   stash() {
     this.mesh.visible = false;
+    this.body.setLinearDamping(PIN_LINEAR_DAMPING);
     this.body.setTranslation({ x: this.home.x, y: -50, z: this.home.z }, false);
     this.body.setLinvel({ x: 0, y: 0, z: 0 }, false);
     this.body.setAngvel({ x: 0, y: 0, z: 0 }, false);
