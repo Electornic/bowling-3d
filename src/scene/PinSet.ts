@@ -16,9 +16,6 @@ import { PIN_NUMBERS } from '../game/splits';
 
 const UP_COS_45 = Math.cos(Math.PI / 4); // ≈0.707
 
-/** 핀세터 사이클의 소리 나는 순간들. 오디오 의존을 여기 두지 않으려고 콜백으로 뺀다(Boot가 배선). */
-export type PinsetterEvent = 'start' | 'clunk' | 'sweep' | 'set' | 'end';
-
 // ── 핀세터 사이클 타임라인(초) ────────────────────────────────────────────────
 // 실제 기계(AMF 82-30 계열) 순서를 그대로 따른다. 이전 버전은 스윕과 리프트를 동시에 시작하고
 // **테이블이 아예 없어서**, 핀이 저 혼자 떠오르는 바람에 기계가 아니라 줄넘기로 읽혔다.
@@ -84,9 +81,6 @@ export class PinSet {
   // 핀세터 사이클 — cycleT < 0 이면 유휴. runCycle()로 시작, update(dt)가 굴리고, finishCycle()이 확정.
   private cycleT = -1;
   private cycleSweep: Pin[] = []; // 이번 사이클에 치울 데드우드
-  private lastPhase = -1; // 구간 전환 1회 발화용
-  /** 구간 전환 알림 (Boot에서 SoundManager 연결). count는 'set'에서 놓는 핀 수. */
-  onCycleEvent?: (e: PinsetterEvent, count?: number) => void;
   private readonly cyclePushed = new Set<Pin>(); // 스윕이 이미 밀어낸 핀(중복 가속 방지)
   // 리스팟 시작 시점의 실제 포즈. hold()가 곧장 home·직립으로 덮으면 기울어 있던 핀이 한 프레임에
   // 튀어 오른다 — 여기서 출발해 ③ 동안 보간해야 '집어서 바로 세운다'로 읽힌다.
@@ -236,8 +230,6 @@ export class PinSet {
   finishCycle() {
     if (this.cycleT < 0) return;
     this.cycleT = -1;
-    this.lastPhase = -1;
-    this.onCycleEvent?.('end'); // 모터 꺼짐 (중간에 끊겨도 반드시 멎게)
     for (const p of this.cycleSweep) p.stash();
     for (const p of this.cyclePlace) p.reset(); // rack이면 sweep과 겹치는데, reset이 뒤라 결과는 '세워짐'
     this.cycleSweep = [];
@@ -257,17 +249,6 @@ export class PinSet {
     if (this.cycleT < 0) return;
     this.cycleT += dt;
     const t = this.cycleT;
-    // 구간 인덱스 → 전환되는 프레임에만 발화. 소리는 '구간이 바뀌는 순간'에만 필요하다.
-    const ph =
-      t < CY_GUARD ? 0 : t < CY_GRIP ? 1 : t < CY_LIFT ? 2 : t < CY_SWEEP ? 3
-      : t < CY_RETURN ? 4 : t < CY_SET ? 5 : t < CY_END ? 6 : 7;
-    if (ph !== this.lastPhase) {
-      this.lastPhase = ph;
-      if (ph === 0) this.onCycleEvent?.('start'); // 모터 켜짐
-      else if (ph === 2) this.onCycleEvent?.('clunk'); // 테이블이 바닥에 닿아 문다
-      else if (ph === 3) this.onCycleEvent?.('sweep'); // 레이크 전진
-      else if (ph === 6) this.onCycleEvent?.('set', this.cyclePlace.length); // 핀이 데크에 놓임
-    }
     const bar = this.sweepBar;
     const tbl = this.pinTable;
     const spotY = PIN_HEIGHT / 2;

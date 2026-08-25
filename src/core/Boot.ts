@@ -266,15 +266,6 @@ function buildScene(engine: Engine): {
     //  리버브 경유로 쏘던 게 roll 샘플과 중복·거슬림이었음.)
   };
   // 투구당 1회 핀 크래시 — 던질 때 서 있던 핀 수로 세기 (개별 contact 폭주 → '여러 번' 해결)
-  // 핀세터 소리 — 기계는 18m 밖이라 몇 px밖에 안 되지만 소리는 거리와 무관하게 전달된다.
-  pins.onCycleEvent = (e, count) => {
-    if (e === 'start') sound.setPinsetter(true);
-    else if (e === 'clunk') sound.playTableClunk();
-    else if (e === 'sweep') sound.playSweepRake();
-    else if (e === 'set') sound.playPinsSet(count);
-    else sound.setPinsetter(false);
-  };
-
   game.onPinImpact = (standing) => {
     sound.playRackCrash(standing);
     // 임팩트 햅틱 — Android Chrome만 지원(iOS Safari 미지원), feature-detect 후 호출 (§6)
