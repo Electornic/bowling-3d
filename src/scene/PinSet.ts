@@ -100,7 +100,7 @@ export class PinSet {
   // hold와 place를 나눠야 하는 이유: rack 모드는 '전부 쓸어내고 새로 10개를 내린다'라서
   // 치울 핀과 내려놓을 핀이 같은 객체다. 하나로 합쳐두면 스윕이 stash한 핀을 같은 프레임의
   // hold()가 즉시 되살려 데드우드가 영영 안 사라진다(실측: rack 사이클 내내 10개 보임).
-  private readonly sweepBar: THREE.Mesh;
+  private readonly sweepBar: THREE.Group; // 판금 시트 + 보강 테두리 + 네온 액센트
   private readonly pinTable: THREE.Group; // 판 + 핑거 묶음 (y만 움직인다)
   private readonly fingers: THREE.InstancedMesh; // 구멍당 2개 × 10 = 20
   private readonly holeXZ: { x: number; z: number }[] = []; // 테이블 로컬 구멍 좌표
@@ -116,16 +116,38 @@ export class PinSet {
 
     // 스윕 바(레이크) — 물리 바디가 아니라 순수 비주얼이다. 데드우드를 실제로 밀어내면 핀이 튀거나
     // 끼는 사고가 나므로, 바가 지나가는 z를 넘긴 핀을 stash()로 치우는 방식이 훨씬 싸고 안정적이다.
-    this.sweepBar = new THREE.Mesh(
-      new THREE.BoxGeometry(BAR_W, BAR_H, 0.05),
+    // 형상은 통짜 판이 맞다 — 실제 스윕은 사이클 중 잘못 던져진 공을 막는 '금속 보호벽'이라
+    // 뚫으면 오히려 고증에 어긋난다. 문제는 형상이 아니라 **명도**였다: 알베도가 0x161c28(거의
+    // 검정)이라 어두운 핀덱 배경에서 빛 받는 물체가 아니라 '화면에 뚫린 구멍'으로 렌더됐다.
+    this.sweepBar = new THREE.Group();
+    this.sweepBar.add(
+      new THREE.Mesh(
+        new THREE.BoxGeometry(BAR_W, BAR_H, 0.05),
+        new THREE.MeshStandardMaterial({ color: 0x8f98a6, metalness: 0.85, roughness: 0.35 }),
+      ),
+    );
+    // 상단 보강 테두리 — 실제 판금은 위쪽을 접어 보강한다. 살짝 밝고 두꺼운 띠 하나로
+    // '평면'이 '만들어진 부품'이 된다(멀리서 읽히는 건 이 명암 단차뿐이다).
+    const lip = new THREE.Mesh(
+      new THREE.BoxGeometry(BAR_W, 0.055, 0.08),
+      new THREE.MeshStandardMaterial({ color: 0xb3bbc7, metalness: 0.9, roughness: 0.28 }),
+    );
+    lip.position.y = BAR_H / 2 - 0.0275;
+    this.sweepBar.add(lip);
+    // 네온 액센트 — 씬이 네온 온 다크라 기계만 무채색이면 이질적이다. 상단 모서리의 발광선은
+    // 멀어도 '바가 지나간다'를 읽히게 하는 신호가 된다.
+    const accent = new THREE.Mesh(
+      new THREE.BoxGeometry(BAR_W * 0.985, 0.014, 0.014),
       new THREE.MeshStandardMaterial({
-        color: 0x161c28,
-        metalness: 0.65,
-        roughness: 0.35,
-        emissive: 0x0d2f3a, // 은은한 시안 — 어두운 핀덱에서 실루엣이 읽히게
-        emissiveIntensity: 0.9,
+        color: 0x0a1a20,
+        emissive: 0x22d3ee, // NEON.cyan — 레인 네온과 같은 톤
+        emissiveIntensity: 2.4,
+        metalness: 0,
+        roughness: 1,
       }),
     );
+    accent.position.set(0, BAR_H / 2 - 0.055, -0.048); // 볼러 쪽 면, 테두리 바로 아래
+    this.sweepBar.add(accent);
     this.sweepBar.position.set(0, BAR_Y_UP, BAR_Z0);
     this.sweepBar.visible = false;
     engine.scene.add(this.sweepBar);
