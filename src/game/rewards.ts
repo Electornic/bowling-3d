@@ -82,9 +82,19 @@ const KEY = 'bowling3d.rewards.v1';
 export interface RewardStore {
   earned: string[];
   selectedSkin: string;
+  /**
+   * 히든 보상 — 전광판 커스텀. core 업적을 **전부** 달성해야 열린다.
+   * 스킨과 달리 업적 1개당 1개로 떨어지지 않는 '완주 보상'이라 별도 필드다.
+   *
+   * 값은 둘 중 하나다:
+   *  · 이미지·GIF → data URL 그대로 (작아서 localStorage에 들어간다)
+   *  · 비디오     → VIDEO_MARKER. 실제 Blob은 IndexedDB(screenStore.ts)에 있다.
+   * 마커를 두는 이유: "설정돼 있나?" 판정과 해금·초기화 경로를 여기 한 곳에 유지하려고.
+   */
+  customScreen: string | null;
 }
 
-const emptyStore = (): RewardStore => ({ earned: [], selectedSkin: 'classic' });
+const emptyStore = (): RewardStore => ({ earned: [], selectedSkin: 'classic', customScreen: null });
 
 export function loadRewards(): RewardStore {
   try {
@@ -94,6 +104,7 @@ export function loadRewards(): RewardStore {
     return {
       earned: Array.isArray(s.earned) ? s.earned.filter((x): x is string => typeof x === 'string') : [],
       selectedSkin: typeof s.selectedSkin === 'string' ? s.selectedSkin : 'classic',
+      customScreen: typeof s.customScreen === 'string' ? s.customScreen : null,
     };
   } catch {
     return emptyStore(); // 시크릿 모드 등 localStorage 불가
@@ -122,6 +133,32 @@ export function saveSelectedSkin(id: string) {
   const store = loadRewards();
   store.selectedSkin = id;
   save(store);
+}
+
+/** 전광판에 적용할 미디어 — Menu → Boot → Environment로 넘어가는 형태. */
+export type CustomScreenMedia = { kind: 'image'; src: string } | { kind: 'video'; blob: Blob };
+
+/** 보상 스토어에 들어가는 '비디오가 설정됨' 마커 — 실물은 IndexedDB에 있다. */
+export const VIDEO_MARKER = 'video';
+
+/**
+ * 전광판 커스텀 이미지 저장 (null=기본 신스웨이브로 복귀).
+ * ⚠️ 같은 localStorage 키에 들어가므로 저장 전에 반드시 축소·용량 검사를 거칠 것
+ * (screenMedia.ts). 원본을 그대로 넣으면 5MB 쿼터를 한 방에 넘긴다.
+ */
+export function saveCustomScreen(dataUrl: string | null) {
+  const store = loadRewards();
+  store.customScreen = dataUrl;
+  save(store);
+}
+
+/**
+ * 전광판 커스텀 해금 조건 — **core 업적 전부**.
+ * stretch 티어(perfect·spare_master·clean, P5 예정)는 일부러 뺐다. '전부'로 잡으면
+ * 나중에 stretch가 추가될 때 이미 연 사람의 해금이 도로 잠긴다.
+ */
+export function isScreenCustomUnlocked(earned: string[]): boolean {
+  return ACHIEVEMENTS.filter((a) => a.tier === 'core').every((a) => earned.includes(a.id));
 }
 
 /** [DEV] 보상 저장 초기화 — 디버그 글로벌(__resetRewards)에서 호출. */

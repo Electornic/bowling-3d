@@ -1,9 +1,10 @@
 import type { GameMode, MatchConfig, GameSummary, AimAid } from '../game/GameState';
-import type { OilPattern } from '../game/oil';
 import { AI_PROFILES } from '../game/ai';
 import { statsSummary } from '../game/Stats';
 import { isCoarsePointer } from '../core/device';
-import { SKINS, ACHIEVEMENTS, loadRewards, saveSelectedSkin, unlockedSkinIds, resolveSkin, achievementForSkin } from '../game/rewards';
+import { SKINS, ACHIEVEMENTS, loadRewards, saveSelectedSkin, unlockedSkinIds, resolveSkin, achievementForSkin, isScreenCustomUnlocked, saveCustomScreen, VIDEO_MARKER, type CustomScreenMedia } from '../game/rewards';
+import { fileToScreenSource, fileToScreenVideo } from './screenMedia';
+import { saveScreenVideo, loadScreenVideo, clearScreenVideo } from '../game/screenStore';
 import type { BallSkin, SkinFinish } from '../game/rewards';
 import type { Settings, Quality } from '../game/settings';
 import { css, NEON } from '../ui/theme'; // 디자인 시스템 단일소스(#6) — 로컬 css 복제 제거, NEON 팔레트 토큰 공유
@@ -16,75 +17,6 @@ function playOnce(el: HTMLElement, cls: string): void {
   el.classList.remove(cls);
   void el.offsetWidth; // 강제 리플로우 → 애니메이션 리셋
   el.classList.add(cls);
-}
-
-const reducedMotion = () => window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-
-/**
- * 접힘/펼침 높이 애니메이션 — 커스텀 난이도 행처럼 나타났다 사라지는 블록을 auto-height로 부드럽게.
- * CSS transition + scrollHeight 측정으로 auto↔px↔0을 전환. CSS transition은 끝값을 확실히 커밋하고
- * transitionend가 안정적으로 발화 → 펼침 후 height:auto 복귀, 접힘 후 display:none이 보장된다.
- * (Motion/WAAPI는 이 setup에서 auto-height 끝값 커밋이 불안정해 CSS 방식 채택.) 모션 최소화면 즉시 토글.
- */
-function slideReveal(el: HTMLElement, show: boolean, displayValue = 'block'): void {
-  type Slidable = HTMLElement & { _slideCleanup?: () => void; _slideShown?: boolean };
-  const se = el as Slidable;
-  // 현재 상태와 같으면 무시 — 같은 프리셋/버튼을 다시 눌러도 재펼침·재접힘하지 않음.
-  const already = se._slideShown ?? (getComputedStyle(el).display !== 'none');
-  if (already === show) return;
-  se._slideShown = show;
-  if (reducedMotion()) {
-    se._slideCleanup?.();
-    el.style.transition = '';
-    el.style.height = '';
-    el.style.opacity = '';
-    el.style.overflow = '';
-    el.style.display = show ? displayValue : 'none';
-    return;
-  }
-  se._slideCleanup?.(); // 이전 토글의 리스너/타이머 정리 (빠른 재토글 stale 방지)
-  el.style.overflow = 'hidden';
-  el.style.transition = 'height 0.32s cubic-bezier(0.22,1,0.36,1), opacity 0.28s ease';
-  let done = false;
-  const finish = () => {
-    if (done) return;
-    done = true;
-    el.removeEventListener('transitionend', onEnd);
-    clearTimeout(timer);
-    se._slideCleanup = undefined;
-    if (show) {
-      el.style.height = 'auto'; // 이후 내용 변화에 유연하게
-      el.style.overflow = '';
-    } else {
-      el.style.display = 'none';
-    }
-  };
-  const onEnd = (e: TransitionEvent) => {
-    if (e.propertyName === 'height' && e.target === el) finish();
-  };
-  // transitionend가 누락되는 환경(백그라운드/페인트 스로틀) 대비 폴백 — 트랜지션 길이보다 살짝 뒤에 최종 상태 강제.
-  const timer = setTimeout(finish, 420);
-  se._slideCleanup = () => {
-    el.removeEventListener('transitionend', onEnd);
-    clearTimeout(timer);
-  };
-  el.addEventListener('transitionend', onEnd);
-  if (show) {
-    el.style.display = displayValue;
-    const h = el.scrollHeight;
-    el.style.height = '0px';
-    el.style.opacity = '0';
-    void el.offsetHeight; // 강제 리플로우 → 시작값 커밋 (rAF 없이 트랜지션 발동, 스로틀 무관)
-    el.style.height = `${h}px`;
-    el.style.opacity = '1';
-  } else {
-    const h = el.scrollHeight;
-    el.style.height = `${h}px`; // auto → 고정 px (트랜지션 시작점)
-    el.style.opacity = '1';
-    void el.offsetHeight; // 강제 리플로우
-    el.style.height = '0px';
-    el.style.opacity = '0';
-  }
 }
 
 /** 인게임 일시정지 모달 설정 (Boot이 주입) — 토글은 즉시 적용 + 저장, 모달은 재렌더로 상태 반영. */
@@ -157,27 +89,10 @@ const MODES: { key: GameMode; label: string; desc: string }[] = [
   { key: 'spare', label: '스페어 챌린지', desc: '클래식 리브 10연속 픽업 (솔로)' },
 ];
 
-const OIL_PATTERNS: { key: OilPattern; label: string; desc: string }[] = [
-  { key: 'house', label: '하우스', desc: '표준 — 훅이 가장 잘 통하는 친화적 패턴' },
-  { key: 'short', label: '숏', desc: '일찍 깨짐 — 풀스핀은 과훅이라 라인을 다시 읽어야' },
-  { key: 'long', label: '롱', desc: '늦게 깨짐 — 스키드 길고 훅 약함, 직진 강요' },
-];
-
 const AIM_AIDS: { key: AimAid; label: string; desc: string }[] = [
-  { key: 'easy', label: '이지', desc: '훅 끝까지 그리는 풀 예측선' },
-  { key: 'normal', label: '노멀', desc: '오일 존(직진 구간)까지만 — 훅은 직접 읽기' },
-  { key: 'pro', label: '프로', desc: '조준 방향 표식만 — 라인은 온전히 실력' },
-];
-
-type Difficulty = 'beginner' | 'intermediate' | 'advanced' | 'custom';
-
-// 난이도 프리셋 (P3 §2.7 — 적응형 대신 큐레이션): 오일+예측선을 한 손잡이로 묶고, 커스텀은 두 축 따로.
-// 캐주얼은 '난이도' 하나만 보고, 고수는 커스텀에서 세밀 조정. 매핑은 P0 손맛 후 튜닝 여지.
-const DIFFICULTY_PRESETS: { key: Difficulty; label: string; desc: string; oil?: OilPattern; aim?: AimAid }[] = [
-  { key: 'beginner', label: '쉬움', desc: '하우스 + 풀 예측선 — 가장 쉬움', oil: 'house', aim: 'easy' },
-  { key: 'intermediate', label: '보통', desc: '하우스 + 훅 숨김 — 라인 직접 읽기', oil: 'house', aim: 'normal' },
-  { key: 'advanced', label: '어려움', desc: '숏 패턴 + 방향 표식만 — 라인은 실력', oil: 'short', aim: 'pro' },
-  { key: 'custom', label: '커스텀', desc: '오일·예측선 직접 선택' },
+  { key: 'easy', label: '쉬움', desc: '훅 끝까지 그리는 풀 예측선' },
+  { key: 'normal', label: '보통', desc: '오일 존(직진 구간)까지만 — 훅은 직접 읽기' },
+  { key: 'hard', label: '어려움', desc: '조준 방향 표식만 — 라인은 온전히 실력' },
 ];
 
 /**
@@ -191,17 +106,16 @@ export class MenuUI {
   private mode: GameMode = 'full';
   private rivalKey: string | null = null; // null=혼자 · 그 외=AI 라이벌 key
   private weight = 10; // 볼 무게(lb) — 시작 메뉴에서 선택 (인게임 BallPicker 대체)
-  private difficulty: Difficulty = 'beginner'; // 난이도 프리셋 (P3 §2.7) — 오일+예측선 큐레이션
-  private oilPattern: OilPattern = 'house'; // 오일 패턴 (P3) — 초급 프리셋과 일치
-  private aimAid: AimAid = 'easy'; // 예측선 난이도 (P3, UI 전용) — 기본 easy(§2.7)
+  private aimAid: AimAid = 'easy'; // 조준 보조 (P3, UI 전용) — 기본 easy(§2.7 스마트 기본값)
   private selectedSkin: string = loadRewards().selectedSkin; // 장착 볼 스킨 (보상)
-  private skinTab: 'skins' | 'achievements' = 'skins'; // 컬렉션 시트 활성 탭 (A안 탭형)
+  private skinTab: 'skins' | 'achievements' | 'screen' = 'skins'; // 컬렉션 시트 활성 탭 (A안 탭형)
 
   constructor(
     private readonly onStart: (cfg: MatchConfig) => void,
     private readonly onMenu: () => void,
     private readonly onWeight: (lb: number) => void,
     private readonly onSkinChange: (id: string) => void,
+    private readonly onCustomScreen: (media: CustomScreenMedia | null) => void, // 히든 보상 — 전광판 커스텀
     private readonly settings: Settings, // 시작 메뉴 사운드 토글이 읽는 현재 설정 (pause 모달과 동일 객체)
     private readonly onSound: (v: boolean) => void, // 토글 시 적용+저장 (Boot 주입)
   ) {
@@ -305,7 +219,7 @@ export class MenuUI {
     this.panel.appendChild(this.title('🎳 BOWLING 3D'));
     this.panel.appendChild(this.soundToggle()); // 우상단 사운드 토글
     this.buildMatchupSection(); // 모드 + 상대
-    this.buildDifficultySection(); // 레인 난이도 프리셋 (+ 커스텀 오일/조준)
+    this.buildAimAidSection(); // 조준 난이도 (예측선 표시량 — 점수·물리 무영향)
     this.buildWeightSection(); // 볼 무게 슬라이더
     this.buildSkinEntry(); // 컬렉션 진입
     this.buildStartButton(); // 게임 시작
@@ -361,57 +275,23 @@ export class MenuUI {
     this.refreshRivalChips(rivalBtns);
   }
 
-  /** 레인 난이도 프리셋(쉬움/보통/어려움/커스텀). '커스텀'에서만 오일·조준 두 축이 slideReveal로 펼쳐진다. */
-  private buildDifficultySection(): void {
-    // 난이도 프리셋 (P3 §2.7 — 오일+예측선을 한 손잡이로 큐레이션. '커스텀'에서만 두 축 따로)
-    this.panel.appendChild(this.sectionLabel('레인 난이도'));
-    const diffRow = document.createElement('div');
-    css(diffRow, { display: 'flex', gap: '8px', marginBottom: '14px', flexWrap: 'wrap' });
-    const diffBtns = new Map<Difficulty, HTMLButtonElement>();
-
-    // 커스텀 전용 컨테이너 — 프리셋 선택 시 숨김, '커스텀'에서만 노출
-    const customWrap = document.createElement('div');
-    const oilBtns = new Map<OilPattern, HTMLButtonElement>();
-    const aimBtns = new Map<AimAid, HTMLButtonElement>();
-
-    for (const d of DIFFICULTY_PRESETS) {
-      const b = this.chipButton(d.label, d.desc);
-      b.onclick = () => {
-        this.difficulty = d.key;
-        if (d.oil && d.aim) {
-          this.oilPattern = d.oil;
-          this.aimAid = d.aim;
-          this.refreshChips(oilBtns, this.oilPattern);
-          this.refreshChips(aimBtns, this.aimAid);
-        }
-        slideReveal(customWrap, d.key === 'custom'); // 커스텀 행이 스르륵 펼쳐짐/접힘 (Motion auto-height)
-        this.refreshChips(diffBtns, this.difficulty);
-      };
-      diffBtns.set(d.key, b);
-      diffRow.appendChild(b);
-    }
-    this.panel.appendChild(diffRow);
-    this.refreshChips(diffBtns, this.difficulty);
-
-    // 커스텀 — 오일 패턴 (어디서 훅이 깨지는지가 달라져 라인 읽기를 강요)
-    customWrap.appendChild(this.sectionLabel('오일 패턴'));
-    const oilRow = document.createElement('div');
-    css(oilRow, { display: 'flex', gap: '8px', marginBottom: '14px' });
-    for (const o of OIL_PATTERNS) {
-      const b = this.chipButton(o.label, o.desc);
-      b.onclick = () => {
-        this.oilPattern = o.key;
-        this.refreshChips(oilBtns, this.oilPattern);
-      };
-      oilBtns.set(o.key, b);
-      oilRow.appendChild(b);
-    }
-    customWrap.appendChild(oilRow);
-
-    // 커스텀 — 조준 보조 (예측선 난이도, 점수·물리 무영향)
-    customWrap.appendChild(this.sectionLabel('조준 보조'));
+  /**
+   * 조준 난이도 한 줄(쉬움/보통/어려움) — 예측선을 어디까지 그려주는지만 바뀐다. 점수·물리 무영향.
+   *
+   * 원래 여기가 '레인 난이도'(오일 패턴 + 조준 보조 두 축 + 커스텀 접기)였는데 오일 축을 걷었다.
+   * 오일은 난이도가 아니라 **최적 전략이 이동하는** 축이라 단조 사다리에 안 맞는다 — sim-carry
+   * 스트라이크 윈도우가 하우스 직구4/훅7 vs 숏 직구6/훅3이라, '어려움=숏'이 직구 플레이어에겐
+   * 오히려 넓어졌다(AI 매치 sim도 프리셋 간 ±10점). 축이 하나가 되면서 프리셋 3종이 조준 보조
+   * 3단과 1:1이 돼 커스텀 구분 자체가 사라졌다. (docs/OIL_META_AND_AUTO.md §1.2·§1.5·§2.8)
+   *
+   * ⚠️ 오일 *시스템*은 그대로 살아 있다 — 하우스 고정 + 풀게임 레인 마름(advanceOilDrying)이
+   * 계속 돌고, AI hookDriftFor(endZ)도 그걸 따라간다. 여기서 뺀 건 선택 UI뿐이다.
+   */
+  private buildAimAidSection(): void {
+    this.panel.appendChild(this.sectionLabel('조준 난이도'));
     const aimRow = document.createElement('div');
     css(aimRow, { display: 'flex', gap: '8px', marginBottom: '14px' });
+    const aimBtns = new Map<AimAid, HTMLButtonElement>();
     for (const a of AIM_AIDS) {
       const b = this.chipButton(a.label, a.desc);
       b.onclick = () => {
@@ -421,12 +301,8 @@ export class MenuUI {
       aimBtns.set(a.key, b);
       aimRow.appendChild(b);
     }
-    customWrap.appendChild(aimRow);
-
-    this.panel.appendChild(customWrap);
-    this.refreshChips(oilBtns, this.oilPattern);
+    this.panel.appendChild(aimRow);
     this.refreshChips(aimBtns, this.aimAid);
-    customWrap.style.display = this.difficulty === 'custom' ? 'block' : 'none';
   }
 
   /** 볼 무게 슬라이더(6~16lb) — 입력 즉시 onWeight로 라이브 반영. */
@@ -515,7 +391,7 @@ export class MenuUI {
     }
     const go = () => {
       this.hide();
-      this.onStart({ mode: this.mode, players, oilPattern: this.oilPattern, aimAid: this.aimAid });
+      this.onStart({ mode: this.mode, players, aimAid: this.aimAid }); // oilPattern 생략 = 하우스 고정(GameState 기본값)
     };
     // View Transitions로 메뉴→게임 크로스페이드 (지원 브라우저만; 미지원은 즉시). 3D 캔버스는 뒤에 상주.
     const startVT = (document as { startViewTransition?: (cb: () => void) => void }).startViewTransition?.bind(document);
@@ -941,6 +817,11 @@ export class MenuUI {
     const achTabBtn = mkTab('업적', `${earnedCount}/${ACHIEVEMENTS.length}`);
     tabBar.appendChild(skinTabBtn);
     tabBar.appendChild(achTabBtn);
+    // 전광판 탭은 core 업적을 전부 깨야 나타난다 — 히든이라 잠긴 상태를 아예 안 보여준다.
+    const screenUnlocked = isScreenCustomUnlocked(earned);
+    const screenTabBtn = screenUnlocked ? mkTab('전광판', '✦') : null;
+    if (screenTabBtn) tabBar.appendChild(screenTabBtn);
+    if (this.skinTab === 'screen' && !screenUnlocked) this.skinTab = 'skins'; // 해금 초기화 대비
     this.panel.appendChild(tabBar);
 
     // 탭 내용 — 활성 탭에 따라 갈아끼움(this.skinTab로 재빌드 후에도 탭 유지)
@@ -1059,17 +940,115 @@ export class MenuUI {
       return achWrap;
     };
 
+    /** 전광판 커스텀 — 히든 보상. 이미지·GIF를 골라 마퀴 배경으로 깐다. */
+    const buildScreenPanel = (): HTMLElement => {
+      const wrap = document.createElement('div');
+      const current = loadRewards().customScreen;
+
+      const isVideo = current === VIDEO_MARKER;
+      const preview = document.createElement('div');
+      css(preview, {
+        width: '100%',
+        aspectRatio: '3 / 1',
+        borderRadius: '10px',
+        border: '1px solid rgba(255,255,255,0.14)',
+        background:
+          current && !isVideo ? `#04060c center/cover no-repeat url(${JSON.stringify(current)})` : 'rgba(255,255,255,0.04)',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        color: '#8a93a3',
+        font: '600 12px/1 system-ui, sans-serif',
+        marginBottom: '10px',
+      });
+      if (!current) preview.textContent = '기본 · 신스웨이브';
+      if (isVideo) preview.textContent = '🎬 영상';
+      wrap.appendChild(preview);
+
+      const status = document.createElement('div');
+      css(status, { font: '500 11px/1.5 system-ui, sans-serif', color: '#8a93a3', marginBottom: '10px', minHeight: '17px' });
+      status.textContent = '이미지 · GIF · 영상 — 영상은 무음으로 반복 재생됩니다.';
+      wrap.appendChild(status);
+      // 영상은 IndexedDB에 있어 동기로 못 읽는다 — 열린 뒤 이름·길이를 채워 넣는다.
+      if (isVideo) {
+        void loadScreenVideo().then((v) => {
+          if (v) status.textContent = `🎬 ${v.name}${v.duration ? ` · ${v.duration}초` : ''} · 무음 반복`;
+        });
+      }
+
+      const input = document.createElement('input');
+      input.type = 'file';
+      input.accept = 'image/*,video/*';
+      css(input, { display: 'none' });
+      input.onchange = async () => {
+        const f = input.files?.[0];
+        input.value = ''; // 같은 파일 재선택도 change가 뜨도록
+        if (!f) return;
+        status.textContent = '처리 중…';
+        css(status, { color: '#8a93a3' });
+        try {
+          if (f.type.startsWith('video/')) {
+            const vid = await fileToScreenVideo(f);
+            await saveScreenVideo({ blob: vid.blob, name: vid.name, duration: vid.duration });
+            saveCustomScreen(VIDEO_MARKER); // 실물은 IndexedDB, 여기엔 마커만
+            this.onCustomScreen({ kind: 'video', blob: vid.blob });
+          } else {
+            const media = await fileToScreenSource(f);
+            saveCustomScreen(media.src);
+            // 저장 성공 확인 — 쿼터 초과 시 save()가 조용히 실패한다(스토어 정책)
+            if (loadRewards().customScreen !== media.src) {
+              throw new Error('저장 공간이 부족합니다. 더 작은 파일로 시도해주세요.');
+            }
+            await clearScreenVideo(); // 이미지로 바꿨으면 남은 영상은 지운다(용량 회수)
+            this.onCustomScreen({ kind: 'image', src: media.src });
+          }
+          this.showSkins(onBack, backLabel); // 미리보기 갱신
+        } catch (e) {
+          status.textContent = e instanceof Error ? e.message : '적용하지 못했습니다.';
+          css(status, { color: '#f87171' });
+        }
+      };
+      wrap.appendChild(input);
+
+      const pick = this.primaryButton(current ? '다른 파일 고르기' : '이미지 · 영상 고르기', 'ice', {
+        size: 13,
+        padding: '10px',
+        radius: 9,
+        coarseMinHeight: '44px',
+      });
+      pick.onclick = () => input.click();
+      wrap.appendChild(pick);
+
+      if (current) {
+        const reset = this.ghostButton('기본으로 되돌리기', { size: 13, coarseMinHeight: '44px' });
+        css(reset, { marginTop: '8px' });
+        reset.onclick = () => {
+          saveCustomScreen(null);
+          void clearScreenVideo();
+          this.onCustomScreen(null);
+          this.showSkins(onBack, backLabel);
+        };
+        wrap.appendChild(reset);
+      }
+      return wrap;
+    };
+
     let lastRenderedTab: string | null = null;
     const renderTab = () => {
       content.replaceChildren();
-      content.appendChild(this.skinTab === 'skins' ? buildSkinGrid() : buildAchList());
+      content.appendChild(
+        this.skinTab === 'skins' ? buildSkinGrid() : this.skinTab === 'achievements' ? buildAchList() : buildScreenPanel(),
+      );
       // 페이드는 '실제 탭 전환'에만. 스킨 선택은 showSkins를 새로 호출(새 클로저 → lastRenderedTab=null)하므로
       // 페이드가 안 걸림 → 볼 그리드가 매번 사라졌다 나타나던 깜빡임 제거.
       if (lastRenderedTab !== null && lastRenderedTab !== this.skinTab) playOnce(content, 'juice-fade-in');
       lastRenderedTab = this.skinTab;
-      const skinsActive = this.skinTab === 'skins';
-      css(skinTabBtn, { color: skinsActive ? NEON.cyan : '#8a93a3', borderBottomColor: skinsActive ? NEON.cyan : 'transparent' });
-      css(achTabBtn, { color: !skinsActive ? NEON.cyan : '#8a93a3', borderBottomColor: !skinsActive ? NEON.cyan : 'transparent' });
+      const mark = (btn: HTMLButtonElement | null, on: boolean) => {
+        if (btn) css(btn, { color: on ? NEON.cyan : '#8a93a3', borderBottomColor: on ? NEON.cyan : 'transparent' });
+      };
+      mark(skinTabBtn, this.skinTab === 'skins');
+      mark(achTabBtn, this.skinTab === 'achievements');
+      mark(screenTabBtn, this.skinTab === 'screen');
     };
     skinTabBtn.onclick = () => {
       this.skinTab = 'skins';
@@ -1079,6 +1058,12 @@ export class MenuUI {
       this.skinTab = 'achievements';
       renderTab();
     };
+    if (screenTabBtn) {
+      screenTabBtn.onclick = () => {
+        this.skinTab = 'screen';
+        renderTab();
+      };
+    }
     renderTab();
 
     const back = this.ghostButton(backLabel, { coarseMinHeight: '44px' });

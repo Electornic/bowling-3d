@@ -16,6 +16,11 @@ const PLAYBACK_SPEED = 0.9; // [튜닝] 재생 배율 — 실시간 dt·이 배�
 const END_HOLD = 0.65; // [튜닝] 핀 정리 완료 프레임 프리즈 유지(실시간 s) — 스틸컷 슬램이 얹히는 구간. 1.0→0.8→0.65 꼬리 더 짧게(슬램은 유지).
 const PIN_STILL_EPS = 0.008; // [튜닝] 스냅 간 핀 10개 위치 이동량 합(m). 이하 = 정지 — 리플레이 프리즈(종료) 시점 판정
 const PIN_STILL_HOLD = 4; // [튜닝] 연속 '정지' 스냅 수(~0.13s sim). 이만큼 지속돼야 핀 정리 완료로 확정(단발 정지 오검 방지)
+// 카메라 포즈 오프셋 — 공 기준. 개구부(PIN_BAY_TOP)와 커플링돼 있다(placeCamera 주석 + 시선 테스트).
+export const REPLAY_CAM_Y_OFF = 0.42; // 공 위 카메라 높이
+export const REPLAY_LOOK_Y_OFF = 0.20; // 공 위 시선 높이 (클수록 시선이 눕는다)
+export const REPLAY_TRAIL_NEAR = 1.4; // 핀 근처 추적 거리
+export const REPLAY_TRAIL_FAR = 2.0; // 먼 구간 추적 거리
 
 /**
  * 특별샷 리플레이 (스냅샷 방식, item 2 폴리싱 — 스트라이크 전용).
@@ -210,6 +215,14 @@ export class Replay {
   /**
    * 지면에 선 로우 체이스 — 공을 핀덱 진입까지 따라가다 헤드핀 도달 시 '핀 앞'에 파킹(래치)한다.
    * 이후 공이 피트로 굴러떨어져도 카메라는 핀덱을 향해 고정 → 핏으로 다이빙하지 않고 크래시를 지켜본다.
+   *
+   * ⚠️ 파킹 포즈는 **핀 베이 개구부(PIN_BAY_TOP)에 걸린다.** 예전 값(+0.55 / 시선 +0.05)은
+   * 카메라 y 0.659로 개구부(0.6)보다 높아, 크래시로 튀어오른 핀(베이 구간 실측 최대 0.518)이
+   * 캐노피 아랫단에 정확히 잘렸다 — 여유 **−0.001**. 리플레이가 하필 그 크래시를 보여주는
+   * 연출이라 제일 보고 싶은 프레임이 잘리고 있었다.
+   * 지금(+0.42 / 시선 +0.20): 서 있는 핀 여유 0.056 → 0.132, 튀는 핀 −0.001 → **+0.076**
+   * (접근 카메라 0.035보다도 넉넉). 시선 피치도 −10.9° → −4.9°로 눕혀 '위에서 내려다보는'
+   * 인상을 줄였다. tests/camera-sightline.test.ts가 이 포즈를 고정한다.
    */
   private placeCamera(bx: number, by: number, bz: number) {
     const cam = this.engine.camera;
@@ -221,13 +234,13 @@ export class Replay {
     }
     const u = THREE.MathUtils.clamp((bz - CAM_APPROACH_Z) / (HEADPIN_Z - CAM_APPROACH_Z), 0, 1);
     const e = u * u * (3 - 2 * u); // smoothstep
-    const trail = THREE.MathUtils.lerp(2.0, 1.4, e); // 핀 근처선 1.4m 뒤로 바짝
+    const trail = THREE.MathUtils.lerp(REPLAY_TRAIL_FAR, REPLAY_TRAIL_NEAR, e); // 핀 근처선 바짝
     const fz = Math.min(bz, HEADPIN_Z); // 헤드핀 넘어가면 전진 정지 → 핀 앞
     const px = bx * 0.7;
-    const py = Math.max(0.45, by + 0.55);
+    const py = Math.max(0.45, by + REPLAY_CAM_Y_OFF);
     const pz = fz - trail;
     const lx = bx;
-    const ly = by + 0.05;
+    const ly = by + REPLAY_LOOK_Y_OFF;
     const lz = Math.min(bz + 1.2, PIN_DECK_END + 0.4); // 시선은 핀덱까지만 (핏 아래로 안 쫓음)
     cam.position.set(px, py, pz);
     cam.lookAt(lx, ly, lz);

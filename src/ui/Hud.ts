@@ -28,6 +28,7 @@ export interface HudView {
   frames: number;
   current: number;
   standing: number;
+  resetting?: boolean; // 핀세터 가동 중 (조준 불가) — 상태 라벨이 이걸 우선한다
   players: HudPlayerView[];
 }
 
@@ -161,7 +162,10 @@ export class Hud {
     } else {
       // 중앙 업적 아일랜드와 공존하도록 컴팩트하게. 누구 차례인지는 점수판 골드 하이라이트 + 차례 배너로,
       // 선 핀 수는 3D 장면으로 보이므로 상태바에서는 생략(프레임·구·상태만).
-      this.status.textContent = `${cur.frame}F · ${cur.ball}구 · ${STATE_LABEL[d.state] ?? d.state}`;
+      // 핀세터가 도는 동안은 상태가 AIMING이어도 던질 수 없다 — 라벨이 그걸 말해야
+      // 플레이어가 '왜 안 던져지지'로 읽지 않는다 (GameState.readyToThrow와 같은 조건).
+      const label = d.resetting && d.state === 'AIMING' ? '핀 정리 중…' : (STATE_LABEL[d.state] ?? d.state);
+      this.status.textContent = `${cur.frame}F · ${cur.ball}구 · ${label}`;
     }
   }
 

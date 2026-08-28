@@ -32,6 +32,7 @@ export class Ball {
   private spec: BallSpec;
   private skin: BallSkin = CLASSIC_SKIN;
   private readonly gripMats: THREE.MeshStandardMaterial[] = [];
+  private readonly weightMat: THREE.MeshStandardMaterial; // 무게 각인 (파운드)
 
   constructor(engine: Engine, spec: BallSpec) {
     const RAPIER = getRapier();
@@ -71,6 +72,35 @@ export class Ball {
     // 로고 점 (밝은색 — 어두운 공에서도 회전 추적용 기준점)
     placeMark(new THREE.Vector3(-0.5, -0.1, -0.85).normalize(), 0.024, 0xeae0c8);
 
+    // 무게 각인 — 실제 하우스볼처럼 손가락 구멍 옆에 파운드 수를 새긴다.
+    // 구멍 무리는 grip에서 11°(+마크 반경 7°) 안쪽이라, 37° 떨어뜨려 안 겹치게 한다
+    // (각인 반높이 14° → 가장 가까운 모서리가 23°, 구멍 바깥 18°와 5° 여유).
+    // 크기 40°×28° ≈ 7.6×5.3cm — 실제 하우스볼처럼 공 면을 큼직하게 차지한다.
+    // 방향은 grip에서 플레이어(−z) 쪽으로 기울여 조준 화면에서 보이는 면에 오도록.
+    const towardPlayer = new THREE.Vector3(0, 0, -1).projectOnPlane(grip).normalize();
+    const weightDir = grip.clone().addScaledVector(towardPlayer, 0.75).normalize();
+    this.weightMat = new THREE.MeshStandardMaterial({
+      color: 0x0a0a0a, // applyMaterial이 스킨 decorColor로 덮어쓴다
+      transparent: true,
+      roughness: 0.6,
+      metalness: 0,
+      depthWrite: false,
+    });
+    const weightMesh = new THREE.Mesh(
+      makeSpherePatch(
+        BALL_RADIUS + 0.0006,
+        weightDir,
+        new THREE.Vector3(0, 1, 0), // 정지 상태에서 숫자가 똑바로 서 보이게
+        THREE.MathUtils.degToRad(20),
+        THREE.MathUtils.degToRad(14),
+      ),
+      this.weightMat,
+    );
+    weightMesh.castShadow = false; // 표면에 붙은 각인이라 그림자는 공 본체가 낸다
+    this.mesh.add(weightMesh);
+    this.applyWeightLabel();
+    this.applyMaterial(); // 각인 색은 공 색에 종속 — 생성 시점에 한 번 맞춘다
+
     this.body = engine.world.createRigidBody(
       RAPIER.RigidBodyDesc.dynamic()
         .setTranslation(0, BALL_RADIUS, BALL_START_Z)
@@ -103,7 +133,16 @@ export class Ball {
   setSpec(spec: BallSpec) {
     this.spec = spec;
     this.collider.setMass(spec.massKg);
+    this.applyWeightLabel();
     this.applyMaterial();
+  }
+
+  /** 표면 각인 텍스처를 현재 무게로 다시 굽는다 (무게가 바뀔 때만). */
+  private applyWeightLabel() {
+    const prev = this.weightMat.map;
+    this.weightMat.map = makeWeightTexture(this.spec.pounds);
+    this.weightMat.needsUpdate = true;
+    prev?.dispose(); // 무게 슬라이더를 돌리면 매번 새로 굽는다 — 이전 것 즉시 반납
   }
 
   /** 코스메틱 스킨 적용 — 외형만(물리/AI 사다리 무영향, REWARDS.md §3). */
@@ -125,6 +164,9 @@ export class Ball {
     mat.needsUpdate = true;
     const decor = s.decorColor ?? 0x0a0a0a; // 어두운 스킨엔 밝은 그립(알려진 이슈 해결)
     for (const g of this.gripMats) g.color.setHex(decor);
+    // 각인은 그립(구멍)과 규칙이 다르다 — 구멍은 '뚫린 곳'이라 늘 어둡지만, 각인은 파인 홈이
+    // 빛을 받아 대체로 **밝게** 읽힌다(실제 하우스볼 사진). 공 밝기로 뒤집어 대비를 보장한다.
+    this.weightMat.color.setHex(luminance(mat.color) < 0.55 ? 0xf2f4f8 : 0x15171c);
   }
 
   /** aim ∈ [-1,1] 횡방향, power ∈ [0,1], spin ∈ [-1,1] 좌/우 훅. 도안 §8 발사 변환. */
@@ -186,4 +228,97 @@ export class Ball {
     this.body.setAngvel({ x: 0, y: 0, z: 0 }, true);
     this.setPinCollision(true); // 다음 투구를 위해 잠금 해제
   }
+}
+
+/**
+ * 무게 각인 텍스처 — **속 빈 외곽선** 숫자, 투명 배경. 색은 머티리얼이 입힌다(스킨 decorColor).
+ *
+ * 실제 하우스볼은 숫자를 파낸 것이라, 채워진 글자가 아니라 홈이 빛을 받는 **윤곽선**으로 보인다.
+ * 단위 표기('LBS')도 없다 — 숫자만 크게 하나. 처음엔 채운 글자 + LBS로 만들었는데
+ * 스티커처럼 보였다.
+ */
+function makeWeightTexture(pounds: number): THREE.CanvasTexture {
+  const c = document.createElement('canvas');
+  c.width = 320;
+  c.height = 224;
+  const g = c.getContext('2d')!;
+  g.textAlign = 'center';
+  g.textBaseline = 'middle';
+  g.font = 'bold 178px ui-sans-serif, system-ui, -apple-system, sans-serif';
+  g.strokeStyle = '#ffffff';
+  g.lineWidth = 9;
+  g.lineJoin = 'round';
+  g.miterLimit = 2;
+  g.strokeText(String(pounds), 160, 118);
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  t.anisotropy = 8; // 비스듬히 볼 때 선이 끊기지 않게
+  return t;
+}
+
+/**
+ * 구면에 딱 붙는 사각 데칼 패치.
+ *
+ * 평면(CircleGeometry)으로는 안 된다 — 반경 0.03짜리 원판을 반경 0.109 구에 얹으면
+ * 가장자리가 3.6mm 파묻혀 잘린다(기존 구멍 마크는 반경 0.013이라 0.8mm뿐이라 티가 안 났다).
+ * 여기선 모든 정점을 구면 위에 올리고 UV만 평면으로 펴서 왜곡 없이 붙인다.
+ * (구 전체 UV를 쓰는 방법도 있지만 equirect라 극 근처에서 글자가 가로로 눌린다 —
+ *  각인 위치가 극에서 31°라 2배 눌렸을 것이다.)
+ */
+function makeSpherePatch(
+  radius: number,
+  dir: THREE.Vector3,
+  upHint: THREE.Vector3,
+  halfX: number,
+  halfY: number,
+  seg = 10,
+): THREE.BufferGeometry {
+  const n = dir.clone().normalize();
+  const up = upHint.clone().projectOnPlane(n).normalize();
+  const right = new THREE.Vector3().crossVectors(up, n).normalize();
+  const pos: number[] = [];
+  const nor: number[] = [];
+  const uv: number[] = [];
+  const idx: number[] = [];
+  const p = new THREE.Vector3();
+  for (let j = 0; j <= seg; j++) {
+    const ty = (j / seg) * 2 - 1;
+    for (let i = 0; i <= seg; i++) {
+      const tx = (i / seg) * 2 - 1;
+      // right축 회전은 −up 쪽으로 가므로 부호를 뒤집어 j 증가 = 위쪽으로 맞춘다
+      p.copy(n).applyAxisAngle(right, -ty * halfY).applyAxisAngle(up, tx * halfX);
+      nor.push(p.x, p.y, p.z);
+      pos.push(p.x * radius, p.y * radius, p.z * radius);
+      uv.push(i / seg, j / seg);
+    }
+  }
+  for (let j = 0; j < seg; j++) {
+    for (let i = 0; i < seg; i++) {
+      const a = j * (seg + 1) + i;
+      const b = a + 1;
+      const c2 = a + seg + 1;
+      const d = c2 + 1;
+      idx.push(a, b, c2, b, d, c2); // 법선이 바깥(+n)을 보는 감김
+    }
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  geo.setAttribute('normal', new THREE.Float32BufferAttribute(nor, 3));
+  geo.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+  geo.setIndex(idx);
+  return geo;
+}
+
+const _lumC = new THREE.Color();
+
+/**
+ * 지각 휘도 — **sRGB 값 기준**.
+ *
+ * ⚠️ `material.color`는 색관리 때문에 선형(linear-sRGB) 값을 들고 있다. 거기서 바로 재면
+ * 중간톤이 실제보다 훨씬 어둡게 나온다 — 밝은 파랑(#4aa3ff)이 선형에선 0.35라
+ * '어두운 공'으로 오판돼 흰 각인이 붙었다. sRGB로 되돌린 뒤 재야 눈으로 본 밝기와 맞는다.
+ */
+function luminance(c: THREE.Color): number {
+  _lumC.copy(c).convertLinearToSRGB();
+  return 0.2126 * _lumC.r + 0.7152 * _lumC.g + 0.0722 * _lumC.b;
 }

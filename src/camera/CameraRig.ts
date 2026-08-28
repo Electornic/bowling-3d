@@ -33,11 +33,26 @@ const lerp = THREE.MathUtils.lerp;
 // 레인 세로 점유율은 현행과 같다. 팔로우 0.85와도 이어져 릴리스 전환이 연속이 된다.
 const AIM_Y = 0.75;
 const AIM_PZ = -2.7; // 조준 카메라 z. 팔로우 하한이 이보다 뒤면 릴리스에서 후퇴가 생긴다 → 하한으로 쓴다.
-const FOLLOW_DIST = 2.5; // 공 뒤 거리(m)
-const FOLLOW_Y = 0.85; // 팔로우 높이(m). 조준 AIM_Y(0.75)에서 살짝 올라가며 릴리스가 이어진다
-// (버그였던 상승과 반대 방향). 핀덱 접근 블렌드가 1.25로 끌어올리므로 낮게 깔수록 핀 앞에서
-// '일어서는' 비트가 산다: 높이 0.85→1.18, 시선 6.6°→10.8°. 1.5였을 땐 오히려 내려가서 그 비트가
-// 아예 없었다(9.3°→11.1°, 2도뿐).
+// 2.5 → 1.8 (2026-08-28). "조금 더 가까이 따라가게" — 공 지름이 화면 세로의 12.0% → 16.2%.
+// 높이도 0.85 → 0.78로 같이 내린다. 거리만 줄이면 카메라가 공을 더 내려다보게 돼 공이 화면
+// 아래로 밀린다(중앙 대비 −0.50 → −0.75, 아래끝이 −1.0). 0.78이면 −0.69로 되돌아오고,
+// 조준 AIM_Y(0.75)보다는 여전히 높아 '릴리스에서 살짝 올라간다'는 연결도 유지된다.
+const FOLLOW_DIST = 1.8; // 공 뒤 거리(m)
+const FOLLOW_Y = 0.78; // 팔로우 높이(m). 조준 AIM_Y(0.75)에서 살짝 올라가며 릴리스가 이어진다.
+
+// 핀덱 접근 포즈 — **핀 베이 개구부(PIN_BAY_TOP)가 이 값을 지배한다.**
+// 예전엔 여기서 높이를 1.25로 끌어올려 핀 앞에서 '일어서는' 비트를 만들었는데, 베이 개구부가
+// 0.6으로 내려오면서 그 시선이 캐노피 아랫단에 막혔다 — 뒷줄 핀 꼭대기가 12cm 잘렸다(실측).
+// 지금은 반대로 **낮게 깔면서 파고든다**: 높이 0.85→0.60, 뒷줄까지 3.28m→2.23m.
+// 비트는 상승이 아니라 dolly-in이 맡는다(z 13.0→16.85, 예전 2.8m→3.85m로 오히려 강해졌다).
+// 리플레이 카메라(Replay.placeCamera: py≈0.66, pz≈16.89)와도 눈높이가 붙어 인계가 매끄럽다.
+//
+// ⚠️ 이 값들은 PIN_BAY_TOP과 커플링돼 있다 — 바꾸면 tests/camera-sightline.test.ts가 잡는다.
+export const APPROACH_POS = { y: 0.60, z: 16.85 } as const;
+export const APPROACH_TARGET = { y: 0.18, z: 19.45 } as const;
+// 게임오버 와이드샷도 같은 제약을 받는다. 예전 (y 3.2, z 12.5)는 시선이 캐노피에 완전히 막혔다
+// (여유 −0.33). 높이를 낮추고 뒤로 빼서 넓은 그림은 유지한다.
+export const GAMEOVER_POS = { y: 1.15, z: 8.5 } as const;
 const FOLLOW_SMOOTH = 8; // 스무딩 λ. 6이면 8m/s에서 지연만 1.7m라 실효 추적거리가 크게 부푼다.
 
 /**
@@ -121,12 +136,12 @@ export class CameraRig {
         const span = HEADPIN_Z - CAM_APPROACH_Z;
         const u = b.y <= -1.5 ? 1 : clamp((b.z - CAM_APPROACH_Z) / span, 0, 1);
         const e = u * u * (3 - 2 * u); // smoothstep
-        px = lerp(px, 0, e); py = lerp(py, 1.25, e); pz = lerp(pz, 15.8, e);
-        tx = lerp(tx, 0, e); ty = lerp(ty, 0.5, e); tz = lerp(tz, 19.4, e);
+        px = lerp(px, 0, e); py = lerp(py, APPROACH_POS.y, e); pz = lerp(pz, APPROACH_POS.z, e);
+        tx = lerp(tx, 0, e); ty = lerp(ty, APPROACH_TARGET.y, e); tz = lerp(tz, APPROACH_TARGET.z, e);
         break;
       }
       default: // GAME_OVER
-        px = 0; py = 3.2; pz = 12.5;
+        px = 0; py = GAMEOVER_POS.y; pz = GAMEOVER_POS.z;
         tx = 0; ty = 0.3; tz = 18.8;
     }
 

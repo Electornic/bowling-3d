@@ -7,6 +7,8 @@ import * as THREE from 'three';
  */
 export interface BallSpec {
   label: string;
+  /** 파운드 정수값 — 공 표면 각인에 쓴다(massKg 역산은 반올림 오차로 라벨과 어긋날 수 있다). */
+  pounds: number;
   massKg: number;
   color: number;
   maxSpeedScale: number;
@@ -23,6 +25,7 @@ export function makeBallSpec(pounds: number): BallSpec {
   const t = (lb - 6) / 10;
   return {
     label: `${lb} lb`,
+    pounds: lb,
     massKg: lb * 0.45359,
     maxSpeedScale: lerp(1.0, 0.82, t),
     color: COLOR_LIGHT.clone().lerp(COLOR_DARK, t).getHex(),

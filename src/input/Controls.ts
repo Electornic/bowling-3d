@@ -417,8 +417,8 @@ export class Controls {
     });
 
     window.addEventListener('pointerdown', (e) => {
-      // AI 턴(로드맵 P1.5 입력 락)·메뉴에선 차징 불가
-      if (!this.onCanvas(e) || this.game.state !== 'AIMING' || !this.game.isHumanTurn()) return;
+      // AI 턴(로드맵 P1.5 입력 락)·메뉴·**핀세터 가동 중**엔 차징 불가 (game.readyToThrow)
+      if (!this.onCanvas(e) || !this.game.readyToThrow || !this.game.isHumanTurn()) return;
       // 이미 차징 중인 손가락이 있으면 둘째 손가락은 무시 (멀티터치 오발사·파워 리셋 방지)
       if (this.activePointerId !== null) return;
       this.activePointerId = e.pointerId;
@@ -461,7 +461,7 @@ export class Controls {
 
     // 스핀 바 드래그 (캔버스 차징과 독립 — div 타겟이라 onCanvas=false, activePointerId 미사용)
     this.spinTrack.addEventListener('pointerdown', (e) => {
-      if (this.game.state !== 'AIMING' || !this.game.isHumanTurn()) return;
+      if (!this.game.readyToThrow || !this.game.isHumanTurn()) return;
       this.draggingSpin = true;
       this.setSpinFromPointer(e.clientX);
       e.preventDefault();
@@ -473,7 +473,7 @@ export class Controls {
     window.addEventListener(
       'wheel',
       (e) => {
-        if (this.game.state !== 'AIMING' || !this.game.isHumanTurn()) return;
+        if (!this.game.readyToThrow || !this.game.isHumanTurn()) return;
         if (!this.onCanvas(e)) return; // 스핀 바 위에선 드래그가 담당
         const now = performance.now();
         if (now - this.lastWheelMs < SPIN_WHEEL_MIN_MS) {
@@ -516,7 +516,7 @@ export class Controls {
     // spin을 0으로 리셋하며 값이 '변하는' 것도 노출로 세지 않도록 조준 중일 때만 타이머를 건다.
     // lastSpinShown은 매 프레임 갱신 — 안 그러면 리셋된 0이 다음 조준 턴에서 변화로 잡힌다.
     if (!this.coarse) {
-      const aimingNow = this.game.state === 'AIMING' && this.game.isHumanTurn();
+      const aimingNow = this.game.readyToThrow && this.game.isHumanTurn();
       if (s !== this.lastSpinShown && aimingNow) this.spinHudT = SPIN_HUD_HOLD;
       this.lastSpinShown = s;
       if (this.spinHudT > 0) this.spinHudT = Math.max(0, this.spinHudT - dt);
@@ -529,7 +529,7 @@ export class Controls {
     this.spinWrap.style.display = inGame ? '' : 'none';
     this.powerWrap.style.display = inGame ? '' : 'none';
 
-    const aiming = this.game.state === 'AIMING' && this.game.isHumanTurn();
+    const aiming = this.game.readyToThrow && this.game.isHumanTurn();
     // 터치는 hover가 없어 aim이 갱신되지 않으므로, 새 조준 턴 진입 시 정중앙에서 시작 (드리프트 방지)
     if (this.coarse && aiming && !this.wasAiming) this.aim = 0;
     this.wasAiming = aiming;
@@ -549,7 +549,7 @@ export class Controls {
     const REF_Z = 14; // 곡률 기준 길이 — 드라이존(오일 끝 뒤) 훅까지 포함해 더 휜 모양을 5에 압축
     const DRAW_Z = 5; // 실제 그리는 온스크린 길이(압축 후). 게임플레이 도움량은 aid별 endZ가 결정 — 이건 시각 길이만.
     const p = 0.6;
-    // 조준 보조(P3): easy=풀 곡선(REF_Z까지) / normal=오일 존 끝까지만(직진 구간만, 훅 숨김) / pro=짧은 방향 표식.
+    // 조준 난이도(P3): easy=풀 곡선(REF_Z까지) / normal=오일 존 끝까지만(직진 구간만, 훅 숨김) / hard=짧은 방향 표식.
     // normal/pro 종료점은 오일 존 안(hook=0)이라 곡선이 안 생겨 "스키드만 보여주고 훅은 직접 읽어라"가 된다.
     const aid = this.game.aimAid;
     const endZ = aid === 'easy' ? REF_Z : aid === 'normal' ? oilEndZ() : BALL_START_Z + 4;

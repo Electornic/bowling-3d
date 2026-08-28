@@ -56,6 +56,22 @@ export const BALL_START_Z = -1; // 공 시작 (파울라인 뒤)
 export const HEADPIN_Z = 18.29; // 1번핀
 export const ROW_GAP = PIN_SPACING * Math.cos(Math.PI / 6); // ≈0.264 행 간격
 export const PIN_DECK_END = HEADPIN_Z + 3 * ROW_GAP; // ≈19.08 마지막 행 (전환 트리거 기준 §4.2)
+// --- 핀 베이(핀덱을 둘러싼 오목한 공간) ---
+// 실제 볼링장은 레인마다 핀덱이 '박스' 안에 들어가 있다: 양옆 킥백 + 위 마스킹 유닛 + 뒤 마스킹 월.
+// 그래서 핀이 평면 위에 놓인 게 아니라 안쪽으로 쑥 들어가 보인다.
+// Lane(플레이 레인 콜라이더)과 Environment(5개 레인 전부의 시각 벽)가 공유하는 단일 소스.
+export const KICKBACK_START_Z = HEADPIN_Z - 0.6; // 킥백/베이 시작 — 헤드핀 앞 여유
+// 베이 개구부 높이. 서 있는 핀(0.38) 위 여유 0.22 = 핀 높이의 0.58배 — 실제 볼링장 비율.
+// 실측 근거(24구 · 베이 구간 82,278 핀프레임): 핀 **꼭대기** 최대 0.518, 0.55 초과 0건.
+// → 0.6이면 날아오르는 핀도 안 뚫는다(여유 0.082). 1.0/1.3은 각각 1.6배/2.4배 여유라 휑했다.
+export const PIN_BAY_TOP = 0.6;
+// 캐노피(마스킹 유닛) 윗면. 핀세터 대기 위치(레이크 y 1.13~1.87 · 핀테이블 1.46~1.68)를
+// **통째로 덮어야** 한다 — 안 덮으면 기구가 캐노피 위 허공에 떠 보인다(1.5였을 때 실제로 그랬다).
+export const PIN_BAY_CANOPY_TOP = 1.95;
+// 캐노피 앞면 z. 카메라 시선을 막는 모서리가 (y=PIN_BAY_TOP, z=PIN_BAY_FRONT_Z)다 —
+// 카메라 포즈는 전부 이 모서리 **아래**로 핀을 봐야 한다(tests/camera-sightline.test.ts).
+export const PIN_BAY_FRONT_Z = KICKBACK_START_Z + 0.1;
+
 // 행별 핀 열 오프셋 (PIN_SPACING 배수). 행 0=헤드핀 ... 행 3=뒷줄. PinSet·splits 공용.
 export const PIN_ROWS: readonly (readonly number[])[] = [
   [0],

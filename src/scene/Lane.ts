@@ -7,6 +7,8 @@ import {
   GUTTER_WIDTH,
   GUTTER_DEPTH,
   PIN_DECK_END,
+  KICKBACK_START_Z,
+  PIN_BAY_TOP,
   LANE_FRICTION_OIL,
   LANE_FRICTION_DRY,
 } from '../game/constants';
@@ -14,7 +16,7 @@ import { hookFactor, oilEndZ, OIL_PRESETS, type OilPattern } from '../game/oil';
 import { makeWoodTexture } from './Environment';
 
 /**
- * 레인 바닥 + 양옆 거터(낮은 홈) + 바깥 벽 + 핀덱 뒤 피트 (도안 §3·§4.2).
+ * 레인 바닥 + 양옆 거터(낮은 홈) + 캐핑 보드 + 핀덱 옆 킥백 + 핀덱 뒤 피트 (도안 §3·§4.2).
  * 공이 레인 가장자리를 벗어나면 거터로 떨어져(낮아져) 핀을 못 건드림 → 자동 0점.
  * 플레이 바닥은 핀덱 바로 뒤(deckEnd)에서 끊기고, 그 뒤는 낮은 피트라 공/핀이 굴러떨어진다
  * (레인 끝에 얹혀 멈추는 어색함 제거 — 실제 볼링 피트). 리플레이/라이브 카메라는 핀 앞에 파킹해 핏을 안 쫓는다.
@@ -32,6 +34,16 @@ export class Lane {
     const midZ = (startZ + deckEnd) / 2;
     const half = LANE_WIDTH / 2;
     const gw = GUTTER_WIDTH;
+
+    // 캐핑 보드 — 거터 바깥 끝에서 옆 레인 거터까지를 레인 높이로 메우는 판.
+    const CAP_W = 0.1; // x 0.755 → 0.855 (옆 레인 거터 시작)
+    const CAP_H = 0.1; // 윗면이 y=0 = 레인 높이
+    // 킥백 — 핀덱 옆 구간에만(≈1.79m). 눈에 보이는 벽은 Environment가 5개 레인 전부에 대해
+    // 핀 베이 측벽으로 그리고(레인마다 있어야 실제 볼링장처럼 보인다), 여기선 플레이 레인의
+    // **콜라이더만** 만든다. 높이는 그 시각 벽(PIN_BAY_TOP)과 맞춰야 핀이 벽을 뚫고 나가 보이지 않는다.
+    const KICK_T = 0.05;
+    const kickLen = deckEnd - KICKBACK_START_Z;
+    const kickMidZ = (KICKBACK_START_Z + deckEnd) / 2;
 
     // --- 레인 바닥 (윗면 y=0, 오일 먹인 나무 보드) ---
     const wood = makeWoodTexture('#c89048', '#96682c');
@@ -76,9 +88,11 @@ export class Lane {
     engine.addVisual(oil);
     this.oilMesh = oil;
 
-    // --- 양옆 거터(낮은 홈, 윗면 y=-0.13) + 바깥 벽(킥백) — 전 길이 ---
-    // 실제 볼링처럼 핀덱 옆도 거터+벽. 옆으로 튄 핀은 벽(킥백)에 맞고 데크로 튕기거나 거터에 데드우드로 눕는다.
-    // 공(거터볼)은 거터 홈(y=-0.13, 벽보다 아래)을 그대로 흘러 뒤 피트로 빠진다.
+    // --- 양옆 거터(낮은 홈) + 캐핑 보드(전 길이) + 킥백(핀덱 옆에만) ---
+    // 실제 볼링장은 레인들이 한 평면으로 붙어 있다. 레인 사이엔 거터 두 줄이 캐핑 보드를 공유하며
+    // 만나고 전부 레인 높이 이하 — 위로 솟은 수직 칸막이는 핀덱 옆 '킥백' 하나뿐이다.
+    // 옆으로 튄 핀은 킥백에 맞고 데크로 튕기거나 거터에 데드우드로 눕는다.
+    // 공(거터볼)은 거터 홈을 그대로 흘러 뒤 피트로 빠진다.
     for (const side of [-1, 1]) {
       const gx = side * (half + gw / 2);
       const gutter = new THREE.Mesh(
@@ -99,20 +113,40 @@ export class Lane {
         gBody,
       );
 
-      // 거터 바깥 벽 = 킥백. 튄 핀을 데크로 되튕겨 옆 레인으로 날아가는 걸 줄인다(실제 킥백 17~24"). 벽 반두께(0.025)만큼 바깥.
-      const wx = side * (half + gw + 0.025);
-      const wall = new THREE.Mesh(
-        new THREE.BoxGeometry(0.05, 0.4, len),
-        new THREE.MeshStandardMaterial({ color: 0x222831, roughness: 1, metalness: 0, envMapIntensity: 0 }),
+      // 캐핑 보드 — 거터 바깥 끝(x=±0.755)부터 옆 레인 거터까지 10cm를 레인 높이로 메운다.
+      // ① 시각: 레인 사이가 한 평면으로 이어진다. ② 물리: 안쪽 면이 채널 바깥 벽이 되어 거터볼을
+      // 가두고, 타고 넘은 공/데드우드도 윗면에 얹힌다 — 예전엔 x>0.755에 바닥 콜라이더가 아예 없어
+      // 벽을 치우는 순간 허공으로 떨어졌다(실제 채널의 바깥 곡면이 캐핑까지 올라오는 것과 같은 역할).
+      const cx = side * (half + gw + CAP_W / 2);
+      const cap = new THREE.Mesh(
+        new THREE.BoxGeometry(CAP_W, CAP_H, len),
+        new THREE.MeshStandardMaterial({ color: 0x1b2029, roughness: 1, metalness: 0, envMapIntensity: 0 }),
       );
-      wall.position.set(wx, 0.15, midZ); // 바닥 -0.05 ~ 위 0.35 (구 top 0.25보다 높여 튕김 강화)
-      wall.receiveShadow = true;
-      engine.addVisual(wall);
+      cap.position.set(cx, -CAP_H / 2, midZ); // 윗면 y=0
+      cap.receiveShadow = true;
+      engine.addVisual(cap);
 
-      const wBody = engine.world.createRigidBody(
-        RAPIER.RigidBodyDesc.fixed().setTranslation(wx, 0.15, midZ),
+      const capBody = engine.world.createRigidBody(
+        RAPIER.RigidBodyDesc.fixed().setTranslation(cx, -CAP_H / 2, midZ),
       );
-      engine.world.createCollider(RAPIER.ColliderDesc.cuboid(0.025, 0.2, len / 2), wBody);
+      // 마찰은 거터 바닥과 동일(0.08) — 구 벽은 setFriction이 없어 Rapier 기본값 0.5가 걸려 있었고,
+      // 거터볼이 21m 내내 그 면에 쓸렸다.
+      engine.world.createCollider(
+        RAPIER.ColliderDesc.cuboid(CAP_W / 2, CAP_H / 2, len / 2).setFriction(0.08),
+        capBody,
+      );
+
+      // 킥백 콜라이더 (메시 없음 — 시각 벽은 Environment의 핀 베이 측벽).
+      // 안쪽 면은 거터 바깥 끝(x=±0.755)에 맞춘다. 예전엔 이게 전 길이(21.48m)로 깔려
+      // 홀이 레인마다 트렌치처럼 갈라져 보였다.
+      const kx = side * (half + gw + KICK_T / 2);
+      const kBody = engine.world.createRigidBody(
+        RAPIER.RigidBodyDesc.fixed().setTranslation(kx, PIN_BAY_TOP / 2, kickMidZ),
+      );
+      engine.world.createCollider(
+        RAPIER.ColliderDesc.cuboid(KICK_T / 2, PIN_BAY_TOP / 2, kickLen / 2),
+        kBody,
+      );
     }
 
     // --- 핀덱 뒤 피트(pit): 데크가 deckEnd에서 끊겨 공/핀이 낮은 바닥으로 굴러떨어진다(핀 뒤에만, 실제 볼링).

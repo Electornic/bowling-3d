@@ -15,7 +15,8 @@ import { CameraRig } from '../camera/CameraRig';
 import { SoundManager } from '../audio/SoundManager';
 import { makeBallSpec } from '../game/BallSpec';
 import { PIN_CONTACT_Z } from '../game/constants';
-import { ACHIEVEMENTS, evaluateAchievements, loadRewards, recordRewards, resetRewards, resolveSkin } from '../game/rewards';
+import { ACHIEVEMENTS, evaluateAchievements, loadRewards, recordRewards, resetRewards, resolveSkin, VIDEO_MARKER } from '../game/rewards';
+import { loadScreenVideo, clearScreenVideo } from '../game/screenStore';
 import { loadSettings, saveSettings } from '../game/settings';
 import { isCoarsePointer } from './device';
 
@@ -180,6 +181,12 @@ function buildScene(engine: Engine): {
     () => game.toMenu(),
     (lb) => game.setHumanBallSpec(makeBallSpec(lb)), // 볼 무게 (인게임 HUD 대신 메뉴에서 선택)
     (id) => game.setBallSkin(resolveSkin(id)), // 볼 스킨 (보상, 외형 전용)
+    (media) => {
+      // 전광판 커스텀 (히든 보상). 이미지/GIF와 영상은 배타 — Environment가 서로를 정리한다.
+      if (!media) environment.setCustomScreen(null);
+      else if (media.kind === 'image') environment.setCustomScreen(media.src);
+      else environment.setCustomVideo(media.blob);
+    },
     settings, // 시작 메뉴 사운드 토글이 읽는 현재 설정 (pause 모달과 동일 객체)
     (v) => {
       settings.sound = v;
@@ -188,6 +195,15 @@ function buildScene(engine: Engine): {
     },
   );
   game.setBallSkin(resolveSkin(loadRewards().selectedSkin)); // 저장된 장착 스킨 초기 적용
+  // 저장된 커스텀 전광판 초기 적용. 영상은 IndexedDB라 비동기 — 부팅을 막지 않고 늦게 붙인다.
+  const savedScreen = loadRewards().customScreen;
+  if (savedScreen === VIDEO_MARKER) {
+    void loadScreenVideo().then((v) => {
+      if (v) environment.setCustomVideo(v.blob);
+    });
+  } else {
+    environment.setCustomScreen(savedScreen);
+  }
   menu.showMenu();
 
   // item 2 — 스틸컷 오버레이 + 특별샷 리플레이(스냅샷). onStep 녹화, onEvent 발화.
@@ -390,7 +406,9 @@ function buildScene(engine: Engine): {
     console.log('[rewards] 전체 해금 완료 — 새로고침하세요');
   };
   w.__resetRewards = () => {
-    resetRewards();
+    resetRewards(); // 키를 통째로 지우므로 customScreen 마커도 같이 날아간다
+    void clearScreenVideo(); // 영상 실물은 IndexedDB에 따로 있다 — 같이 지워야 용량이 회수된다
+    environment.setCustomScreen(null); // 화면은 즉시 기본으로 (새로고침 없이도 확인 가능)
     console.log('[rewards] 초기화 완료 — 새로고침하세요');
   };
 

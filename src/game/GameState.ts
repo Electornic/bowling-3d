@@ -32,7 +32,7 @@ export function slowmoScale(timer: number, total: number): number {
 export type GameStateName = 'MENU' | 'AIMING' | 'ROLLING' | 'SETTLING' | 'GAME_OVER';
 export type GameMode = 'full' | 'blitz' | 'spare';
 /** 예측선 난이도 (조준 보조) — P3. UI 전용, 점수·물리 무영향. */
-export type AimAid = 'easy' | 'normal' | 'pro';
+export type AimAid = 'easy' | 'normal' | 'hard'; // 메뉴 라벨 쉬움/보통/어려움과 1:1
 
 export interface MatchPlayerConfig {
   name: string;
@@ -42,8 +42,10 @@ export interface MatchPlayerConfig {
 export interface MatchConfig {
   mode: GameMode;
   players: MatchPlayerConfig[]; // [0] = 사람 (스페어 챌린지는 솔로만)
-  oilPattern?: OilPattern; // 오일 패턴 (기본 'house') — P3 라인 읽기 숙련
-  aimAid?: AimAid; // 예측선 난이도 (기본 'easy' — §2.7 스마트 기본값) — P3, UI 전용
+  // 오일 패턴 (기본 'house'). ⚠️ 메뉴에선 더 이상 안 고른다 — 난이도 축이 조준 보조 하나로 정리되며
+  // 선택 UI를 걷었다(§2.8). 프리셋 자체는 sim·테스트·후속(데일리 시드)용으로 살아 있다.
+  oilPattern?: OilPattern;
+  aimAid?: AimAid; // 조준 보조 (기본 'easy' — §2.7 스마트 기본값) — P3, UI 전용
 }
 
 interface PlayerState {
@@ -119,7 +121,7 @@ export class GameState {
   mode: GameMode = 'full';
   frames = 10;
   current = 0;
-  aimAid: AimAid = 'easy'; // 예측선 난이도 (Controls가 읽음) — P3, UI 전용. 기본 easy(§2.7 스마트 기본값)
+  aimAid: AimAid = 'easy'; // 조준 보조 (Controls가 읽음) — P3, UI 전용. 기본 easy(§2.7 스마트 기본값)
   /** 게임 이벤트 (스트라이크/스페어/스플릿/게임오버) — 연출·사운드 연결점 */
   onEvent?: (e: GameEvent) => void;
   /** AI 턴 빨리감기용 Loop.timeScale 주입 (Boot에서 연결) */
@@ -140,6 +142,7 @@ export class GameState {
   private slowmoTimer = 0; // 남은 슬로모 시간 (sim s) — Loop.timeScale로 환산 적용
   private slowmoTotal = 1; // 발동 시점 timer 값 (진행도 0..1 산출 → 복원 이징)
   private slowmoUsed = false; // 투구당 1회 (매 throwBall 리셋)
+  private wasCycling = false; // 직전 프레임의 핀세터 가동 여부 — 종료 순간 1회 HUD 갱신용
 
   constructor(
     private readonly ballObj: Ball,
@@ -156,6 +159,18 @@ export class GameState {
   }
   get ball(): number {
     return this.currentPlayer?.ball ?? 1;
+  }
+
+  /**
+   * 던질 수 있는가 — 조준 상태이고 **핀세터가 멎어 있을 때만**.
+   *
+   * 예전엔 핀세터 사이클이 조준과 겹쳐 돌았다(runCycle 직후 곧장 AIMING). 그래서 레이크가
+   * 데드우드를 밀고 있는데 다음 공을 던질 수 있었고, throwBall이 finishCycle()로 연출을
+   * 중간에 끊어 핀이 순간이동으로 제자리에 나타났다. 실제 볼링장은 직렬이다 — 핀세터가
+   * 다 돌아야 다음 투구를 한다. Controls(입력)·AI(대기)·Hud(표시)가 전부 이 하나를 본다.
+   */
+  get readyToThrow(): boolean {
+    return this.state === 'AIMING' && !this.pins.cycling;
   }
   get rolls(): number[][] {
     return this.currentPlayer?.rolls ?? [[]];
@@ -189,7 +204,7 @@ export class GameState {
     this.pendingSplit = null;
     this.slowmoTimer = 0;
     this.slowmoUsed = false;
-    this.aimAid = config.aimAid ?? 'easy'; // 예측선 난이도 (P3, UI 전용) — 기본 easy(§2.7)
+    this.aimAid = config.aimAid ?? 'easy'; // 조준 보조 (P3, UI 전용) — 기본 easy(§2.7)
     const oilPattern = config.oilPattern ?? 'house';
     resetOil(oilPattern); // 오일 프리셋 적용 + 마름 초기화 (P3)
     this.lane.applyOilVisual(oilPattern); // 광택 시트 길이를 프리셋에 맞춤 (읽기 단서)
@@ -233,9 +248,9 @@ export class GameState {
 
   /** 입력에서 호출: 공 발사 (spin ∈ [-1,1] 좌/우 훅) */
   throwBall(aim: number, power: number, spin = 0) {
-    if (this.state !== 'AIMING' || !this.players.length) return;
-    // 핀세터 연출은 조준과 겹쳐 돌아간다 — 다 끝나기 전에 던지면 중간 높이의 핀을 세어버리므로
-    // 여기서 최종 상태로 확정한다(결과는 연출을 끝까지 본 것과 동일).
+    if (!this.readyToThrow || !this.players.length) return;
+    // 안전망 — readyToThrow가 이미 막지만, 디버그(__game.throwBall)나 미래의 우회 경로가
+    // 사이클 중간의 핀 높이를 세어버리지 않게 최종 상태로 확정하고 시작한다.
     this.pins.finishCycle();
     this.standingAtThrow = this.pins.standingCount();
     this.ballObj.launch(aim, power, spin);
@@ -280,6 +295,10 @@ export class GameState {
     // 핀세터 연출은 상태머신과 독립으로 굴린다 — 얼리 리턴 뒤에 두면 마지막 프레임 직후
     // GAME_OVER로 넘어갈 때 핀이 공중에 뜬 채 얼어붙는다.
     this.pins.update(dt);
+    // 사이클이 방금 끝났으면 HUD를 한 번 갱신 — '핀 정리 중…' 라벨과 남은 핀 수가
+    // 연출 종료 시점에 맞춰 확정된다(사이클 중 standingCount는 중간값이라 못 믿는다).
+    if (this.wasCycling && !this.pins.cycling) this.refreshHud();
+    this.wasCycling = this.pins.cycling;
     if (this.state === 'MENU' || this.state === 'GAME_OVER' || !this.players.length) return;
 
     // 오일/드라이 마찰 전환 (단일 바닥 콜라이더, Lane.updateFriction 참고).
@@ -293,7 +312,9 @@ export class GameState {
 
     const ai = this.currentPlayer?.ai;
     if (this.state === 'AIMING') {
-      if (ai) {
+      // 핀세터가 도는 동안은 생각 시간도 세지 않는다 — 안 그러면 사이클이 끝나는 순간
+      // 이미 AI_THINK_TIME이 차 있어 AI가 뜸 없이 즉발한다.
+      if (ai && !this.pins.cycling) {
         this.aiWait += dt;
         if (this.aiWait >= AI_THINK_TIME) {
           this.aiWait = 0;
@@ -599,6 +620,7 @@ export class GameState {
       frames: this.frames,
       current: this.current,
       standing: this.pins.standingCount(),
+      resetting: this.pins.cycling, // 핀세터 가동 중 — 조준 대신 '핀 정리 중…'
       players: this.players.map((p) => ({
         name: p.name,
         ai: !!p.ai,
