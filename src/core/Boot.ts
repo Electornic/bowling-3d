@@ -56,12 +56,17 @@ export async function boot() {
       // 정지, 종료 시 Engine.snapToBodies + cameraRig.resync로 라이브 인계.)
       if (replay.active) {
         replay.update(dt);
-        environment.update(dt);
+        environment.update(dt, true); // 리플레이 = 내 투구를 되짚는 중 → 인접 레인은 대기(lane courtesy)
         return;
       }
       controls.update(dt); // 렌더 프레임마다 UI(조준선·게이지) — dt 기반 파워 차징(프레임레이트 독립)
       cameraRig.update(dt); // 상태별 카메라 연출
-      environment.update(dt); // 전광판 애니메이션
+      // 전광판 애니메이션 + 옆 레인 앰비언트. 두 번째 인자 = lane courtesy 홀드:
+      // 내가 어프로치에 서 있는(조준·투구·안착) 동안 **인접 레인**만 새 투구를 미룬다.
+      // 실제 볼링 리그 표준이 "one lane courtesy in both directions"이고, 실측으로 옆 레인 핀덱이
+      // 화면 중앙 150px(k=1)·297px(k=2)에 있어 방해가 가장 큰 자리만 정확히 비우는 게 된다.
+      const onApproach = game.state === 'AIMING' || game.state === 'ROLLING' || game.state === 'SETTLING';
+      environment.update(dt, onApproach);
       // 그림자 정적화: 공·핀이 멈춘 상태(AIMING/MENU/GAME_OVER)엔 셰도우맵 재렌더 중단,
       // ROLLING/SETTLING에만 갱신 (시간 대부분이 조준이라 이득 큼).
       const moving = game.state === 'ROLLING' || game.state === 'SETTLING';
@@ -386,6 +391,7 @@ function buildScene(engine: Engine): {
     __ball?: Ball;
     __pins?: PinSet;
     __engine?: Engine;
+    __environment?: Environment;
     __game?: GameState;
     __cameraRig?: CameraRig;
     __sound?: SoundManager;
@@ -396,6 +402,7 @@ function buildScene(engine: Engine): {
   w.__ball = ball;
   w.__pins = pins;
   w.__engine = engine;
+  w.__environment = environment; // 옆 레인 앰비언트 상태 확인용
   w.__game = game;
   w.__cameraRig = cameraRig;
   w.__sound = sound;

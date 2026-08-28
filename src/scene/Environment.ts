@@ -13,8 +13,11 @@ import {
   HEADPIN_Z,
   PIN_SPACING,
   ROW_GAP,
+  PIN_HEIGHT,
   PIN_PROFILE,
   PIN_STRIPES,
+  BALL_RADIUS,
+  BALL_START_Z,
 } from '../game/constants';
 import { NEON, rgba } from '../ui/theme'; // 네온 팔레트 단일소스(#5) — 씬 머티리얼·캔버스가 theme.ts와 같은 상수 공유(드리프트 0)
 
@@ -161,6 +164,167 @@ function makeWallTexture(coveFrac: number): THREE.CanvasTexture {
   return t;
 }
 
+// --- 옆 레인 앰비언트 (배경에서 실제로 게임이 돌아간다) ---
+//
+// 레퍼런스: Wii Sports Bowling이 옆 레인에서 Mii들이 실제로 치는 걸 보여준다(Resort도 동일) —
+// 이 장르에서 옆 레인 활동은 옵션이 아니라 표준이다.
+// 기법도 레퍼런스를 따른다: 배경 활동은 **물리가 아니라 캔드(정해둔) 연출**이 정석이다.
+// 그래서 리지드바디를 하나도 안 쓴다 — 4레인 × (핀 10 + 공 1)을 물리로 돌리면 동적 바디가
+// 5배가 되는데, 그 거리·각도에서 물리의 이득은 0이다.
+//
+// ⚠️ **Lane courtesy가 이 연출의 핵심 규칙이다.** 실측으로 옆 레인 핀덱이 화면 중앙에서
+// k=1 → 150px · k=2 → 297px(내 핀 무리 폭은 84px)에 **같은 높이로** 놓인다. 즉 옆 레인 액션은
+// 주변시가 아니라 **내 조준 타겟 바로 옆**이고, 주변부 모션은 비자발적 주의 전환을 강제한다.
+// 해법이 실제 볼링 규칙에 있다 — 인접 레인 볼러가 준비 중이거나 투구를 지켜보는 중이면
+// 어프로치에 올라가지 않고 기다리며, 리그 표준은 "one lane courtesy in both directions"다.
+// → **k=1(인접)은 내가 어프로치에 서 있는 동안 던지지 않고, k=2는 계속 던진다.**
+//   게임적 타협이 아니라 디제틱하게 정확하고, 방해가 가장 큰 자리만 정확히 비운다.
+const AMB_ROLL_T = 2.3; // [튜닝] 공이 파울라인 → 포켓 (실플레이 ~2.2s)
+const AMB_FALL_T = 0.5; // [튜닝] 핀 하나가 넘어지는 시간 (이동량이 커져 0.42→0.5)
+/** 직립 핀 무게중심 높이. 메시 원점은 **밑동**이라 회전 보정에 이 값이 필요하다. */
+const AMB_PIN_CY = PIN_HEIGHT / 2;
+/** 누운 핀 무게중심 높이 ≈ 최대 반경. 예전엔 보정이 없어 몸통 절반이 바닥에 묻혔다. */
+const AMB_PIN_LIE_Y = 0.058;
+// 충격점에서 먼 핀일수록 늦게 넘어진다 — **이 지연이 '연쇄'를 만든다.** 예전엔 넘어질 핀 전부가
+// 같은 u로 동시에 눕는 바람에 "공이 굴러감 → 스위치가 켜짐"처럼 읽혔다(사용자 지적).
+const AMB_FALL_SPREAD = 0.3;
+const AMB_HOLD_T = 0.7; // [튜닝] 넘어진 채 유지
+// ⚠️ 기계 타이밍은 **플레이 레인 핀세터(PinSet의 CY_*)와 같아야 한다.** 같은 볼링장의 같은
+// 기계인데 옆에서 더 빠르게 돌면 배속으로 보인다 — 실제로 그렇게 보였다(사용자 지적).
+// PinSet rack 경로: 가드 0.55 → 스윕 1.00 → 복귀 0.45 → 세팅 0.60 → 종료 0.45 = 3.05s.
+// 예전 값(0.25/0.50/0.40/0.55/0.35 = 2.05s)은 특히 가드·스윕이 2배 빨랐다.
+const AMB_GUARD_T = 0.55; // 레이크 하강 (PinSet CY_GUARD)
+const AMB_SWEEP_T = 1.0; // 레이크 전진 (CY_LIFT→CY_SWEEP)
+const AMB_SET_T = 0.45; // 레이크 복귀 (CY_SWEEP→CY_RETURN)
+const AMB_RACK_T = 0.6; // 새 랙 하강 (CY_RETURN→CY_SET)
+const AMB_LIFT_T = 0.45; // 테이블·레이크가 기계 안으로 (CY_SET→CY_END)
+const AMB_GAP_MIN = 6; // [튜닝] 다음 투구까지 대기(초). 너무 잦으면 산만해진다 — 주 노브
+const AMB_GAP_MAX = 14;
+/** 랙 하강 시작 높이. 개구부(PIN_BAY_TOP 0.6) 위에서 시작해 캐노피에 가려 있다가 내려온다. */
+const AMB_SET_LIFT = 0.62;
+/** 공을 숨기는 지점(포켓 앞). 핀 정중앙까지 굴리면 공(r 0.109)이 핀을 16cm 파고든다. */
+const AMB_BALL_HIDE = 0.16;
+/** 레이크가 남은 직립 핀을 눕히는 축 — +x 회전이면 up이 +z(다운레인)로 눕는다. */
+const AMB_KNOCK_AXIS = new THREE.Vector3(1, 0, 0);
+// 레이크 포즈. 값은 플레이 레인 스윕 바(PinSet)의 튜닝값을 그대로 따른다 — 같은 볼링장의 같은
+// 기계이므로 눈높이가 다르면 안 된다. 대기 높이 1.2는 캐노피(0.6~1.95) 안이라 가려진다.
+const AMB_RAKE_Y_UP = 1.2;
+const AMB_RAKE_Y_DOWN = 0.16;
+const AMB_RAKE_Z0 = HEADPIN_Z - 0.45; // 가드 위치(볼러 쪽) = 쓸기 시작점
+const AMB_RAKE_Z1 = LANE_END_Z + 0.3; // 쓸기 끝 — 베이 뒷벽(20.55~20.65) 뒤라 핀·레이크 모두 은폐
+/** 핀 테이블 밑면이 핀 꼭대기보다 이만큼 위 — 테이블이 핀을 '물고' 내려오는 것처럼 보이게. */
+const AMB_TABLE_OFF = PIN_HEIGHT + 0.03;
+
+type AmbPhase = 'idle' | 'roll' | 'fall' | 'hold' | 'guard' | 'sweep' | 'set' | 'rack' | 'lift';
+
+interface AmbPin {
+  mesh: THREE.Mesh;
+  home: THREE.Vector3; // 직립 위치
+  /** fall이 끝난 자리 — sweep이 여기서 이어간다. 없으면 스윕 첫 프레임에 home으로 되돌아가 튄다. */
+  rest: THREE.Vector3;
+  down: boolean; // 이번 투구에 넘어지는가
+  axis: THREE.Vector3; // 넘어짐 회전축
+  dir: THREE.Vector3; // 넘어짐 방향(수평)
+  /** 넘어지며 **무게중심이 이동하는 거리**(m). 실제 핀은 밑동이 스폿을 떠나 날아간다. */
+  travel: number;
+  angle: number; // 최종 기울기(rad)
+  /** 넘어지기 시작하는 지연(s) — 충격점 거리에 비례. 연쇄를 만드는 유일한 장치. */
+  delay: number;
+  /** 넘어지며 살짝 뜨는 높이 — 밑동이 스폿을 떠난다는 신호. */
+  hop: number;
+}
+
+interface AmbientLane {
+  /** true = 인접 레인(k=1) — lane courtesy 대상 */
+  courtesy: boolean;
+  cx: number;
+  pins: AmbPin[];
+  ball: THREE.Mesh;
+  rng: () => number;
+  rake: THREE.Group; // 스윕 바(레이크) — 기계가 보여야 '오뚜기'가 아니라 리셋으로 읽힌다
+  table: THREE.Mesh; // 핀 테이블 — 새 랙을 내려놓는 판
+  phase: AmbPhase;
+  t: number;
+  wait: number;
+  entryX: number;
+  pocketX: number; // 이번 투구가 들어간 포켓(레인 중앙 대비) — 넘어짐 패턴의 기준점
+  fallSpan: number; // fall 페이즈 전체 길이 = AMB_FALL_T + 최대 지연
+}
+
+/**
+ * 옆 레인용 레이크(스윕 바) — 플레이 레인 스윕 바(PinSet)의 축약판.
+ *
+ * 이게 없으면 사이클이 "핀이 몇 개 눕는다 → 오뚜기처럼 일어난다"로 읽힌다(사용자 지적).
+ * 기계가 보여야 같은 움직임이 '리셋'으로 읽힌다. 형상·색은 플레이 레인과 같게 맞춘다 —
+ * 같은 볼링장의 같은 기계라 눈높이가 다르면 오히려 이상해진다.
+ * 물리는 없다: 핀은 레이크 z를 넘으면 함께 밀리는 방식(플레이 레인도 시각은 같은 원리).
+ */
+function makeAmbRake(cx: number): THREE.Group {
+  const W = LANE_WIDTH + 2 * GUTTER_WIDTH + 0.06;
+  const H = 0.14;
+  const T = 0.014;
+  const g = new THREE.Group();
+  g.add(
+    new THREE.Mesh(
+      new THREE.BoxGeometry(W, H, T),
+      new THREE.MeshStandardMaterial({ color: 0x8f98a6, metalness: 0.85, roughness: 0.35 }),
+    ),
+  );
+  const lip = new THREE.Mesh(
+    new THREE.BoxGeometry(W, 0.026, 0.03),
+    new THREE.MeshStandardMaterial({ color: 0xb3bbc7, metalness: 0.9, roughness: 0.28 }),
+  );
+  lip.position.y = H / 2 - 0.013;
+  g.add(lip);
+  // 네온 액센트 — 멀리서 '바가 지나간다'를 읽히게 하는 신호(플레이 레인과 동일 의도)
+  const accent = new THREE.Mesh(
+    new THREE.BoxGeometry(W * 0.985, 0.014, 0.014),
+    new THREE.MeshStandardMaterial({ color: 0x0a1a20, emissive: 0x22d3ee, emissiveIntensity: 2.4, roughness: 1 }),
+  );
+  accent.position.set(0, H / 2 - 0.036, -T / 2 - 0.007);
+  g.add(accent);
+  // 매달린 팔 — 없으면 판이 허공에 떠서 미끄러지는 것처럼 보인다
+  const armMat = new THREE.MeshStandardMaterial({ color: 0x4d5560, metalness: 0.8, roughness: 0.38 });
+  for (const side of [-1, 1]) {
+    const post = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.6, 0.06), armMat);
+    post.position.set(side * (W / 2 - 0.03), H / 2 + 0.3, 0);
+    g.add(post);
+  }
+  g.position.set(cx, AMB_RAKE_Y_UP, AMB_RAKE_Z0); // 대기 = 캐노피 안(가려짐)
+  return g;
+}
+
+/** 옆 레인용 핀 테이블 — 새 랙을 내려놓는 판. 이게 있어야 하강이 '기계'로 읽힌다. */
+function makeAmbTable(cx: number): THREE.Mesh {
+  const m = new THREE.Mesh(
+    new THREE.BoxGeometry(LANE_WIDTH - 0.04, 0.06, PIN_DECK_END - HEADPIN_Z + 0.18),
+    new THREE.MeshStandardMaterial({ color: 0x3a4250, metalness: 0.7, roughness: 0.42 }),
+  );
+  m.position.set(cx, AMB_SET_LIFT + AMB_TABLE_OFF, (HEADPIN_Z + PIN_DECK_END) / 2);
+  return m;
+}
+
+/** smoothstep — 기계 동작은 등속이면 순간 출발·순간 정지로 보인다(플레이 레인과 같은 처리). */
+const smooth = (u: number) => u * u * (3 - 2 * u);
+
+// 핀 포즈 계산용 스크래치 (hot path 무할당)
+const _aq = new THREE.Quaternion();
+const _av = new THREE.Vector3();
+
+/**
+ * 결정적 의사난수 (레인별 시드) — 새로고침마다 달라지면 눈으로 검증이 안 된다.
+ * 앰비언트는 점수·물리에 무영향이라 품질은 중요하지 않고 재현성만 필요하다.
+ */
+function mulberry32(seed: number): () => number {
+  let a = seed >>> 0;
+  return () => {
+    a = (a + 0x6d2b79f5) >>> 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
 /**
  * 볼링장 배경 (시각 전용, 충돌체 없음).
  * 옆 레인×4 + 어프로치 바닥 + 양쪽 벽 + 천장(조명 스트립) + 핀덱 마스킹·네온 + 레인 마커.
@@ -182,6 +346,8 @@ export class Environment {
   private gifDecoder: ImageDecoder | null = null;
   private gifFrame: VideoFrame | null = null;
   private gifTimer: number | null = null;
+  // 옆 레인 앰비언트 (배경 게임). 물리 없음 — 캔드 연출.
+  private readonly ambient: AmbientLane[] = [];
   // 커스텀 비디오 (§2차). 이미지/GIF와 배타 — 하나만 켜진다.
   private videoEl: HTMLVideoElement | null = null;
   private videoUrl: string | null = null;
@@ -202,6 +368,10 @@ export class Environment {
     // 세그먼트는 12→16만: 장식이라 항상 멀리 있고 4레인 × 10개 = 40개다.
     const pinGeo = makePinGeometry(16);
     const pinMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.5 });
+    // 앰비언트 공 — 4레인 공용. 어둡고 채도 낮게: 배경 모션이 내 조준에서 시선을 덜 끌어야 한다
+    // (주변부 모션은 비자발적 주의 전환을 강제한다 — 위 Lane courtesy 주석 참고).
+    const ambBallGeo = new THREE.SphereGeometry(BALL_RADIUS, 16, 12);
+    const ambBallMat = new THREE.MeshStandardMaterial({ color: 0x2e3646, roughness: 0.35, metalness: 0.1 });
 
     // --- 옆 레인 ×2 (양쪽, 장식용) ---
     for (const side of [-1, 1]) {
@@ -218,14 +388,57 @@ export class Environment {
           gut.position.set(cx + s2 * (half + GUTTER_WIDTH / 2), -GUTTER_DEPTH - 0.05, midZ);
           engine.addVisual(gut);
         }
-        // 장식 핀 (정삼각형 10개)
+        // 핀 10개 (정삼각형) — 더는 '장식'이 아니다. 앰비언트 사이클에서 실제로 넘어지고 다시 선다.
+        // ⚠️ castShadow를 켜지 말 것 — Boot이 조준/메뉴 중 shadowMap.autoUpdate를 끄므로(정적화)
+        //    움직이는 물체가 그림자를 지면 멈춘 그림자가 남는다. 배경이라 그림자 없어도 티가 안 난다.
+        const pins: AmbPin[] = [];
         for (let r = 0; r < 4; r++) {
           for (let c2 = 0; c2 <= r; c2++) {
             const pin = new THREE.Mesh(pinGeo, pinMat);
-            pin.position.set(cx + (c2 - r / 2) * PIN_SPACING, 0, HEADPIN_Z + r * ROW_GAP); // base가 y=0 (병 프로파일)
+            const home = new THREE.Vector3(cx + (c2 - r / 2) * PIN_SPACING, 0, HEADPIN_Z + r * ROW_GAP); // base가 y=0
+            pin.position.copy(home);
             engine.addVisual(pin);
+            pins.push({
+              mesh: pin,
+              home,
+              rest: home.clone(),
+              down: false,
+              axis: new THREE.Vector3(1, 0, 0),
+              dir: new THREE.Vector3(0, 0, 1),
+              travel: 0,
+              angle: 0,
+              delay: 0,
+              hop: 0,
+            });
           }
         }
+        const ball = new THREE.Mesh(ambBallGeo, ambBallMat);
+        ball.visible = false;
+        engine.addVisual(ball);
+        // 주차 중엔 캐노피에 가려 안 보이지만, 그려는 진다 → 레인당 6드로우콜이 상시 낭비.
+        // guard에서 켜고 lift 끝에서 끈다(사이클의 60%가 주차 상태다).
+        const rake = makeAmbRake(cx);
+        rake.visible = false;
+        engine.addVisual(rake);
+        const table = makeAmbTable(cx);
+        table.visible = false;
+        engine.addVisual(table);
+        this.ambient.push({
+          courtesy: k === 1,
+          cx,
+          pins,
+          ball,
+          rake,
+          table,
+          rng: mulberry32(0x9e3779b9 ^ (side * 977 + k * 131)),
+          phase: 'idle',
+          t: 0,
+          // 초기 위상만 흩어 놓는다 — 4레인이 동시에 던지면 배경이 아니라 이벤트가 된다
+          wait: 1.5 + k * 2.3 + (side < 0 ? 1.7 : 0),
+          entryX: 0,
+          pocketX: 0,
+          fallSpan: AMB_FALL_T,
+        });
       }
       // 레인 사이 캐핑 보드 — 실제 볼링장은 레인들이 한 평면으로 붙어 있고 솟은 칸막이가 없다.
       // k=0(플레이 레인 경계, x≈±0.805)은 건너뜀 — 그 자리는 Lane.ts의 캐핑이 정확히 차지한다.
@@ -544,9 +757,16 @@ export class Environment {
     this.announceUntil = this.time + 2.2;
   }
 
-  /** 매 렌더 프레임 호출 (Boot.onFrame) — 전광판 애니메이션 갱신 */
-  update(dt: number) {
+  /**
+   * 매 렌더 프레임 호출 (Boot.onFrame) — 전광판 애니메이션 + 옆 레인 앰비언트.
+   *
+   * @param courtesyHold 플레이어가 어프로치에 서 있는가(조준·투구·안착 중). true면 **인접 레인만**
+   *   새 투구를 시작하지 않는다 — 실제 볼링의 lane courtesy(양방향 한 레인). 이미 굴러가는 투구는
+   *   끊지 않는다: 규칙도 "던지기 전에 기다린다"이고, 중간에 멈추면 그게 더 눈에 띈다.
+   */
+  update(dt: number, courtesyHold: boolean) {
     this.time += dt;
+    this.updateAmbient(dt, courtesyHold);
     // 커스텀 영상 자가 복구 — 브라우저는 백그라운드 탭에서 무음 영상 재생을 멈춰 세우고,
     // 돌아와도 스스로 재개하지 않는다. 한 번 멈추면 영영 정지 화면이 되므로 매 프레임 확인한다
     // (boolean 두 번이라 비용은 없다시피 하고, 자동재생 정책상 muted는 항상 통과한다).
@@ -564,6 +784,233 @@ export class Environment {
   }
 
   /** 전광판 한 프레임 렌더 (신스웨이브 + 스크롤 마퀴 + 이벤트 어나운스) */
+  /**
+   * 옆 레인 앰비언트 사이클 (리지드바디 0개):
+   *   idle → roll → fall → hold → guard → sweep → set → rack → lift → idle
+   *
+   * 예전엔 roll → fall → sweep → set 넷뿐이었고, 그래서 **"공이 굴러감 → 핀 몇 개가 눕는다 →
+   * 오뚜기처럼 일어난다"의 반복**으로 읽혔다(사용자 지적). 빠져 있던 게 셋이다:
+   *  ① **인과** — 어느 핀이 넘어지는지가 공과 무관한 난수였고, 공은 매번 레인 정중앙으로 수렴했다.
+   *     지금은 포켓으로 들어가고, 넘어질 확률·방향·순서가 전부 **충격점 거리**에서 나온다.
+   *  ② **연쇄** — 넘어질 핀이 같은 u로 동시에 눕었다(스위치처럼). 지금은 거리에 비례한 지연이 붙어
+   *     헤드핀부터 뒷줄로 번진다.
+   *  ③ **기계** — 레이크도 테이블도 없어 핀이 스스로 일어나는 것처럼 보였다. 지금은 레이크가
+   *     내려와(guard) 쓸고(sweep) 돌아오고(set), 테이블이 새 랙을 내려놓고(rack) 둘이 올라간다(lift).
+   */
+  private updateAmbient(dt: number, courtesyHold: boolean) {
+    for (const L of this.ambient) {
+      L.t += dt;
+      switch (L.phase) {
+        case 'idle':
+          // lane courtesy — 인접 레인은 내가 어프로치에 서 있는 동안 '올라서지' 않는다
+          if (L.t >= L.wait && !(L.courtesy && courtesyHold)) {
+            L.entryX = (L.rng() - 0.5) * 0.34;
+            // 포켓(1-3 또는 1-2 사이). 정중앙으로 수렴하면 매 투구가 똑같아 보인다.
+            L.pocketX = (L.rng() < 0.5 ? -1 : 1) * (0.045 + L.rng() * 0.03);
+            // ⚠️ 위치를 먼저 잡고 보이게 한다 — 순서가 반대면 1프레임 동안 공이 (0,0,0)에 번쩍인다
+            this.placeAmbBall(L, 0);
+            L.ball.visible = true;
+            L.phase = 'roll';
+            L.t = 0;
+          }
+          break;
+        case 'roll': {
+          const u = Math.min(1, L.t / AMB_ROLL_T);
+          this.placeAmbBall(L, u);
+          if (u >= 1) {
+            L.ball.visible = false; // 핀 무리에 가려지는 지점 — 그 뒤는 안 보이니 굴리지 않는다
+            this.rollAmbient(L);
+            L.phase = 'fall';
+            L.t = 0;
+          }
+          break;
+        }
+        case 'fall': {
+          // 핀마다 자기 지연을 가진 진행도 — 이게 연쇄를 만든다
+          for (const p of L.pins) {
+            if (!p.down) continue;
+            const pu = THREE.MathUtils.clamp((L.t - p.delay) / AMB_FALL_T, 0, 1);
+            if (pu <= 0) continue; // 아직 차례가 안 온 핀은 그대로 서 있다
+            const e = 1 - (1 - pu) * (1 - pu); // ease-out — 맞는 순간 빠르고 끝에서 잦아든다
+            this.layAmbPin(p, p.home.x, p.home.z, e, pu);
+          }
+          if (L.t >= L.fallSpan) {
+            for (const p of L.pins) p.rest.copy(p.mesh.position); // sweep이 이 자리에서 이어간다
+            L.phase = 'hold';
+            L.t = 0;
+          }
+          break;
+        }
+        case 'hold':
+          if (L.t >= AMB_HOLD_T) {
+            L.rake.visible = true; // 기계 노출 시작 (주차 중엔 그리지 않는다)
+            L.table.visible = true;
+            L.phase = 'guard';
+            L.t = 0;
+          }
+          break;
+        case 'guard': {
+          const u = Math.min(1, L.t / AMB_GUARD_T);
+          L.rake.position.set(L.cx, THREE.MathUtils.lerp(AMB_RAKE_Y_UP, AMB_RAKE_Y_DOWN, smooth(u)), AMB_RAKE_Z0);
+          if (u >= 1) {
+            L.phase = 'sweep';
+            L.t = 0;
+          }
+          break;
+        }
+        case 'sweep': {
+          const u = Math.min(1, L.t / AMB_SWEEP_T);
+          const rz = THREE.MathUtils.lerp(AMB_RAKE_Z0, AMB_RAKE_Z1, smooth(u));
+          L.rake.position.set(L.cx, AMB_RAKE_Y_DOWN, rz);
+          // **레이크가 닿은 핀만** 밀린다. 전부 한꺼번에 옮기면 '레이크가 쓴다'로 안 읽힌다.
+          for (const p of L.pins) {
+            const pushed = rz + 0.07;
+            if (pushed <= p.rest.z) continue;
+            if (p.down) {
+              p.mesh.position.set(p.rest.x, p.rest.y, pushed); // 이미 누운 핀은 그대로 밀린다
+            } else {
+              // 서 있던 핀은 밀리면서 눕는다(26cm에 걸쳐) — 안 눕히면 체스말처럼 미끄러진다
+              const over = Math.min(1, (pushed - p.rest.z) / 0.26);
+              this.layAmbPin(p, p.rest.x, pushed, over, over);
+            }
+          }
+          if (u >= 1) {
+            L.phase = 'set';
+            L.t = 0;
+          }
+          break;
+        }
+        case 'set': {
+          // 레이크 복귀. 핀은 이미 베이 뒷벽 뒤라, 여기서 새 랙 시작 위치로 옮겨도 안 보인다.
+          const u = Math.min(1, L.t / AMB_SET_T);
+          L.rake.position.set(L.cx, AMB_RAKE_Y_DOWN, THREE.MathUtils.lerp(AMB_RAKE_Z1, AMB_RAKE_Z0, smooth(u)));
+          if (u >= 1) {
+            for (const p of L.pins) {
+              p.mesh.quaternion.identity();
+              p.down = false;
+              p.mesh.position.set(p.home.x, p.home.y + AMB_SET_LIFT, p.home.z);
+            }
+            L.phase = 'rack';
+            L.t = 0;
+          }
+          break;
+        }
+        case 'rack': {
+          // 테이블이 핀 위에 붙어 함께 내려온다 — 이게 '기계가 놓는다'로 읽히게 하는 부분
+          const u = Math.min(1, L.t / AMB_RACK_T);
+          const base = AMB_SET_LIFT * (1 - smooth(u));
+          for (const p of L.pins) p.mesh.position.set(p.home.x, p.home.y + base, p.home.z);
+          L.table.position.y = base + AMB_TABLE_OFF;
+          if (u >= 1) {
+            for (const p of L.pins) p.mesh.position.copy(p.home);
+            L.phase = 'lift';
+            L.t = 0;
+          }
+          break;
+        }
+        case 'lift': {
+          // 테이블·레이크가 기계 안(캐노피 뒤)으로 — 새 랙만 남는다
+          const u = Math.min(1, L.t / AMB_LIFT_T);
+          const e = smooth(u);
+          L.table.position.y = THREE.MathUtils.lerp(AMB_TABLE_OFF, AMB_SET_LIFT + AMB_TABLE_OFF, e);
+          L.rake.position.set(L.cx, THREE.MathUtils.lerp(AMB_RAKE_Y_DOWN, AMB_RAKE_Y_UP, e), AMB_RAKE_Z0);
+          if (u >= 1) {
+            L.rake.visible = false; // 기계가 안으로 들어갔다 — 이제 그릴 필요 없다
+            L.table.visible = false;
+            L.phase = 'idle';
+            L.t = 0;
+            L.wait = AMB_GAP_MIN + L.rng() * (AMB_GAP_MAX - AMB_GAP_MIN);
+          }
+          break;
+        }
+      }
+    }
+  }
+
+  /**
+   * 넘어지는 핀의 포즈를 **무게중심 궤적**으로 놓는다.
+   *
+   * 예전엔 quaternion만 돌리고 위치는 home 근처에 뒀다. 메시 원점이 핀 **밑동**이라
+   * ① 밑동이 스폿에 박힌 채 문짝처럼 회전하고 ② 90°에서 몸통 절반(반경 6cm)이 바닥에 묻혔다.
+   * 이게 "오뚜기처럼 쓰러진다"의 정체였다 — 오뚜기는 밑이 무거워 제자리에서 기울기만 하니까.
+   * 실제 핀은 밑동이 스폿을 떠나 날아가듯 넘어지고, 누운 뒤엔 바닥 **위에** 놓인다.
+   * 그래서 무게중심이 그릴 궤적을 먼저 정하고, 회전을 반영해 메시 원점을 역산한다.
+   *
+   * @param baseX,baseZ 무게중심 궤적의 시작 지점(핀 스폿 또는 밀리는 위치)
+   * @param e 자세 진행도(이징 적용됨) · @param hopU 뜀 진행도(0→1 포물선용, 이징 없는 원값)
+   */
+  private layAmbPin(p: AmbPin, baseX: number, baseZ: number, e: number, hopU: number) {
+    _aq.setFromAxisAngle(p.axis, p.angle * e);
+    _av.set(0, AMB_PIN_CY, 0).applyQuaternion(_aq); // 회전된 '밑동→무게중심' 벡터
+    const cy = THREE.MathUtils.lerp(AMB_PIN_CY, AMB_PIN_LIE_Y, e) + p.hop * 4 * hopU * (1 - hopU);
+    p.mesh.quaternion.copy(_aq);
+    p.mesh.position.set(
+      baseX + p.dir.x * p.travel * e - _av.x,
+      cy - _av.y,
+      baseZ + p.dir.z * p.travel * e - _av.z,
+    );
+  }
+
+  /**
+   * 앰비언트 공을 진행도 u(0~1)에 놓는다.
+   * 훅 — 진입 x에서 시작해 (1−u²)로 **포켓**으로 휘어 들어간다(후반에 꺾이는 실제 훅 모양).
+   * z는 핀 앞에서 끝난다 — 정중앙까지 가면 공이 핀을 16cm 파고든다(AMB_BALL_HIDE).
+   */
+  private placeAmbBall(L: AmbientLane, u: number) {
+    L.ball.position.set(
+      L.cx + L.pocketX + L.entryX * 2.2 * (1 - u * u),
+      BALL_RADIUS - 0.01, // 옆 레인 바닥이 플레이 레인보다 1cm 낮다
+      THREE.MathUtils.lerp(BALL_START_Z, HEADPIN_Z - AMB_BALL_HIDE, u),
+    );
+  }
+
+  /**
+   * 이번 투구의 결과를 **공이 들어간 자리에서** 만든다.
+   * 넘어질 핀 · 넘어지는 방향 · 넘어지는 순서가 모두 충격점(포켓 × 헤드핀) 거리에서 나온다 —
+   * 예전엔 셋 다 공과 무관한 난수였고, 그래서 공과 핀이 인과로 묶이지 않았다.
+   */
+  private rollAmbient(L: AmbientLane) {
+    const ix = L.cx + L.pocketX;
+    let maxDelay = 0;
+    for (const p of L.pins) {
+      const dx = p.home.x - ix;
+      const dz = p.home.z - HEADPIN_Z;
+      const d = Math.hypot(dx, dz);
+      // 가까운 핀은 거의 확실히, 먼 핀(뒷줄 코너 d≈0.95)은 절반 이하 → 코너 잔존이 자연히 생긴다
+      p.down = L.rng() < THREE.MathUtils.clamp(1.35 - d * 0.95, 0.3, 1);
+      if (!p.down) {
+        // 이번엔 서 있지만, 나중에 레이크가 밀 때 같은 궤적 계산을 쓴다 → 데이터는 채워둔다
+        p.delay = 0;
+        p.dir.set(0, 0, 1); // 레이크는 다운레인으로 민다
+        p.axis.copy(AMB_KNOCK_AXIS);
+        p.angle = Math.PI / 2;
+        p.travel = 0.12;
+        p.hop = 0.02;
+        continue;
+      }
+      p.delay = d * AMB_FALL_SPREAD + L.rng() * 0.04; // 헤드핀부터 뒷줄로 번지는 연쇄
+      maxDelay = Math.max(maxDelay, p.delay);
+      // 충격점에서 **방사형**으로 흩어진다 + 다운레인 바이어스(공이 실어준 방향).
+      // 헤드핀은 충격점과 거의 같은 자리라 방사 방향이 정의되지 않는데, 바이어스가 그걸 메운다.
+      p.dir.set(dx, 0, dz + 0.55).normalize();
+      p.axis.set(p.dir.z, 0, -p.dir.x).normalize(); // 이 축 +회전 = up이 dir 쪽으로 눕는다
+      // 90° 또는 270° — 둘 다 '누운' 자세로 끝나지만 270°는 한 바퀴 더 굴러 텀블링이 된다.
+      // 90° 고정이면 10개가 전부 같은 방식으로 기울어 기계적으로 보인다.
+      p.angle = Math.PI / 2 + (L.rng() < 0.35 ? Math.PI : 0);
+      // 무게중심 이동 0.25~0.9m. 예전 0.05~0.17m로는 '제자리에서 기울었다'로 보였다.
+      p.travel = 0.25 + L.rng() * 0.65;
+      p.hop = 0.04 + L.rng() * 0.1;
+      // ⚠️ 킥백 안에 가둔다. 물리가 없으니 막아줄 게 없어서, 코너 핀이 옆으로 크게 날면
+      //    킥백 벽(레인 중앙 ±0.805)을 넘어 **옆 레인으로 넘어간다**. 여유 0.72까지만 허용.
+      if (Math.abs(p.dir.x) > 1e-3) {
+        const lat = p.home.x - ix + L.pocketX; // 레인 중앙 대비 이 핀의 x
+        const room = ((p.dir.x > 0 ? 0.72 : -0.72) - lat) / p.dir.x;
+        p.travel = Math.min(p.travel, Math.max(0.12, room));
+      }
+    }
+    L.fallSpan = AMB_FALL_T + maxDelay;
+  }
+
   private drawScreen() {
     const ctx = this.screenCtx;
     const W = ctx.canvas.width;
