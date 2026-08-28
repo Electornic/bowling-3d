@@ -179,7 +179,15 @@ function makeWallTexture(coveFrac: number): THREE.CanvasTexture {
 // 어프로치에 올라가지 않고 기다리며, 리그 표준은 "one lane courtesy in both directions"다.
 // → **k=1(인접)은 내가 어프로치에 서 있는 동안 던지지 않고, k=2는 계속 던진다.**
 //   게임적 타협이 아니라 디제틱하게 정확하고, 방해가 가장 큰 자리만 정확히 비운다.
-const AMB_ROLL_T = 2.3; // [튜닝] 공이 파울라인 → 포켓 (실플레이 ~2.2s)
+// [튜닝] 공이 파울라인 → 포켓. **투구마다 난수** — 사람마다 공 속도가 다르고, 고정이면 랜덤한
+// 간격으로 똑같은 클립이 재생되는 것처럼 읽힌다(실측: 한 투구 소요가 6.82~6.93s로 변동 1.6%).
+//
+// ⚠️ 물리적 정확도보다 **느리게** 잡는다. 실측으로 플레이어 공은 파울라인→핀앞(18.13m)을 2.12s에
+// 가고(9.36 → 7.31 m/s 감속) 구 앰비언트 2.3s는 같은 구간 환산 2.18s로 사실상 동일했는데,
+// 그래도 옆 레인이 훨씬 빨라 보였다. **플레이어 공은 카메라가 1.8m 뒤에서 따라가 화면상 거의
+// 제자리에 머물기 때문**이다 — 눈이 비교하는 기준이 그거라 옆 레인은 느려야 맞다.
+const AMB_ROLL_MIN = 3.0;
+const AMB_ROLL_MAX = 4.0;
 const AMB_FALL_T = 0.5; // [튜닝] 핀 하나가 넘어지는 시간 (이동량이 커져 0.42→0.5)
 /** 직립 핀 무게중심 높이. 메시 원점은 **밑동**이라 회전 보정에 이 값이 필요하다. */
 const AMB_PIN_CY = PIN_HEIGHT / 2;
@@ -188,7 +196,10 @@ const AMB_PIN_LIE_Y = 0.058;
 // 충격점에서 먼 핀일수록 늦게 넘어진다 — **이 지연이 '연쇄'를 만든다.** 예전엔 넘어질 핀 전부가
 // 같은 u로 동시에 눕는 바람에 "공이 굴러감 → 스위치가 켜짐"처럼 읽혔다(사용자 지적).
 const AMB_FALL_SPREAD = 0.3;
-const AMB_HOLD_T = 0.7; // [튜닝] 넘어진 채 유지
+// [튜닝] 넘어진 채 유지 — 기계가 반응하는 타이밍도 매번 조금씩 다르다.
+// (기계 구간 자체는 고정 유지 — 플레이 레인과 같은 기계라 여기가 흔들리면 '배속'으로 돌아간다.)
+const AMB_HOLD_MIN = 0.4;
+const AMB_HOLD_MAX = 1.3;
 // ⚠️ 기계 타이밍은 **플레이 레인 핀세터(PinSet의 CY_*)와 같아야 한다.** 같은 볼링장의 같은
 // 기계인데 옆에서 더 빠르게 돌면 배속으로 보인다 — 실제로 그렇게 보였다(사용자 지적).
 // PinSet rack 경로: 가드 0.55 → 스윕 1.00 → 복귀 0.45 → 세팅 0.60 → 종료 0.45 = 3.05s.
@@ -252,6 +263,10 @@ interface AmbientLane {
   t: number;
   wait: number;
   entryX: number;
+  rollT: number; // 이번 투구의 공 속도(파울라인→포켓 소요 s) — 투구마다 뽑는다
+  holdT: number; // 이번 투구의 넘어진 채 유지 시간
+  /** courtesy로 막힌 동안 뽑아두는 디싱크 지연 — 인접 두 레인이 해제 프레임에 동시 출발하는 것 방지 */
+  desync: number;
   pocketX: number; // 이번 투구가 들어간 포켓(레인 중앙 대비) — 넘어짐 패턴의 기준점
   fallSpan: number; // fall 페이즈 전체 길이 = AMB_FALL_T + 최대 지연
 }
@@ -441,6 +456,9 @@ export class Environment {
           // 초기 위상만 흩어 놓는다 — 4레인이 동시에 던지면 배경이 아니라 이벤트가 된다
           wait: 1.5 + k * 2.3 + (side < 0 ? 1.7 : 0),
           entryX: 0,
+          rollT: AMB_ROLL_MIN,
+          holdT: AMB_HOLD_MIN,
+          desync: 0,
           pocketX: 0,
           fallSpan: AMB_FALL_T,
         });
@@ -809,8 +827,17 @@ export class Environment {
         case 'idle':
           // lane courtesy — 인접 레인은 내가 던지는 동안 '올라서지' 않는다.
           // 단 AMB_COURTESY_MAX를 넘겨 기다렸으면 그냥 간다(실제로도 그렇고, 굶지 않게).
-          const held = L.courtesy && courtesyHold && L.t < L.wait + AMB_COURTESY_MAX;
-          if (L.t >= L.wait && !held) {
+          const blocked = L.courtesy && courtesyHold;
+          // 막힌 동안 레인별 디싱크 지연을 **한 번** 뽑는다. 안 하면 인접 두 레인이 홀드가 풀리는
+          // 같은 프레임에 동시 출발해 내 투구 리듬에 동기화된다. 실제로도 동시에 준비되면
+          // '오른쪽 볼러 우선권'으로 한쪽이 먼저 간다.
+          if (blocked && L.t >= L.wait && L.desync === 0) L.desync = 0.15 + L.rng() * 1.85;
+          const ready = L.wait + L.desync;
+          const held = blocked && L.t < ready + AMB_COURTESY_MAX;
+          if (L.t >= ready && !held) {
+            L.desync = 0;
+            L.rollT = AMB_ROLL_MIN + L.rng() * (AMB_ROLL_MAX - AMB_ROLL_MIN);
+            L.holdT = AMB_HOLD_MIN + L.rng() * (AMB_HOLD_MAX - AMB_HOLD_MIN);
             L.entryX = (L.rng() - 0.5) * 0.34;
             // 포켓(1-3 또는 1-2 사이). 정중앙으로 수렴하면 매 투구가 똑같아 보인다.
             L.pocketX = (L.rng() < 0.5 ? -1 : 1) * (0.045 + L.rng() * 0.03);
@@ -822,7 +849,7 @@ export class Environment {
           }
           break;
         case 'roll': {
-          const u = Math.min(1, L.t / AMB_ROLL_T);
+          const u = Math.min(1, L.t / L.rollT);
           this.placeAmbBall(L, u);
           if (u >= 1) {
             L.ball.visible = false; // 핀 무리에 가려지는 지점 — 그 뒤는 안 보이니 굴리지 않는다
@@ -849,7 +876,7 @@ export class Environment {
           break;
         }
         case 'hold':
-          if (L.t >= AMB_HOLD_T) {
+          if (L.t >= L.holdT) {
             L.rake.visible = true; // 기계 노출 시작 (주차 중엔 그리지 않는다)
             L.table.visible = true;
             L.phase = 'guard';
@@ -997,25 +1024,96 @@ export class Environment {
       }
       p.delay = d * AMB_FALL_SPREAD + L.rng() * 0.04; // 헤드핀부터 뒷줄로 번지는 연쇄
       maxDelay = Math.max(maxDelay, p.delay);
-      // 충격점에서 **방사형**으로 흩어진다 + 다운레인 바이어스(공이 실어준 방향).
-      // 헤드핀은 충격점과 거의 같은 자리라 방사 방향이 정의되지 않는데, 바이어스가 그걸 메운다.
-      p.dir.set(dx, 0, dz + 0.55).normalize();
+      // 충격점에서 방사형으로 흩어진다 + 다운레인 바이어스 + **무작위 편차.**
+      //
+      // ⚠️ 편차가 핵심이다. 예전엔 dir = (dx, 0, dz + 0.55)였는데 바이어스 0.55가 측방 성분
+      //    (최대 ±0.53)을 압도해서 **넘어진 방향이 −22°~21°에 갇혔다**(실측). 즉 10개가
+      //    거의 나란히 같은 방향으로 누웠고, 그게 기계적으로 보이는 주 원인이었다.
+      //    바이어스를 0.18로 줄이고 ±40° 무작위 편차를 얹어 데크 전체로 흩어지게 한다.
+      //    (편차 상한이 40°인 이유: 뒷줄 코너의 방사각 28.7°에 더해도 68.7° < 90°라
+      //     **볼러 쪽(−z)으로는 절대 안 넘어진다** — 베이 밖으로 튀어나오는 걸 막는다.)
+      const base = Math.atan2(dx, dz + 0.18);
+      const ang = base + (L.rng() - 0.5) * 1.4;
+      p.dir.set(Math.sin(ang), 0, Math.cos(ang));
       p.axis.set(p.dir.z, 0, -p.dir.x).normalize(); // 이 축 +회전 = up이 dir 쪽으로 눕는다
+      // 회전축을 살짝 기울인다 — 완전한 평면 넘어짐은 도미노처럼 보인다
+      p.axis.y = (L.rng() - 0.5) * 0.3;
+      p.axis.normalize();
       // 90° 또는 270° — 둘 다 '누운' 자세로 끝나지만 270°는 한 바퀴 더 굴러 텀블링이 된다.
-      // 90° 고정이면 10개가 전부 같은 방식으로 기울어 기계적으로 보인다.
       p.angle = Math.PI / 2 + (L.rng() < 0.35 ? Math.PI : 0);
       // 무게중심 이동 0.25~0.9m. 예전 0.05~0.17m로는 '제자리에서 기울었다'로 보였다.
       p.travel = 0.25 + L.rng() * 0.65;
       p.hop = 0.04 + L.rng() * 0.1;
-      // ⚠️ 킥백 안에 가둔다. 물리가 없으니 막아줄 게 없어서, 코너 핀이 옆으로 크게 날면
-      //    킥백 벽(레인 중앙 ±0.805)을 넘어 **옆 레인으로 넘어간다**. 여유 0.72까지만 허용.
-      if (Math.abs(p.dir.x) > 1e-3) {
-        const lat = p.home.x - ix + L.pocketX; // 레인 중앙 대비 이 핀의 x
-        const room = ((p.dir.x > 0 ? 0.72 : -0.72) - lat) / p.dir.x;
-        p.travel = Math.min(p.travel, Math.max(0.12, room));
+      // 킥백 안에 가둔다 (relaxAmbLanding이 travel을 다시 계산한 뒤에도 한 번 더 적용된다)
+      this.fitAmbPinInKickback(p, L.cx);
+    }
+    this.relaxAmbLanding(L);
+    L.fallSpan = AMB_FALL_T + maxDelay;
+  }
+
+  /**
+   * 착지점 겹침 해소 — 물리가 없으니 핀끼리 그냥 통과한다(실측: 낙하 중 290 프레임-쌍이
+   * 선분거리 0.11 미만, 최소 0.059로 반경만큼 파고들었다). 완전 해결은 물리 없이 불가하지만,
+   * 최종 착지점을 서로 밀어내면 눈에 걸리는 '겹쳐 누운 데드우드'가 크게 줄어든다.
+   * 착지점을 먼저 정리한 뒤 dir·travel을 역산하므로 낙하 궤적 계산(layAmbPin)은 그대로 쓴다.
+   */
+  private relaxAmbLanding(L: AmbientLane) {
+    const down = L.pins.filter((p) => p.down);
+    if (down.length < 2) return;
+    // home + dir*travel 은 **누운 핀의 중점**이다(회전 보정 −0.19·dir이 밑동을 그만큼 당기므로).
+    // 그래서 이 점들을 벌리는 게 곧 핀 몸통을 벌리는 것.
+    // 0.2로는 부족했다 — 방향 편차를 ±40°로 넓히자 핀들이 직각으로 교차해 관통이 오히려 늘었다
+    // (290 → 453 프레임-쌍, 실측). 평행한 두 핀은 0.12만 벌려도 되지만 교차하면 길이 0.38이
+    // 걸리기 때문이다. 완전 해소엔 0.38이 필요한데 그러면 데드우드가 부자연스럽게 퍼진다 →
+    // 0.26으로 절충하고 남는 교차는 받아들인다(실제 데드우드도 겹쳐 눕는다).
+    const MIN_SEP = 0.26;
+    const fx = down.map((p) => p.home.x + p.dir.x * p.travel);
+    const fz = down.map((p) => p.home.z + p.dir.z * p.travel);
+    for (let iter = 0; iter < 3; iter++) {
+      for (let i = 0; i < down.length; i++) {
+        for (let j = i + 1; j < down.length; j++) {
+          const dx = fx[j] - fx[i];
+          const dz = fz[j] - fz[i];
+          const d = Math.hypot(dx, dz);
+          if (d >= MIN_SEP || d < 1e-6) continue;
+          const push = (MIN_SEP - d) / 2 / d;
+          fx[i] -= dx * push;
+          fz[i] -= dz * push;
+          fx[j] += dx * push;
+          fz[j] += dz * push;
+        }
       }
     }
-    L.fallSpan = AMB_FALL_T + maxDelay;
+    down.forEach((p, i) => {
+      const dx = fx[i] - p.home.x;
+      const dz = fz[i] - p.home.z;
+      const len = Math.hypot(dx, dz);
+      if (len < 1e-6) return;
+      p.dir.set(dx / len, 0, dz / len);
+      p.axis.set(p.dir.z, 0, -p.dir.x).normalize();
+      p.axis.y = (L.rng() - 0.5) * 0.3;
+      p.axis.normalize();
+      p.travel = len;
+      this.fitAmbPinInKickback(p, L.cx);
+    });
+  }
+
+  /**
+   * 누운 핀 **몸통 전체**가 킥백 안에 들어오도록 travel을 줄인다.
+   *
+   * ⚠️ 중점만 가두면 안 된다. home + dir·travel 은 누운 핀의 **중점**이고 몸통은 거기서 dir 방향으로
+   * ±0.19m(=핀 길이 절반) 더 뻗는다. 그래서 중점을 ±0.72로 가둬도 옆으로 누운 핀의 끝은 0.91까지
+   * 나가 킥백 벽(±0.805)을 뚫고 옆 레인으로 들어갔다(실측 0.905).
+   * 물리가 없어 벽이 막아주지 않으므로 여기서 기하로 보장한다.
+   */
+  private fitAmbPinInKickback(p: AmbPin, cx: number) {
+    const dirX = p.dir.x;
+    if (Math.abs(dirX) < 1e-3) return;
+    const LIMIT = 0.775; // 킥백 0.805에서 3cm 여유
+    const lat = p.home.x - cx; // 레인 중앙 대비 스폿 x
+    const half = (PIN_HEIGHT / 2) * Math.abs(dirX); // 몸통이 x로 뻗는 양
+    const bound = (dirX > 0 ? 1 : -1) * (LIMIT - half);
+    p.travel = Math.min(p.travel, Math.max(0.12, (bound - lat) / dirX));
   }
 
   private drawScreen() {
