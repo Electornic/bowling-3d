@@ -199,6 +199,11 @@ const AMB_SET_T = 0.45; // 레이크 복귀 (CY_SWEEP→CY_RETURN)
 const AMB_RACK_T = 0.6; // 새 랙 하강 (CY_RETURN→CY_SET)
 const AMB_LIFT_T = 0.45; // 테이블·레이크가 기계 안으로 (CY_SET→CY_END)
 const AMB_GAP_MIN = 6; // [튜닝] 다음 투구까지 대기(초). 너무 잦으면 산만해진다 — 주 노브
+/**
+ * courtesy 상한(초). 상대가 계속 안 던지면 실제 볼링장에서도 그냥 간다 —
+ * 홀드 창이 좁아졌어도(던지는 동안만) 차징을 무한히 붙잡는 등의 경우에 인접 레인이 굶지 않게.
+ */
+const AMB_COURTESY_MAX = 8;
 const AMB_GAP_MAX = 14;
 /** 랙 하강 시작 높이. 개구부(PIN_BAY_TOP 0.6) 위에서 시작해 캐노피에 가려 있다가 내려온다. */
 const AMB_SET_LIFT = 0.62;
@@ -802,8 +807,10 @@ export class Environment {
       L.t += dt;
       switch (L.phase) {
         case 'idle':
-          // lane courtesy — 인접 레인은 내가 어프로치에 서 있는 동안 '올라서지' 않는다
-          if (L.t >= L.wait && !(L.courtesy && courtesyHold)) {
+          // lane courtesy — 인접 레인은 내가 던지는 동안 '올라서지' 않는다.
+          // 단 AMB_COURTESY_MAX를 넘겨 기다렸으면 그냥 간다(실제로도 그렇고, 굶지 않게).
+          const held = L.courtesy && courtesyHold && L.t < L.wait + AMB_COURTESY_MAX;
+          if (L.t >= L.wait && !held) {
             L.entryX = (L.rng() - 0.5) * 0.34;
             // 포켓(1-3 또는 1-2 사이). 정중앙으로 수렴하면 매 투구가 똑같아 보인다.
             L.pocketX = (L.rng() < 0.5 ? -1 : 1) * (0.045 + L.rng() * 0.03);

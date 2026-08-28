@@ -98,6 +98,16 @@ export class Controls {
   private spin = 0;
   private power = 0;
   private charging = false;
+
+  /**
+   * 파워 차징 중 = 플레이어가 **스탠스에 들어서 던지는 중**.
+   * 옆 레인 lane courtesy 창을 정하는 데 쓴다(Boot). game.state는 AIMING 하나로 '고민 중'과
+   * '던지는 중'을 구분할 수 없어서 — 조준은 시간 제한이 없으므로 그걸로 홀드하면 인접 레인이
+   * 영구 대기가 된다.
+   */
+  get isCharging(): boolean {
+    return this.charging;
+  }
   private chargeDir = 1;
   private draggingSpin = false;
   private wasAiming = false;
