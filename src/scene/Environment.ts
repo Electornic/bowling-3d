@@ -13,6 +13,8 @@ import {
   HEADPIN_Z,
   PIN_SPACING,
   ROW_GAP,
+  PIN_PROFILE,
+  PIN_STRIPES,
 } from '../game/constants';
 import { NEON, rgba } from '../ui/theme'; // 네온 팔레트 단일소스(#5) — 씬 머티리얼·캔버스가 theme.ts와 같은 상수 공유(드리프트 0)
 
@@ -52,53 +54,67 @@ export function makeWoodTexture(light = '#c89048', dark = '#96682c', boards = 39
   return tex;
 }
 
-/** 옆벽 네온 광고판 — 미니 신스웨이브 엠블럼(텍스트 없음 → 좌우 미러 무관). 에셋 0. */
+/**
+ * 옆벽 그래픽 밴드 텍스처 — 핀 실루엣이 반복되는 수평 밴드. 에셋 0.
+ *
+ * ⚠️ **콘텐츠 제약이 형상에서 나온다.** 옆벽은 시선과 거의 평행해서 가로폭이 22~97%로 압축된다
+ * (실측: MENU z=9.5에서 22% · AIMING z=3.5에서 56% · 정면에 가까운 건 게임오버 와이드샷뿐).
+ * 가로 압축은 **세로 획의 모양은 보존하고 간격만 줄인다.** 그래서
+ *   · 원 · 가로 텍스트 · 원근 그리드 → 압축되면 왜곡이 즉시 보인다
+ *     (구 광고판이 신스웨이브 '해'였고, 그게 계란으로 눌려 보이던 게 이 문제였다)
+ *   · 세로 모티프 반복 → 모양 그대로, 간격만 촘촘해진다  ← 이걸 쓴다
+ *
+ * 핀 실루엣은 constants.PIN_PROFILE을 그대로 쓴다 — 진짜 핀·배경 장식 핀과 같은 단일소스(#9).
+ */
 function makePosterTexture(accent: string, accent2: string): THREE.CanvasTexture {
+  const W = 1024;
+  const H = 164; // 밴드 실물 비율 5.0:0.8 = 6.25에 맞춤
   const c = document.createElement('canvas');
-  c.width = 256;
-  c.height = 256;
+  c.width = W;
+  c.height = H;
   const g = c.getContext('2d')!;
-  const bg = g.createLinearGradient(0, 0, 0, 256);
-  bg.addColorStop(0, '#180a2e');
-  bg.addColorStop(1, '#06030f');
+  // 바탕 — 벽 상부(#2b3140)보다 어둡게 깔아 밴드가 '벽에 붙은 판'으로 분리된다
+  const bg = g.createLinearGradient(0, 0, 0, H);
+  bg.addColorStop(0, '#141a26');
+  bg.addColorStop(1, '#0b0f18');
   g.fillStyle = bg;
-  g.fillRect(0, 0, 256, 256);
-  // 미니 선셋
-  const sun = g.createLinearGradient(0, 80, 0, 168);
-  sun.addColorStop(0, accent2);
-  sun.addColorStop(1, accent);
-  g.fillStyle = sun;
-  g.beginPath();
-  g.arc(128, 168, 66, Math.PI, 0);
-  g.fill();
-  g.fillStyle = '#06030f';
-  for (let i = 0; i < 5; i++) g.fillRect(58, 126 + i * 9, 140, 4);
-  // 바닥 그리드
-  g.strokeStyle = accent;
-  g.globalAlpha = 0.5;
-  g.lineWidth = 2;
-  for (let i = 1; i <= 6; i++) {
-    const y = 170 + i * i * 2.0;
+  g.fillRect(0, 0, W, H);
+
+  const pinTop = PIN_PROFILE[PIN_PROFILE.length - 1][1]; // 0.380m
+  const k = (H * 0.66) / pinTop; // m → px
+  const baseY = H * 0.86;
+  const pitch = W / 10;
+  const drawPin = (cx: number, alpha: number) => {
+    g.save();
+    g.globalAlpha = alpha;
     g.beginPath();
-    g.moveTo(0, y);
-    g.lineTo(256, y);
-    g.stroke();
-  }
-  for (let i = -5; i <= 5; i++) {
-    g.beginPath();
-    g.moveTo(128 + i * 12, 170);
-    g.lineTo(128 + i * 64, 256);
-    g.stroke();
-  }
-  g.globalAlpha = 1;
-  // 네온 프레임
-  g.strokeStyle = accent;
-  g.shadowColor = accent;
-  g.shadowBlur = 18;
-  g.lineWidth = 8;
-  g.strokeRect(10, 10, 236, 236);
+    g.moveTo(cx - PIN_PROFILE[0][0] * k, baseY - PIN_PROFILE[0][1] * k);
+    for (const [r, y] of PIN_PROFILE) g.lineTo(cx - r * k, baseY - y * k); // 왼쪽 윤곽 위로
+    for (let i = PIN_PROFILE.length - 1; i >= 0; i--) {
+      g.lineTo(cx + PIN_PROFILE[i][0] * k, baseY - PIN_PROFILE[i][1] * k); // 오른쪽 윤곽 아래로
+    }
+    g.closePath();
+    g.fillStyle = '#e9edf5';
+    g.fill();
+    g.clip(); // 목 띠를 핀 실루엣 안으로 가둔다
+    g.fillStyle = accent;
+    for (const [y0, y1] of PIN_STRIPES) {
+      g.fillRect(cx - 0.07 * k, baseY - y1 * k, 0.14 * k, (y1 - y0) * k);
+    }
+    g.restore();
+  };
+  // 교대 투명도로 리듬 — 압축되면 간격이 좁아지므로 전부 같은 밀도면 울타리처럼 보인다
+  for (let i = 0; i < 10; i++) drawPin(pitch * (i + 0.5), i % 2 ? 0.5 : 1);
+
+  // 상·하 네온 룰 — 수평선은 압축돼도 '선'이라 형태 왜곡이 없다(원과 정반대)
+  g.fillStyle = accent;
+  g.fillRect(0, 4, W, 3);
+  g.fillStyle = accent2;
+  g.fillRect(0, H - 7, W, 3);
+
   const tex = new THREE.CanvasTexture(c);
   tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = 8; // 법선각 78°까지 가므로 필수 — 없으면 핀이 뭉개진다
   return tex;
 }
 
@@ -451,21 +467,44 @@ export class Environment {
     engine.addVisual(screen);
     this.drawScreen(); // 초기 1프레임
 
-    // --- 옆벽 네온 광고판 (정적, 절차적) ---
-    const adGeo = new THREE.PlaneGeometry(1.7, 1.2);
+    // --- 옆벽 그래픽 밴드 (정적, 절차적) ---
+    //
+    // 예전엔 1.7×1.2 '액자'에 전광판과 같은 신스웨이브 선셋을 넣었다. 세 가지가 겹쳐 있었다:
+    //  ① 옆벽은 시선과 거의 평행이라 가로폭이 22~56%로 압축된다 → 가로 그림이 세로로 눌리고,
+    //     하필 콘텐츠가 **원**(해)이라 계란이 됐다. 세로형으로 뒤집는 건 정반대 처방이다 —
+    //     압축이 그 위에 곱해져 바늘이 된다(1.2×1.7이면 보이는 비 0.15). **더 가로로 길어야** 한다.
+    //     실측 보이는 비: 1.7×1.2 = 0.31~1.38 / 5.0×0.8 = 1.35~6.08(전 포즈 가로형 유지).
+    //  ② MeshBasicMaterial + toneMapped:false라 조명과 톤매핑을 둘 다 무시했다. 벽이 검을 때는
+    //     네온 사인으로 맞았지만, 벽이 코브 워시를 받는 면이 된 뒤로는 **화면에서 유일하게 빛을
+    //     안 받는 물체**라 붙여놓은 스티커로 읽혔다. → MeshStandardMaterial.
+    //  ③ 전광판(홀 전폭)과 같은 그림이라 한 화면에 같은 이미지가 5개(큰 것 1 + 미니 4)였다.
+    //     → 핀 실루엣 반복 밴드(makePosterTexture 주석 참고).
+    // 실제 볼링장 옆벽에 있는 것도 액자가 아니라 레인을 따라 달리는 긴 그래픽 밴드다.
+    const AD_W = 5.0;
+    const AD_H = 0.8;
+    const wallFaceX = HALL_HALF_W - 0.15; // 벽 내측면
+    const adGeo = new THREE.PlaneGeometry(AD_W, AD_H);
+    // 프레임 — 레일·코브와 같은 문법(돌출 → 그림자선). 바깥면을 벽에 7.5mm 박아 뜬 틈을 없앤다.
+    const frameGeo = new THREE.BoxGeometry(0.05, AD_H + 0.1, AD_W + 0.1);
+    const matFrame = new THREE.MeshStandardMaterial({ color: 0x2a3142, roughness: 0.75 });
+    // 액센트는 홀 팔레트에 맞춰 웜(골드)·쿨(시안) 한 쌍. 구 핑크/퍼플은 전광판 색이라 뺐다.
     const ads = [
-      { tex: makePosterTexture(NEON.pink, NEON.amber), z: 3.5 },
-      { tex: makePosterTexture(NEON.cyan, NEON.purple), z: 9.5 },
+      { tex: makePosterTexture(NEON.gold, NEON.amber), z: 3.5 },
+      { tex: makePosterTexture(NEON.cyan, NEON.ice), z: 9.5 },
     ];
     for (const side of [-1, 1]) {
       for (const ad of ads) {
-        const panel = new THREE.Mesh(
+        const frame = new THREE.Mesh(frameGeo, matFrame);
+        frame.position.set(side * (wallFaceX - 0.0175), 2.4, ad.z); // 내측면이 벽에서 42.5mm 돌출
+        engine.addVisual(frame);
+
+        const band = new THREE.Mesh(
           adGeo,
-          new THREE.MeshBasicMaterial({ map: ad.tex, toneMapped: false }),
+          new THREE.MeshStandardMaterial({ map: ad.tex, roughness: 0.85, metalness: 0 }),
         );
-        panel.position.set(side * (HALL_HALF_W - 0.18), 2.4, ad.z);
-        panel.rotation.y = side < 0 ? Math.PI / 2 : -Math.PI / 2;
-        engine.addVisual(panel);
+        band.position.set(side * (wallFaceX - 0.048), 2.4, ad.z); // 프레임 내측면보다 5.5mm 앞
+        band.rotation.y = side < 0 ? Math.PI / 2 : -Math.PI / 2; // 플레이어 쪽(레인 중앙)을 향함
+        engine.addVisual(band);
       }
     }
 

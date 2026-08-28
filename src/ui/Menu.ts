@@ -132,7 +132,10 @@ export class MenuUI {
       boxSizing: 'border-box',
       padding:
         'max(env(safe-area-inset-top), 16px) max(env(safe-area-inset-right), 12px) max(env(safe-area-inset-bottom), 16px) max(env(safe-area-inset-left), 12px)',
-      background: 'rgba(6,8,14,0.72)',
+      // 0.72 → 0.45: 벽·천장을 채운 뒤로는 스크림이 방금 만든 홀을 덮고 있었다.
+      // 패널 자체가 rgba(14,17,27,0.96)로 거의 불투명해 **텍스트 가독성은 스크림에 의존하지 않는다**
+      // (실측 대비: 스크림 0.72든 0.45든 패널 위 합성 휘도 0.006~0.009로 동일). 순수하게 배경 노출량 조절.
+      background: 'rgba(6,8,14,0.45)',
       backdropFilter: 'blur(4px)',
       zIndex: '40',
     });
@@ -368,14 +371,14 @@ export class MenuUI {
       borderTop: '1px solid rgba(255,255,255,0.1)',
       paddingTop: '10px',
       font: '500 12px/1.7 system-ui, sans-serif',
-      color: '#aab3c2',
+      color: NEON.dim,
     });
     stats.innerHTML = `풀게임 — ${s.full}<br>블리츠 — ${s.blitz}<br>스페어 챌린지 — ${s.spare}`;
     this.panel.appendChild(stats);
 
     // 조작법
     const help = document.createElement('div');
-    css(help, { marginTop: '8px', font: '500 11px/1.6 system-ui, sans-serif', color: '#6b7686' });
+    css(help, { marginTop: '8px', font: '500 11px/1.6 system-ui, sans-serif', color: NEON.faint });
     help.textContent = COARSE
       ? '누른 채 좌우로 조준 · 떼면 파워 발사 · 하단 바 = 스핀'
       : '마우스 이동 = 조준 · 꾹 눌렀다 떼기 = 파워 발사 · 휠 = 좌/우 스핀';
@@ -475,7 +478,7 @@ export class MenuUI {
     }
 
     const note = document.createElement('div');
-    css(note, { font: '500 12px/1.5 system-ui, sans-serif', color: '#aab3c2', marginBottom: '16px' });
+    css(note, { font: '500 12px/1.5 system-ui, sans-serif', color: NEON.dim, marginBottom: '16px' });
     note.textContent = '프레임별 점수는 상단 점수표에서 확인';
     this.panel.appendChild(note);
 
@@ -530,7 +533,7 @@ export class MenuUI {
     const help = document.createElement('div');
     css(help, {
       font: '500 12px/1.7 system-ui, sans-serif',
-      color: '#8a93a3',
+      color: NEON.faint,
       padding: '10px 13px',
       borderRadius: '10px',
       background: 'rgba(255,255,255,0.03)',
@@ -554,7 +557,7 @@ export class MenuUI {
 
     const note = document.createElement('div');
     note.textContent = '포기 시 현재 게임 기록은 저장되지 않아요.';
-    css(note, { font: '500 11px/1.4 system-ui, sans-serif', color: '#6b7686', textAlign: 'center', marginTop: '9px' });
+    css(note, { font: '500 11px/1.4 system-ui, sans-serif', color: NEON.faint, textAlign: 'center', marginTop: '9px' });
     this.panel.appendChild(note);
 
     this.reveal();
@@ -585,7 +588,7 @@ export class MenuUI {
       borderRadius: '999px',
       border: `1px solid ${active ? '#5dca8f' : 'rgba(255,255,255,0.2)'}`,
       background: active ? 'rgba(93,202,143,0.16)' : 'rgba(255,255,255,0.04)',
-      color: active ? '#5dca8f' : '#9aa3b2',
+      color: active ? '#5dca8f' : NEON.dim,
       font: '800 12px/1 system-ui, sans-serif',
       cursor: 'pointer',
     });
@@ -610,7 +613,7 @@ export class MenuUI {
   private sectionLabel(text: string): HTMLDivElement {
     const l = document.createElement('div');
     l.textContent = text;
-    css(l, { font: '700 12px/1 system-ui, sans-serif', color: '#aab3c2', marginBottom: '8px' });
+    css(l, { font: '700 12px/1 system-ui, sans-serif', color: NEON.dim, marginBottom: '8px' });
     return l;
   }
 
@@ -783,7 +786,7 @@ export class MenuUI {
     heroName.appendChild(this.equippedPill());
     const heroFinish = document.createElement('div');
     heroFinish.textContent = `${FINISH_LABEL[equipped.finish]} 마감`;
-    css(heroFinish, { font: '500 11px/1 system-ui, sans-serif', color: '#8a93a3' });
+    css(heroFinish, { font: '500 11px/1 system-ui, sans-serif', color: NEON.faint });
     hero.appendChild(heroBall);
     hero.appendChild(heroName);
     hero.appendChild(heroFinish);
@@ -807,7 +810,7 @@ export class MenuUI {
         background: 'transparent',
         border: 'none',
         borderBottom: '2px solid transparent',
-        color: '#8a93a3',
+        color: NEON.faint,
         font: '700 13px/1 system-ui, sans-serif',
         cursor: 'pointer',
       });
@@ -858,10 +861,10 @@ export class MenuUI {
 
         const labelEl = document.createElement('div');
         labelEl.textContent = skin.label;
-        css(labelEl, { font: '700 13px/1.2 system-ui, sans-serif', color: isEquipped ? NEON.gold : isUnlocked ? NEON.text : '#6b7686' });
+        css(labelEl, { font: '700 13px/1.2 system-ui, sans-serif', color: isEquipped ? NEON.gold : isUnlocked ? NEON.text : NEON.faint });
         const subEl = document.createElement('div');
         subEl.textContent = isUnlocked ? FINISH_LABEL[skin.finish] : achievementForSkin(skin.id)?.desc ?? '잠김';
-        css(subEl, { font: '500 10px/1.3 system-ui, sans-serif', color: isUnlocked ? (isEquipped ? '#caa86a' : '#8a93a3') : '#7d8696', marginTop: '2px' });
+        css(subEl, { font: '500 10px/1.3 system-ui, sans-serif', color: isUnlocked && isEquipped ? '#caa86a' : NEON.faint, marginTop: '2px' });
         const textWrap = document.createElement('div');
         css(textWrap, { textAlign: 'center' });
         textWrap.appendChild(labelEl);
@@ -921,17 +924,19 @@ export class MenuUI {
         css(icon, { font: '18px/1 system-ui, sans-serif', flex: '0 0 auto', filter: got ? '' : 'grayscale(1)' });
         const badge = document.createElement('div');
         badge.textContent = a.badge;
-        css(badge, { font: '700 12px/1.3 system-ui, sans-serif', color: got ? NEON.gold : '#9aa3b2' });
+        css(badge, { font: '700 12px/1.3 system-ui, sans-serif', color: got ? NEON.gold : NEON.dim });
         const desc = document.createElement('div');
         desc.textContent = `${a.desc} · ${resolveSkin(a.reward).label} 해금`;
-        css(desc, { font: '500 10px/1.3 system-ui, sans-serif', color: got ? '#8a93a3' : '#6b7686' });
+        // 해금/미해금을 설명 텍스트 색으로 나누지 않는다 — 미해금이었던 #6b7686이 대비 4.02로
+        // 본문 기준 미달이었고, 상태는 오른쪽 상태 열(초록/faint)이 이미 진다.
+        css(desc, { font: '500 10px/1.3 system-ui, sans-serif', color: NEON.faint });
         const body = document.createElement('div');
         css(body, { flex: '1' });
         body.appendChild(badge);
         body.appendChild(desc);
         const status = document.createElement('span');
         status.textContent = got ? '✓' : '🔒';
-        css(status, { flex: '0 0 auto', font: got ? '800 13px/1 system-ui, sans-serif' : '600 11px/1 system-ui, sans-serif', color: got ? '#5dca8f' : '#6b7686' });
+        css(status, { flex: '0 0 auto', font: got ? '800 13px/1 system-ui, sans-serif' : '600 11px/1 system-ui, sans-serif', color: got ? '#5dca8f' : NEON.faint });
         row.appendChild(icon);
         row.appendChild(body);
         row.appendChild(status);
@@ -957,7 +962,7 @@ export class MenuUI {
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
-        color: '#8a93a3',
+        color: NEON.faint,
         font: '600 12px/1 system-ui, sans-serif',
         marginBottom: '10px',
       });
@@ -966,7 +971,7 @@ export class MenuUI {
       wrap.appendChild(preview);
 
       const status = document.createElement('div');
-      css(status, { font: '500 11px/1.5 system-ui, sans-serif', color: '#8a93a3', marginBottom: '10px', minHeight: '17px' });
+      css(status, { font: '500 11px/1.5 system-ui, sans-serif', color: NEON.faint, marginBottom: '10px', minHeight: '17px' });
       status.textContent = '이미지 · GIF · 영상 — 영상은 무음으로 반복 재생됩니다.';
       wrap.appendChild(status);
       // 영상은 IndexedDB에 있어 동기로 못 읽는다 — 열린 뒤 이름·길이를 채워 넣는다.
@@ -985,7 +990,7 @@ export class MenuUI {
         input.value = ''; // 같은 파일 재선택도 change가 뜨도록
         if (!f) return;
         status.textContent = '처리 중…';
-        css(status, { color: '#8a93a3' });
+        css(status, { color: NEON.faint });
         try {
           if (f.type.startsWith('video/')) {
             const vid = await fileToScreenVideo(f);
@@ -1044,7 +1049,7 @@ export class MenuUI {
       if (lastRenderedTab !== null && lastRenderedTab !== this.skinTab) playOnce(content, 'juice-fade-in');
       lastRenderedTab = this.skinTab;
       const mark = (btn: HTMLButtonElement | null, on: boolean) => {
-        if (btn) css(btn, { color: on ? NEON.cyan : '#8a93a3', borderBottomColor: on ? NEON.cyan : 'transparent' });
+        if (btn) css(btn, { color: on ? NEON.cyan : NEON.faint, borderBottomColor: on ? NEON.cyan : 'transparent' });
       };
       mark(skinTabBtn, this.skinTab === 'skins');
       mark(achTabBtn, this.skinTab === 'achievements');
