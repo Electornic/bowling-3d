@@ -103,6 +103,49 @@ function makePosterTexture(accent: string, accent2: string): THREE.CanvasTexture
 }
 
 /**
+ * 옆벽 상부 텍스처 — 코브 라이트 워시(세로 그라디언트) + 패널 이음매(가로 반복). 에셋 0.
+ *
+ * 벽면(BoxGeometry 측면) UV는 **u=z(길이) · v=y(높이)** 다. 그래서 u로 반복시키면 이음매가
+ * z 방향으로 늘어서 **원근 수렴선**이 되고, v의 그라디언트는 높이별 밝기가 된다.
+ * 예전 옆벽은 31.6m 박스 하나에 단색이라 화면의 30%가 정보량 0이었다 — 그걸 메우는 게 목적.
+ *
+ * @param coveFrac 코브 라이트 높이를 이 텍스처의 v(0=아래, 1=위)로 환산한 위치.
+ */
+function makeWallTexture(coveFrac: number): THREE.CanvasTexture {
+  const c = document.createElement('canvas');
+  c.width = 128;
+  c.height = 256;
+  const g = c.getContext('2d')!;
+  // three는 flipY=true라 v=1이 캔버스 위쪽 → 캔버스 y = (1-v)*height
+  const coveY = (1 - coveFrac) * c.height;
+  g.fillStyle = '#2b3140'; // 상부 벽 본색 (쿨 슬레이트)
+  g.fillRect(0, 0, c.width, c.height);
+  // 코브 워시 — 코브 띠에서 아래로 길게, 위로 짧게 감쇠 (실제 간접조명이 벽을 훑는 모양)
+  const wash = g.createLinearGradient(0, coveY - 74, 0, coveY + 150);
+  wash.addColorStop(0, 'rgba(223,232,255,0)');
+  wash.addColorStop(0.3, 'rgba(223,232,255,0.36)');
+  wash.addColorStop(1, 'rgba(223,232,255,0)');
+  g.fillStyle = wash;
+  g.fillRect(0, 0, c.width, c.height);
+  // 패널 이음매 — 한 타일에 2줄이라 반복 시 등간격이 유지된다
+  g.fillStyle = 'rgba(0,0,0,0.32)';
+  g.fillRect(0, 0, 2, c.height);
+  g.fillRect(c.width / 2, 0, 2, c.height);
+  // 바닥쪽 감쇠 — 웨인스코트와 만나는 선이 또렷해진다
+  const foot = g.createLinearGradient(0, c.height - 76, 0, c.height);
+  foot.addColorStop(0, 'rgba(0,0,0,0)');
+  foot.addColorStop(1, 'rgba(0,0,0,0.5)');
+  g.fillStyle = foot;
+  g.fillRect(0, 0, c.width, c.height);
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  t.wrapS = THREE.RepeatWrapping;
+  t.wrapT = THREE.ClampToEdgeWrapping; // 높이 방향은 한 번만 (그라디언트가 반복되면 안 된다)
+  t.anisotropy = 8;
+  return t;
+}
+
+/**
  * 볼링장 배경 (시각 전용, 충돌체 없음).
  * 옆 레인×4 + 어프로치 바닥 + 양쪽 벽 + 천장(조명 스트립) + 핀덱 마스킹·네온 + 레인 마커.
  * 목적: 화면을 채우는 실내감 + 원근감 단서(수렴선·반복 구조물).
@@ -242,29 +285,138 @@ export class Environment {
     // (마스킹 유닛 아랫단 네온 트림 2줄은 제거했다 — 전광판을 개구부 바로 위까지 내린 뒤로는
     //  전광판과 핀 사이를 가로지르는 굵은 띠로만 읽혔다. 낮은 접근 카메라에선 특히 화면을 먹었다.)
 
-    // --- 양쪽 벽 + 천장 + 조명 스트립 ---
-    const matWall = new THREE.MeshStandardMaterial({ color: 0x161b26, roughness: 0.9 });
+    // --- 양쪽 벽 (3단) + 천장(코퍼드) + 조명 ---
+    //
+    // 예전엔 옆벽 = 31.6m 박스 1개에 단색(#161b26), 천장 = 평면 1개에 스트립 3줄이었다.
+    // 실측(레이캐스트)에서 **가로 화면 조준 시 맨살 옆벽이 29.7%** — 플레이 레인(14.4%)의 두 배가
+    // 정보량 0인 검은 면이었고, 세로 화면에선 가로 FOV가 좁아 그 자리를 **천장 17.6%**가 대신했다.
+    // 픽셀 휘도로도 레인 0.869 vs 벽 0.055~0.098 · 천장 0.044 — 20:1이라 '면'이 아니라 '구멍'으로 읽혔다.
+    //
+    // 그래서 밝히는 게 아니라 **구조를 넣는다**(실제 볼링장 벽·천장이 그렇다):
+    //  · 벽 = 하부 웨인스코트(우드) / 체어 레일 / 코브 워시 상부 → 수평 수렴선 2줄 + 판자·이음매 리듬
+    //  · 천장 = 스트립 3줄은 그대로 두고 그 **사이사이**를 보(beam)로 메워 코퍼드 격자
+    // 세로·가로가 서로 다른 면 때문에 휑하므로 둘 다 손대야 한다(한쪽만 하면 한쪽은 그대로다).
+    const WALL_LEN = len + 9;
+    const WALL_Z = midZ - 3;
+    const WAINSCOT_TOP = 1.0; // 체어 레일 높이 (실제 웨인스코트 ~0.9~1.1m)
+    const WALL_STRUCT_TOP = 4.25; // 벽 상단 — 천장(4.0~4.2)과 겹쳐 이음선을 감춘다
+    const CEIL_UNDER = 4.0; // 천장 아랫면
+    // 코브는 옆벽 광고판(y 1.8~3.0) **위**에 둔다 — 겹치면 광고판이 코브 선을 4번 끊는다.
+    const COVE_Y = 3.25;
+
+    const wallTex = makeWallTexture((COVE_Y - WAINSCOT_TOP) / (WALL_STRUCT_TOP - WAINSCOT_TOP));
+    wallTex.repeat.set(Math.round(WALL_LEN / 1.6), 1); // 패널 폭 ≈0.8m (타일당 이음매 2줄)
+    const matWallUp = new THREE.MeshStandardMaterial({ map: wallTex, roughness: 0.9, metalness: 0 });
+    // 웨인스코트 — makeWoodTexture의 판자(u축)가 벽면에선 **세로결**이 된다. z로 반복돼 리듬을 만든다.
+    const wainTex = makeWoodTexture('#5a3f20', '#3a2712', 10);
+    wainTex.repeat.set(Math.round(WALL_LEN / 1.5), 1); // 판자 폭 ≈0.15m
+    const matWain = new THREE.MeshStandardMaterial({ map: wainTex, roughness: 0.8 });
+    const matRail = new THREE.MeshStandardMaterial({ color: 0x394153, roughness: 0.7 });
+    const matCove = new THREE.MeshStandardMaterial({
+      color: 0x000000,
+      emissive: NEON.ice,
+      emissiveIntensity: 1.35, // 천장 스트립(1.6)보다 살짝 죽여 시선이 위로 안 끌리게
+    });
     for (const side of [-1, 1]) {
-      const sw = new THREE.Mesh(new THREE.BoxGeometry(0.3, 4.5, len + 9), matWall);
-      sw.position.set(side * HALL_HALF_W, 2.0, midZ - 3);
-      engine.addVisual(sw);
+      const up = new THREE.Mesh(
+        new THREE.BoxGeometry(0.3, WALL_STRUCT_TOP - WAINSCOT_TOP, WALL_LEN),
+        matWallUp,
+      );
+      up.position.set(side * HALL_HALF_W, (WAINSCOT_TOP + WALL_STRUCT_TOP) / 2, WALL_Z);
+      engine.addVisual(up);
+
+      const wain = new THREE.Mesh(new THREE.BoxGeometry(0.3, WAINSCOT_TOP + 0.25, WALL_LEN), matWain);
+      wain.position.set(side * HALL_HALF_W, (WAINSCOT_TOP - 0.25) / 2, WALL_Z); // 아래 -0.25(바닥 아래)까지
+      wain.receiveShadow = true;
+      engine.addVisual(wain);
+
+      // 체어 레일·코브는 벽면보다 살짝 튀어나오게(두께 ↑) — 얇은 그림자선이 생겨 수평선이 또렷해진다.
+      const rail = new THREE.Mesh(new THREE.BoxGeometry(0.36, 0.07, WALL_LEN), matRail);
+      rail.position.set(side * HALL_HALF_W, WAINSCOT_TOP, WALL_Z);
+      engine.addVisual(rail);
+
+      const cove = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.07, WALL_LEN), matCove);
+      cove.position.set(side * HALL_HALF_W, COVE_Y, WALL_Z);
+      engine.addVisual(cove);
     }
+
     const ceiling = new THREE.Mesh(
-      new THREE.BoxGeometry(HALL_HALF_W * 2, 0.2, len + 9),
-      new THREE.MeshStandardMaterial({ color: 0x0e1118, roughness: 0.95 }),
+      new THREE.BoxGeometry(HALL_HALF_W * 2, 0.2, WALL_LEN),
+      // 0x0e1118 → 살짝 올림. 보를 얹을 '바탕'이 필요해서지, 밝히려는 게 아니다(실제 천장도 어둡다).
+      new THREE.MeshStandardMaterial({ color: 0x171c26, roughness: 0.95 }),
     );
-    ceiling.position.set(0, 4.1, midZ - 3);
+    ceiling.position.set(0, CEIL_UNDER + 0.1, WALL_Z);
     engine.addVisual(ceiling);
+
+    // 조명 스트립 3줄 — 그대로 유지. 실측/스크린샷에서 **수렴선 역할을 제대로 하고 있던** 유일한
+    // 천장 요소다. 보를 이 위에 겹쳐 끊지 않도록, 보는 스트립 사이 x 구간에만 넣는다(아래).
+    const STRIP_X = [-2.4, 0, 2.4];
+    const STRIP_HALF_W = 0.15;
     const stripMat = new THREE.MeshStandardMaterial({
       color: 0x000000,
       emissive: NEON.ice,
       emissiveIntensity: 1.6,
     });
-    for (const x of [-2.4, 0, 2.4]) {
-      const strip = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.06, len + 7), stripMat);
-      strip.position.set(x, 3.96, midZ - 3); // 천장 수렴선 = 강한 원근 단서
+    for (const x of STRIP_X) {
+      const strip = new THREE.Mesh(new THREE.BoxGeometry(STRIP_HALF_W * 2, 0.06, len + 7), stripMat);
+      strip.position.set(x, 3.96, WALL_Z); // 천장 수렴선 = 강한 원근 단서
       engine.addVisual(strip);
     }
+
+    // 천장 보(beam) — 레인 직각으로 2.5m마다. 스트립이 지나는 x 구간은 비워 4토막으로 넣는다
+    // (스트립을 가로질러 끊으면 애써 살아 있던 수렴선이 죽는다). 세그먼트 폭이 달라 스케일을
+    // 인스턴스마다 넣는다. InstancedMesh라 4×13=52개가 드로우콜 1개.
+    const BEAM_GAP = 2.5;
+    const beamZ0 = WALL_Z - WALL_LEN / 2 + 0.5;
+    const beamRows = Math.floor((WALL_LEN - 1.0) / BEAM_GAP) + 1;
+    const gaps: [number, number][] = []; // 스트립 사이·바깥의 x 구간
+    let edge = -HALL_HALF_W;
+    for (const x of STRIP_X) {
+      gaps.push([edge, x - STRIP_HALF_W]);
+      edge = x + STRIP_HALF_W;
+    }
+    gaps.push([edge, HALL_HALF_W]);
+    const beamGeo = new THREE.BoxGeometry(1, 0.2, 0.22); // 폭 1 = 인스턴스 스케일로 늘린다
+    const matBeam = new THREE.MeshStandardMaterial({ color: 0x323b4c, roughness: 0.9 }); // 천장(0x171c26)보다 밝게 — 바운스광에서 격자가 읽히도록
+    const beams = new THREE.InstancedMesh(beamGeo, matBeam, beamRows * gaps.length);
+    const _m = new THREE.Matrix4();
+    let bi = 0;
+    for (let r = 0; r < beamRows; r++) {
+      for (const [x0, x1] of gaps) {
+        _m.makeScale(x1 - x0, 1, 1);
+        _m.setPosition((x0 + x1) / 2, CEIL_UNDER - 0.1, beamZ0 + r * BEAM_GAP);
+        beams.setMatrixAt(bi++, _m);
+      }
+    }
+    beams.instanceMatrix.needsUpdate = true;
+    engine.addVisual(beams);
+
+    // 다운라이트 — 스트립이 없는 **바깥 구간**(|x|>2.55)이 천장에서 가장 어두웠다. 보 사이 칸 중앙에
+    // 하나씩 박는다. 아래를 향한 원판(rotX +90° → 법선 -y). 여기도 InstancedMesh 1개.
+    const DOWN_X = [-3.5, 3.5];
+    const downGeo = new THREE.CircleGeometry(0.085, 12);
+    const downs = new THREE.InstancedMesh(
+      downGeo,
+      new THREE.MeshStandardMaterial({
+        color: 0x000000,
+        emissive: 0xfff2d8, // 코브·스트립의 시안과 대비되는 따뜻한 백색 (실제 다운라이트)
+        emissiveIntensity: 2.2,
+        side: THREE.DoubleSide,
+      }),
+      (beamRows - 1) * DOWN_X.length,
+    );
+    const _q = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), Math.PI / 2);
+    const _s = new THREE.Vector3(1, 1, 1);
+    const _p = new THREE.Vector3();
+    let di = 0;
+    for (let r = 0; r < beamRows - 1; r++) {
+      for (const x of DOWN_X) {
+        _p.set(x, CEIL_UNDER - 0.012, beamZ0 + (r + 0.5) * BEAM_GAP);
+        downs.setMatrixAt(di++, _m.compose(_p, _q, _s));
+      }
+    }
+    downs.instanceMatrix.needsUpdate = true;
+    engine.addVisual(downs);
 
     // --- 핀 뒤 애니메이션 전광판 (절차적, 에셋 0) ---
     const sc = document.createElement('canvas');

@@ -112,6 +112,24 @@ export class Engine {
     dir.shadow.bias = -0.0003;
     this.scene.add(dir);
 
+    // 보조 필 라이트 (그림자 없음) — DirectionalLight가 하나뿐이라 좌우 옆벽 **내측면 중 한쪽만**
+    // 빛을 받고 있었다(실측 픽셀 휘도 0.098 vs 0.055, 1.8배 차이 → 벽이 '면'으로 안 읽히는 원인 중 하나).
+    // dir이 +x쪽(6,14,-2)에 있어 법선 −x인 면(월드 +x 벽의 안쪽)이 완전히 그늘이었다.
+    // ⚠️ 거의 **수평으로 눕힌** 게 핵심이다 — y 성분이 0.09뿐이라 레인 윗면(법선 +y, 이미 휘도
+    // 0.869로 클리핑 근처)에는 거의 안 얹히고, 법선 ±x인 벽면만 채운다. 위로 올리면 레인이 뜬다.
+    const fill = new THREE.DirectionalLight(0xdfe8ff, 0.5);
+    fill.position.set(-18, 1.6, 6);
+    this.scene.add(fill);
+
+    // 바운스 라이트 (그림자 없음) — **아래에서 위로** 쏜다. 조명이 둘 다 위에 있어서 천장 아랫면과
+    // 보 밑면(법선 −y)이 앰비언트만 받아 0.044로 깔렸다. 위를 향한 면(법선 +y)은 N·L<0이라
+    // **레인·바닥은 전혀 밝아지지 않는다** — 천장만 골라 때리는 조명이다.
+    // 물리적으로도 근거가 있다: 실제 볼링장 천장은 밝은 메이플 레인에 반사된 빛으로 떠 있다.
+    // 그래서 색도 나무색(0xffe9c8)이다.
+    const bounce = new THREE.DirectionalLight(0xffe9c8, 0.4);
+    bounce.position.set(0, -8, 8);
+    this.scene.add(bounce);
+
     // --- 물리 월드 ---
     this.world = new RAPIER.World({ x: 0, y: -9.81, z: 0 });
     this.world.integrationParameters.maxCcdSubsteps = 4; // 저FPS(모바일) 터널링 보완 (도안 §12)
