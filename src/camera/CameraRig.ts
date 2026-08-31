@@ -3,7 +3,7 @@ import type { Engine } from '../core/Engine';
 import type { GameState } from '../game/GameState';
 import type { Ball } from '../scene/Ball';
 import {
-  HEADPIN_Z, CAM_APPROACH_Z,
+  HEADPIN_Z, CAM_APPROACH_Z, PIN_SPACING,
   SHAKE_ENABLED, SHAKE_MAX, SHAKE_DECAY, SHAKE_FORCE_REF, SHAKE_KICK,
   PUSHIN_ENABLED, PUSHIN_DIST, PUSHIN_HOLD, PUSHIN_RATE,
 } from '../game/constants';
@@ -50,6 +50,42 @@ const FOLLOW_Y = 0.78; // 팔로우 높이(m). 조준 AIM_Y(0.75)에서 살짝 �
 // ⚠️ 이 값들은 PIN_BAY_TOP과 커플링돼 있다 — 바꾸면 tests/camera-sightline.test.ts가 잡는다.
 export const APPROACH_POS = { y: 0.60, z: 16.85 } as const;
 export const APPROACH_TARGET = { y: 0.18, z: 19.45 } as const;
+
+/** 뒷줄 코너 핀까지의 반폭 (≈0.457) — 프레임에 담아야 하는 대상. */
+const RACK_HALF_W = 1.5 * PIN_SPACING;
+/** 프레임 여유 15% — 현재 APPROACH_POS.z를 재현하는 값이다(아래 주석). */
+const RACK_MARGIN = 1.15;
+
+/**
+ * 핀덱 접근 거리 — **종횡비에서 유도한다.**
+ *
+ * `PerspectiveCamera.fov`는 세로축이라 종횡비와 무관하게 고정되고 `Engine.onResize`도 fov를
+ * 재계산하지 않는다. 그래서 세로 화면에선 **가로 화각만** 좁아진다. 실측(fov 40):
+ *   데스크톱 aspect 0.998 → 가로 화각 39.9° · 헤드핀 거리 가시폭 1.046m
+ *   세로폰   aspect 0.462 → 가로 화각 19.1° · 가시폭 0.484m
+ * 핀 랙이 0.914m이므로 세로폰에선 랙이 가시폭의 **189%** — 뒷줄 코너 핀 2개가 프레임을
+ * 벗어난다(실측 ndc ±1.199). ⚠️ 구 메모 "핀은 어떤 FOV·거리에서도 프레임을 안 벗어난다"는
+ * 데스크톱 종횡비에서만 맞았다.
+ *
+ * 고치는 축은 fov가 아니라 **거리**다. 1.44m를 유지하며 랙을 담으려면 세로 fov가 76°까지 가야
+ * 하고, fov는 조준 포즈(AIM_Y)와 **세트로만 바꾸는** 값이라 게임 전체 프레이밍이 바뀐다.
+ *
+ * 공식의 근거: 현재 상수 `APPROACH_POS.z = 16.85`는 "랙 반폭 × 1.15가 가로 화각에 꽉 차는 거리"와
+ * **정확히 일치한다** — 0.457×1.15 ÷ tan(19.95°) = 1.443 → 18.29 − 1.443 = 16.847.
+ * 이미 그 프레이밍으로 튜닝된 값이므로, 같은 식을 실제 종횡비로 풀면 데스크톱에서는 기존 값을
+ * 그대로 재현하고 좁은 화면에서만 뒤로 물러난다(세로폰 → z ≈ 15.16, 1.7m 후퇴).
+ *
+ * 캐노피 시선(tests/camera-sightline.test.ts)은 안 깨진다: 카메라 y(0.60)가 캐노피 앞모서리
+ * 높이와 같고 핀 꼭대기(0.38)가 더 낮아, 시선이 카메라에서 항상 **내려가** 모서리를 안 넘는다.
+ * 뒤로 물러나면 기울기가 완만해질 뿐 부호는 그대로다.
+ */
+function approachZFor(cam: THREE.PerspectiveCamera): number {
+  const tanH = Math.tan((cam.fov * Math.PI) / 360) * cam.aspect; // 가로 half-FOV의 tan
+  if (!(tanH > 1e-4)) return APPROACH_POS.z;
+  const need = (RACK_HALF_W * RACK_MARGIN) / tanH;
+  // 넓은 화면에서 **더 가까이 붙지는 않는다** — 기존 튜닝값이 최근접 상한이다.
+  return Math.min(APPROACH_POS.z, HEADPIN_Z - need);
+}
 // 게임오버 와이드샷도 같은 제약을 받는다. 예전 (y 3.2, z 12.5)는 시선이 캐노피에 완전히 막혔다
 // (여유 −0.33). 높이를 낮추고 뒤로 빼서 넓은 그림은 유지한다.
 export const GAMEOVER_POS = { y: 1.15, z: 8.5 } as const;
@@ -136,7 +172,7 @@ export class CameraRig {
         const span = HEADPIN_Z - CAM_APPROACH_Z;
         const u = b.y <= -1.5 ? 1 : clamp((b.z - CAM_APPROACH_Z) / span, 0, 1);
         const e = u * u * (3 - 2 * u); // smoothstep
-        px = lerp(px, 0, e); py = lerp(py, APPROACH_POS.y, e); pz = lerp(pz, APPROACH_POS.z, e);
+        px = lerp(px, 0, e); py = lerp(py, APPROACH_POS.y, e); pz = lerp(pz, approachZFor(cam), e);
         tx = lerp(tx, 0, e); ty = lerp(ty, APPROACH_TARGET.y, e); tz = lerp(tz, APPROACH_TARGET.z, e);
         break;
       }
