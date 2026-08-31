@@ -42,7 +42,7 @@ export async function boot() {
   document.documentElement.style.setProperty('--col-edge', 'max(0px, calc((100vw - 1440px) / 2))');
 
   const engine = new Engine();
-  const { game, controls, cameraRig, environment, sound, exitBtn, replay } = buildScene(engine);
+  const { game, controls, cameraRig, environment, sound, exitBtn, pauseHook, replay } = buildScene(engine);
   let shadowMoving = true; // 그림자 정적화 상태 추적 (§6)
   let matchVisible: boolean | null = null; // 인게임 UI(exitBtn) 표시 상태 캐시(#12) — null=초기 1회 강제 쓰기
   const loop = new Loop(
@@ -59,6 +59,13 @@ export async function boot() {
         // 물리 시간 0 — loop.paused로 라이브 물리가 얼어 있으니 옆 레인 사이클도 같이 멈춰야 한다.
         // (리플레이 = 내 투구를 되짚는 중이므로 인접 레인은 courtesy 대기이기도 하다.)
         environment.update(dt, true, 0);
+        return;
+      }
+      // 일시정지 모달이 열려 있으면 onFrame은 계속 돌지만(Loop.paused는 물리만 멈춘다) 시간에
+      // 기대는 것들은 다 얼려야 한다. 안 그러면 물리는 멈춘 채 **파워 차징만 계속 올라가고**
+      // 옆 레인 사이클은 페이즈를 넘겨 핀이 순간이동한다. render는 계속 돌아 화면은 살아 있다.
+      if (loop.paused) {
+        environment.update(dt, true, 0); // 전광판만 실시간, 앰비언트 물리시간 0
         return;
       }
       controls.update(dt); // 렌더 프레임마다 UI(조준선·게이지) — dt 기반 파워 차징(프레임레이트 독립)
@@ -95,8 +102,20 @@ export async function boot() {
   game.setTimeScale = (s) => {
     loop.timeScale = s; // AI 턴 빨리감기 (P2 슬로모도 같은 인프라)
   };
+  // 일시정지 사유가 **둘**이라 하나의 loop.paused를 공유한다 — 합산하지 않으면 한쪽이 풀 때
+  // 다른 쪽 정지가 같이 풀린다(리플레이가 끝나면서 일시정지 모달 뒤의 게임이 되살아나는 식).
+  let replayPaused = false;
+  let menuPaused = false;
+  const applyPause = () => {
+    loop.paused = replayPaused || menuPaused;
+  };
   replay.setPaused = (p) => {
-    loop.paused = p; // 리플레이 재생 중 라이브 물리·sync 정지 (item 2)
+    replayPaused = p; // 리플레이 재생 중 라이브 물리·sync 정지 (item 2)
+    applyPause();
+  };
+  pauseHook.set = (p) => {
+    menuPaused = p; // 일시정지 모달 — 열려 있는 동안 물리·상태머신을 실제로 멈춘다
+    applyPause();
   };
   loop.start();
 
@@ -169,6 +188,8 @@ function buildScene(engine: Engine): {
   environment: Environment;
   sound: SoundManager;
   exitBtn: HTMLButtonElement;
+  /** boot()이 주입 — 일시정지 모달 개폐를 Loop에 전달한다(replay.setPaused와 같은 방식). */
+  pauseHook: { set: (paused: boolean) => void };
   replay: Replay;
 } {
   const settings = loadSettings();
@@ -300,6 +321,9 @@ function buildScene(engine: Engine): {
 
   // 인게임 '메뉴로' 버튼 — 게임 중 포기하고 메뉴 복귀 (가시성은 Loop onFrame에서 상태별 토글).
   // 좌상단 safe-area, 점수판(상단)과 안 겹치게 작게. Esc(데스크톱)도 동일 동작.
+  // boot()이 실제 구현을 꽂는다 — 일시정지 모달 개폐를 Loop.paused로 전달한다.
+  const pauseHook = { set: (_paused: boolean) => {} };
+
   const exitBtn = document.createElement('button');
   exitBtn.textContent = '☰ 메뉴';
   exitBtn.style.cssText = [
@@ -320,6 +344,11 @@ function buildScene(engine: Engine): {
   ].join(';');
   const forfeit = () => {
     if (game.state === 'MENU' || game.state === 'GAME_OVER') return;
+    // ⚠️ 모달을 띄우는 것만으로는 아무것도 멈추지 않는다(오버레이가 입력만 가린다). 실제로
+    // 멈추지 않으면 ROLLING 중에 열었을 때 공이 모달 뒤에서 계속 굴러 프레임이 끝나고,
+    // AI 턴이면 AI가 계속 던진다. Loop.paused는 물리 step·onStep·sync만 건너뛰고
+    // onFrame·render는 돌리며, 누적기가 멈춰 재개 시 따라잡기 폭주도 없다.
+    pauseHook.set(true);
     // 인게임 일시정지 모달: 계속하기 + 안전 설정(사운드·햅틱·그래픽) + 포기. 토글은 즉시 적용 후 저장.
     // (네이티브 confirm()은 iOS 웹뷰/시뮬레이터에서 안 떠 못 씀 — 앱 내부 오버레이로 처리.)
     menu.showPause({
@@ -338,8 +367,12 @@ function buildScene(engine: Engine): {
         engine.setQuality(q === 'high');
         saveSettings(settings);
       },
-      onResume: () => menu.hide(),
+      onResume: () => {
+        pauseHook.set(false);
+        menu.hide();
+      },
       onForfeit: () => {
+        pauseHook.set(false);
         game.toMenu();
         menu.showMenu();
       },
@@ -392,5 +425,5 @@ function buildScene(engine: Engine): {
     console.log('[rewards] 초기화 완료 — 새로고침하세요');
   };
 
-  return { game, controls, cameraRig, environment, sound, exitBtn, replay };
+  return { game, controls, cameraRig, environment, sound, exitBtn, pauseHook, replay };
 }
