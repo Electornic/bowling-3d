@@ -7,11 +7,45 @@ import { css, NEON, FONT_UI, FONT_DIGITS, rgba, applyPanel, ensureNeonStyles } f
 // 높이·폰트는 뷰포트 폭에 clamp로 자동 연동 — 폭만 줄던 고정 px 상수를 없애, 작은 폰(~320)에서 칸이
 // 홀쭉해지거나 3자리 점수가 넘치지 않게 비율째 축소하고, 큰 폰/데스크톱은 상한(과대 방지)에서 멈춘다.
 // 기준선: 320px(최소 지원 — 구형 iPhone SE)에서 floor, ~390px+에서 ceiling(현 데스크톱 크기).
-const SHEET_MAX = 420; // 한 줄 시트 최대 폭(데스크톱·대형폰 상한). 폰은 96vw가 이긴다.
+// 상태바를 없애고 그 자리(우상단)에 점수판이 들어오면서 **약 1/3 키웠다.**
+// 근거: 주변시는 여러 자리 판독값을 못 읽는다 → 두 갈래 중 하나를 골라야 한다. 숨기거나(온디맨드),
+// **곁눈으로도 읽히게 크고 굵게** 만들거나. 후자를 택했고, 그러면 원문 처방("big and bold, stark
+// contrasts")대로 실제로 커져야 한다. 작게 두면 상시 노출의 비용만 지고 이득이 없다.
+const SHEET_MAX = 560; // 420 → 560 (데스크톱·대형폰 상한). 좁은 화면은 96vw가 이긴다.
 const NAME_W = 102; // 멀티 이름 패널 폭(여유 포함) — 풀 시트 행 폭에 가산
-const CELL_H = 'clamp(14px, 4.3vw, 17px)'; // 마크 박스 높이 (320→14 / 390+→17)
-const SCORE_H = 'clamp(16px, 5.1vw, 20px)'; // 누적 점수 줄 높이
-const DIGIT_FS = 'clamp(11px, 3.6vw, 14px)'; // 마크·누적 점수 글자 크기 (좁은 셀 3자리 넘침 방지)
+const CELL_H = 'clamp(17px, 5.2vw, 22px)'; // 마크 박스 높이
+const SCORE_H = 'clamp(20px, 6.2vw, 26px)'; // 누적 점수 줄 높이
+const DIGIT_FS = 'clamp(13px, 4.3vw, 18px)'; // 마크·누적 점수 글자 크기
+
+/**
+ * 점수판 위치 — **반응형이 인라인 스타일로는 안 된다**(미디어 쿼리가 필요하고, 인라인은 항상 이긴다).
+ * 그래서 위치·정렬만 주입 스타일시트가 갖고, display 토글만 인라인이 쓴다.
+ *
+ * 넓은 화면: 없애버린 상태바 자리 = 우상단(top 8). 상단이 한 줄로 끝난다.
+ * 좁은 화면: ☰ 메뉴(좌상단)와 한 줄에 못 들어간다 — 10프레임 시트가 최소 그 폭을 요구하므로
+ *   버튼 줄 **아래로** 내려 가운데 정렬한다(예전 배치와 같은 자리). 가로로 피할 수 없어 세로로 비킨다.
+ */
+
+function ensureSheetStyles(): void {
+  if (document.getElementById('hud-sheet-css')) return;
+  const st = document.createElement('style');
+  st.id = 'hud-sheet-css';
+  // ⚠️ 가시성을 **클래스로만** 다룬다. 인라인 style.display 는 항상 미디어 쿼리를 이기므로
+  //    한 곳이라도 인라인으로 쓰면 좁은 화면 분기가 죽는다.
+  st.textContent = `
+#hud-scoreboard{
+  position:fixed; z-index:20; pointer-events:none;
+  display:flex; flex-direction:column; gap:6px;
+  top:calc(8px + env(safe-area-inset-top));
+  right:calc(var(--col-edge, 0px) + 8px + env(safe-area-inset-right));
+  align-items:flex-end;
+  /* ☰ 메뉴 버튼(좌상단, 오른쪽 끝 ~107px)을 절대 침범하지 않게 */
+  max-width:calc(100vw - 128px - env(safe-area-inset-left) - env(safe-area-inset-right));
+}
+#hud-scoreboard.is-hidden{ display:none; }
+`;
+  document.head.appendChild(st);
+}
 
 export interface HudPlayerView {
   name: string;
@@ -80,74 +114,52 @@ const markColor = (m: string): string => (m === 'X' || m === '/' ? NEON.gold : '
 export class Hud {
   private readonly wrap: HTMLDivElement;
   private readonly sheets: HTMLDivElement;
-  private readonly status: HTMLDivElement;
+  /**
+   * 옛 우상단 상태바를 없앤 대신, 그 텍스트를 **점수판 안쪽 첫 줄**로 접어 넣었다.
+   * 떠 있는 요소는 줄이지만 정보는 버리지 않는다 — 특히 '핀 정리 중…'은 왜 못 던지는지를
+   * 말하는 **기능 정보**라, 없애면 플레이어가 입력 버그로 읽는다(GameState.readyToThrow와 같은 조건).
+   */
+  private readonly stateLine: HTMLDivElement;
   // 직전 렌더의 누적 점수(플레이어별) — 값이 바뀐 셀만 팝시키려 비교 (매 프레임 재렌더라 필요). MENU서 리셋.
   private prevScores: (number | undefined)[][] = [];
 
   constructor() {
     ensureNeonStyles();
+    ensureSheetStyles(); // 위치·반응형은 주입 스타일시트가 갖는다 (인라인으로는 미디어 쿼리 불가)
 
     this.wrap = document.createElement('div');
     this.wrap.id = 'hud-scoreboard'; // StillCut 밴드를 점수판 하단에 자동 정렬하려는 위치 측정 앵커
-    css(this.wrap, {
-      position: 'fixed',
-      // 상단 점수판: 노치/Dynamic Island/상태바 침범 방지 (iOS WKWebView는 viewport-fit=cover로 인셋 제공)
-      // ☰ 메뉴 버튼(좌상단, 높이 40px)과 안 겹치게 그 아래로 — 점수판은 풀폭(≈96vw)이라 좌우 코너 모두
-      // 버튼과 충돌하므로 가로로 피할 수 없어 세로로 비킨다(프레임 폭=가독성은 유지).
-      top: 'calc(56px + env(safe-area-inset-top))',
-      left: '50%',
-      transform: 'translateX(-50%)',
-      display: 'none',
-      flexDirection: 'column',
-      alignItems: 'center',
-      gap: '6px',
-      zIndex: '20',
-      pointerEvents: 'none',
-      maxWidth: '96vw',
+    // 위치·가시성 전부 스타일시트 소유. 인라인 style은 여기서 한 줄도 쓰지 않는다.
+    this.wrap.classList.add('is-hidden');
+
+    // 상태 줄 — 옛 상태바의 내용물. 시트 위에 얹혀 패널의 헤더처럼 읽힌다.
+    this.stateLine = document.createElement('div');
+    css(this.stateLine, {
+      font: FONT_UI,
+      fontSize: '11px',
+      letterSpacing: '0.06em',
+      color: NEON.dim,
+      padding: '0 4px',
+      whiteSpace: 'nowrap',
+      overflow: 'hidden',
+      textOverflow: 'ellipsis',
+      maxWidth: '100%',
     });
 
     this.sheets = document.createElement('div');
     css(this.sheets, { display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '5px' });
 
-    // 상태 표시줄: 메뉴 버튼(좌상단)과 대칭으로 우상단 모서리에 — 점수판을 아래(top:56px)로 내리며
-    // 비어버린 상단 띠를 채워 좌/우 대칭 툴바를 만든다(점수판 폭·가독성은 그대로 유지). 길면 …로 자름.
-    this.status = document.createElement('div');
-    applyPanel(this.status, NEON.cyan);
-    css(this.status, {
-      position: 'fixed',
-      top: 'calc(8px + env(safe-area-inset-top))',
-      right: 'calc(var(--col-edge, 0px) + 8px + env(safe-area-inset-right))',
-      maxWidth: 'calc(50vw - 52px)', // 우측 절반만 — 중앙 업적 아일랜드·좌상단 메뉴와 충돌 방지
-      zIndex: '21',
-      display: 'none',
-      pointerEvents: 'none',
-      color: NEON.text,
-      font: FONT_UI,
-      // 좌상단 메뉴·중앙 아일랜드(둘 다 height 40)와 같은 가로선에 맞추려면 상태바도 40px여야 한다
-      // (top은 같으니 높이를 맞춰 세로 중심 일치). 세로 패딩 10px + 내용 ~20px = 40px. block 유지(ellipsis 동작).
-      minHeight: '40px',
-      boxSizing: 'border-box',
-      padding: '10px 14px',
-      whiteSpace: 'nowrap',
-      overflow: 'hidden',
-      textOverflow: 'ellipsis',
-      letterSpacing: '0.02em',
-    });
-
-    this.wrap.appendChild(this.sheets);
+    this.wrap.append(this.stateLine, this.sheets);
     document.body.appendChild(this.wrap);
-    document.body.appendChild(this.status);
   }
 
   update(d: HudView) {
     if (d.state === 'MENU' || !d.players.length) {
-      this.wrap.style.display = 'none';
-      this.status.style.display = 'none';
+      this.wrap.classList.add('is-hidden');
       this.prevScores = []; // 새 게임 시작 시 팝 오발동 방지
       return;
     }
-    this.wrap.style.display = 'flex';
-    this.status.style.display = 'block';
+    this.wrap.classList.remove('is-hidden');
     this.sheets.replaceChildren();
 
     d.players.forEach((p, i) => {
@@ -156,16 +168,16 @@ export class Hud {
 
     const cur = d.players[d.current];
     if (d.state === 'GAME_OVER') {
-      this.status.textContent = '🎳 게임 종료';
+      this.stateLine.textContent = '🎳 게임 종료';
     } else if (d.mode === 'spare') {
-      this.status.textContent = `스페어 ${cur.frame}/${d.frames} · 성공 ${cur.conversions}`;
+      this.stateLine.textContent = `스페어 ${cur.frame}/${d.frames} · 성공 ${cur.conversions}`;
     } else {
       // 중앙 업적 아일랜드와 공존하도록 컴팩트하게. 누구 차례인지는 점수판 골드 하이라이트 + 차례 배너로,
       // 선 핀 수는 3D 장면으로 보이므로 상태바에서는 생략(프레임·구·상태만).
       // 핀세터가 도는 동안은 상태가 AIMING이어도 던질 수 없다 — 라벨이 그걸 말해야
       // 플레이어가 '왜 안 던져지지'로 읽지 않는다 (GameState.readyToThrow와 같은 조건).
       const label = d.resetting && d.state === 'AIMING' ? '핀 정리 중…' : (STATE_LABEL[d.state] ?? d.state);
-      this.status.textContent = `${cur.frame}F · ${cur.ball}구 · ${label}`;
+      this.stateLine.textContent = `${cur.frame}F · ${cur.ball}구 · ${label}`;
     }
   }
 
