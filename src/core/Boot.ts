@@ -42,9 +42,9 @@ export async function boot() {
   document.documentElement.style.setProperty('--col-edge', 'max(0px, calc((100vw - 1440px) / 2))');
 
   const engine = new Engine();
-  const { game, controls, cameraRig, environment, sound, exitBtn, island, refreshIsland, replay } = buildScene(engine);
+  const { game, controls, cameraRig, environment, sound, exitBtn, replay } = buildScene(engine);
   let shadowMoving = true; // 그림자 정적화 상태 추적 (§6)
-  let matchVisible: boolean | null = null; // 인게임 UI(exitBtn·island) 표시 상태 캐시(#12) — null=초기 1회 강제 쓰기
+  let matchVisible: boolean | null = null; // 인게임 UI(exitBtn) 표시 상태 캐시(#12) — null=초기 1회 강제 쓰기
   const loop = new Loop(
     engine,
     (dt) => {
@@ -87,10 +87,7 @@ export async function boot() {
       const inMatch = game.state !== 'MENU' && game.state !== 'GAME_OVER';
       if (inMatch !== matchVisible) { // 변경 시에만 DOM 쓰기(#12, 위 섀도우 토글과 통일). null 센티넬로 초기 1회 강제.
         matchVisible = inMatch;
-        if (inMatch) refreshIsland(); // 매치 진입 시 진행도 1회 갱신
-        const disp = inMatch ? 'block' : 'none';
-        exitBtn.style.display = disp;
-        island.style.display = disp;
+        exitBtn.style.display = inMatch ? 'block' : 'none';
       }
       sound.setMenuMusic(!inMatch); // 메뉴·결과 화면에서만 배경음악 (매치 시작하면 페이드아웃). 멱등.
     },
@@ -172,8 +169,6 @@ function buildScene(engine: Engine): {
   environment: Environment;
   sound: SoundManager;
   exitBtn: HTMLButtonElement;
-  island: HTMLButtonElement;
-  refreshIsland: () => void;
   replay: Replay;
 } {
   const settings = loadSettings();
@@ -356,39 +351,9 @@ function buildScene(engine: Engine): {
     if (e.key === 'Escape') forfeit();
   });
 
-  // 인게임 상단 중앙 '업적 아일랜드' (Dynamic Island 느낌의 알약 pill) — 탭하면 컬렉션(업적+스킨) 모달.
-  // 좌(☰ 메뉴)·우(상태바) 사이 중앙. 진행도 🏆 N/총 표시, 매치 진입 시 onFrame에서 refreshIsland로 갱신.
-  const island = document.createElement('button');
-  const refreshIsland = () => {
-    const earned = loadRewards().earned;
-    const n = ACHIEVEMENTS.filter((a) => earned.includes(a.id)).length;
-    island.textContent = `🏆 ${n}/${ACHIEVEMENTS.length}`;
-  };
-  refreshIsland();
-  island.style.cssText = [
-    'position:fixed',
-    'top:calc(8px + env(safe-area-inset-top))',
-    'left:50%',
-    'transform:translateX(-50%)',
-    'z-index:30',
-    'display:none',
-    'padding:8px 14px',
-    'min-height:40px',
-    'border-radius:999px', // 알약형 = Dynamic Island
-    'border:1px solid rgba(255,213,74,0.4)',
-    'background:rgba(14,17,27,0.82)',
-    'color:#ffd54a',
-    'font:800 13px/1 system-ui, sans-serif',
-    'letter-spacing:0.02em',
-    'cursor:pointer',
-    'backdrop-filter:blur(4px)',
-    'box-shadow:0 0 16px rgba(255,213,74,0.18)',
-  ].join(';');
-  island.onclick = () => {
-    if (game.state === 'MENU' || game.state === 'GAME_OVER') return;
-    menu.showCollection(() => menu.hide()); // 닫으면 게임으로 복귀(메뉴 X)
-  };
-  document.body.appendChild(island);
+  // 업적 진행도는 **일시정지 모달의 컬렉션 진입**이 담당한다(Menu.showPause).
+  // 상단 중앙에 있던 '업적 아일랜드' pill을 없앤 이유: 투구 중에 쓰지 않는 정보인데 상단을
+  // 2줄로 만들고, 주변시가 읽지 못하는 텍스트("🏆 3/6")를 화면 끝에 상시로 띄우고 있었다.
 
   // 초기 카메라 (이후 CameraRig가 상태별로 보간) — AIMING 뷰와 동일
   engine.camera.position.set(0, 1.12, -2.7);
@@ -427,5 +392,5 @@ function buildScene(engine: Engine): {
     console.log('[rewards] 초기화 완료 — 새로고침하세요');
   };
 
-  return { game, controls, cameraRig, environment, sound, exitBtn, island, refreshIsland, replay };
+  return { game, controls, cameraRig, environment, sound, exitBtn, replay };
 }

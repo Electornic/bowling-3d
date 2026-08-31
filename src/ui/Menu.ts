@@ -7,7 +7,7 @@ import { fileToScreenSource, fileToScreenVideo } from './screenMedia';
 import { saveScreenVideo, loadScreenVideo, clearScreenVideo } from '../game/screenStore';
 import type { BallSkin, SkinFinish } from '../game/rewards';
 import type { Settings, Quality } from '../game/settings';
-import { css, NEON } from '../ui/theme'; // 디자인 시스템 단일소스(#6) — 로컬 css 복제 제거, NEON 팔레트 토큰 공유
+import { css, NEON, rgba } from '../ui/theme'; // 디자인 시스템 단일소스(#6) — 로컬 css 복제 제거, NEON 팔레트 토큰 공유
 
 // === UI juice: 마이크로 모션 — 정적 CSS(.menu-panel button 트랜지션 + juicePanelIn/juiceFadeIn 키프레임 +
 // 모션최소화 + View Transitions 커브)는 ui.css로 이동(#4). main.ts가 전역 import하므로 별도 주입 불필요.
@@ -528,6 +528,28 @@ export class MenuUI {
       }),
     );
     this.panel.appendChild(list);
+
+    // 업적·스킨 진입 — 상단 '업적 아일랜드'를 없앴으므로 **인게임에서 여기가 유일한 경로**다.
+    // 진행도를 라벨에 얹어, 아일랜드가 상시로 말해주던 정보를 이 한 줄이 대신한다.
+    // 닫으면 메뉴가 아니라 **일시정지로 복귀**한다 — 게임이 아직 진행 중이니까.
+    const pauseEarned = loadRewards().earned;
+    const pauseAchN = ACHIEVEMENTS.filter((a) => pauseEarned.includes(a.id)).length;
+    const collBtn = document.createElement('button');
+    collBtn.textContent = `🏆 컬렉션 · 업적 ${pauseAchN}/${ACHIEVEMENTS.length} ▸`;
+    css(collBtn, {
+      width: '100%',
+      padding: COARSE ? '12px' : '10px',
+      minHeight: COARSE ? '44px' : '',
+      borderRadius: '10px',
+      border: `1px solid ${rgba(NEON.gold, 0.34)}`, // 아일랜드가 쓰던 골드 테두리를 이어받는다
+      background: 'rgba(255,255,255,0.05)',
+      color: NEON.text,
+      font: '700 13px/1 system-ui, sans-serif',
+      cursor: 'pointer',
+      marginBottom: '14px',
+    });
+    collBtn.onclick = () => this.showSkins(() => this.showPause(cfg), '← 일시정지');
+    this.panel.appendChild(collBtn);
 
     // 조작 안내 (입력 환경별)
     const help = document.createElement('div');
