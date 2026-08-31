@@ -120,6 +120,14 @@ export class Controls {
 
   // 터치 ⓑ — 상대 조준 anchor + 단일 포인터 추적 (멀티터치 오발사·pointercancel 고착 방지)
   private readonly coarse = isCoarsePointer();
+  /**
+   * 휠을 **실제로 본 적 있는가.** 스핀 바 노출의 기준은 "터치냐"가 아니라 "휠이 있느냐"다 —
+   * 휠 없는 마우스나 태블릿에선 바가 유일한 스핀 입력이므로 숨으면 입력이 사라진다.
+   * ⚠️ 휠 존재는 **사전 감지가 불가능하다**(`matchMedia('(wheel)')` 같은 건 없다). wheel 이벤트가
+   * 올 때만 알 수 있으므로 **바를 기본으로 두고 휠이 나타나면 강등**한다(fail-safe 방향).
+   */
+  private wheelSeen = false;
+  private spinHint!: HTMLDivElement;
   private activePointerId: number | null = null;
   private anchorX = 0;
   private anchorAim = 0;
@@ -278,9 +286,9 @@ export class Controls {
       display: 'flex',
       flexDirection: 'column',
       gap: '6px',
-      // 데스크톱은 숨긴 채 시작 — 방향·크기는 조준선 색이 상시로 말하므로 하단 패널은 정밀 확인용.
-      // 휠로 값을 바꾼 순간에만 떴다 사라진다. 터치는 이 바가 유일한 스핀 입력이라 상시 노출.
-      opacity: this.coarse ? '1' : '0',
+      // **휠을 보기 전까진 상시 노출** — 그때까진 이 바가 유일한 스핀 입력일 수 있다(태블릿·휠 없는
+      // 마우스). 첫 wheel 이벤트에서 트랜지언트로 강등된다(demoteSpinBarToIndicator).
+      opacity: '1',
       transition: 'opacity 0.28s ease',
     });
 
@@ -310,7 +318,7 @@ export class Controls {
       border: this.coarse ? 'none' : `1px solid ${rgba(NEON.cyan, 0.25)}`,
       borderRadius: '999px',
       // 데스크톱은 휠이 입력을 담당하고 바는 표시기 — 숨겨진 상태로 클릭되면 사고라 아예 끈다.
-      pointerEvents: this.coarse ? 'auto' : 'none',
+      pointerEvents: 'auto', // 휠 강등 시 none으로 바뀐다 — 그전까진 드래그가 유일한 입력일 수 있다
       cursor: 'ew-resize',
       touchAction: 'none',
     });
@@ -369,8 +377,8 @@ export class Controls {
     spinTrack.appendChild(tick);
     spinTrack.appendChild(this.spinThumb);
 
-    const spinHint = document.createElement('div');
-    spinHint.textContent = this.coarse ? '드래그로 좌/우 스핀' : '휠 ◀ ▶';
+    const spinHint = (this.spinHint = document.createElement('div'));
+    spinHint.textContent = '드래그로 좌/우 스핀'; // 휠을 보면 '휠 ◀ ▶'로 바뀐다
     css(spinHint, {
       font: FONT_UI,
       fontSize: '9px',
@@ -398,6 +406,22 @@ export class Controls {
   }
 
   /** 스핀 바 위 포인터 x → spin ∈ [-1,1] (SPIN_STEP 단위 — 휠과 같은 값 공간) */
+  /**
+   * 휠을 처음 본 순간 — 스핀 바를 **주 입력에서 표시기로 강등**한다.
+   *
+   * 터치(coarse)는 강등하지 않는다: 휠이 붙어 있어도(태블릿+트랙패드) 손가락 드래그가 여전히
+   * 자연스러운 주 입력이고, 바를 숨기면 터치 사용자가 스핀을 못 만진다.
+   * 데스크톱만 강등해서 기존 확정 동작(휠이 주 조작 · 바는 정밀 확인용 트랜지언트)으로 복귀한다.
+   */
+  private noteWheelSeen() {
+    if (this.wheelSeen) return;
+    this.wheelSeen = true;
+    if (this.coarse) return;
+    this.spinHint.textContent = '휠 ◀ ▶';
+    this.spinTrack.style.pointerEvents = 'none';
+    // opacity는 update()의 트랜지언트 로직이 이어받는다(wheelSeen 게이트가 이제 열렸다).
+  }
+
   private setSpinFromPointer(clientX: number) {
     const r = this.spinTrack.getBoundingClientRect();
     const ratio = (clientX - r.left) / r.width; // 0..1
@@ -483,6 +507,9 @@ export class Controls {
     window.addEventListener(
       'wheel',
       (e) => {
+        // ⚠️ 아래 early-return **앞에서** 표시한다 — 휠 이벤트가 왔다는 사실 자체가 "휠이 있다"는
+        //    증거이고, 조준 중이 아니거나 바 위에서 굴렸을 때도 그 증거는 유효하다.
+        this.noteWheelSeen();
         if (!this.game.readyToThrow || !this.game.isHumanTurn()) return;
         if (!this.onCanvas(e)) return; // 스핀 바 위에선 드래그가 담당
         const now = performance.now();
@@ -525,7 +552,7 @@ export class Controls {
     // 데스크톱 트랜지언트 노출: 값이 바뀐 뒤 SPIN_HUD_HOLD 동안만 띄운다. 발사 직후 throwBall이
     // spin을 0으로 리셋하며 값이 '변하는' 것도 노출로 세지 않도록 조준 중일 때만 타이머를 건다.
     // lastSpinShown은 매 프레임 갱신 — 안 그러면 리셋된 0이 다음 조준 턴에서 변화로 잡힌다.
-    if (!this.coarse) {
+    if (!this.coarse && this.wheelSeen) {
       const aimingNow = this.game.readyToThrow && this.game.isHumanTurn();
       if (s !== this.lastSpinShown && aimingNow) this.spinHudT = SPIN_HUD_HOLD;
       this.lastSpinShown = s;
