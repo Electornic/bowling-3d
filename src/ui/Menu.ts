@@ -7,7 +7,7 @@ import { fileToScreenSource, fileToScreenVideo } from './screenMedia';
 import { saveScreenVideo, loadScreenVideo, clearScreenVideo } from '../game/screenStore';
 import type { BallSkin, SkinFinish } from '../game/rewards';
 import type { Settings, Quality } from '../game/settings';
-import { t, type I18nKey } from '../i18n';
+import { t, getLocale, detectLocale, LOCALES, LOCALE_LABEL, type I18nKey, type LocaleSetting } from '../i18n';
 import { css, NEON, rgba } from '../ui/theme'; // 디자인 시스템 단일소스(#6) — 로컬 css 복제 제거, NEON 팔레트 토큰 공유
 
 // === UI juice: 마이크로 모션 — 정적 CSS(.menu-panel button 트랜지션 + juicePanelIn/juiceFadeIn 키프레임 +
@@ -120,6 +120,7 @@ export class MenuUI {
     private readonly onCustomScreen: (media: CustomScreenMedia | null) => void, // 히든 보상 — 전광판 커스텀
     private readonly settings: Settings, // 시작 메뉴 사운드 토글이 읽는 현재 설정 (pause 모달과 동일 객체)
     private readonly onSound: (v: boolean) => void, // 토글 시 적용+저장 (Boot 주입)
+    private readonly onLang: (v: LocaleSetting) => void, // 언어 변경 시 적용+저장 (Boot 주입)
   ) {
     this.backdrop = document.createElement('div');
     css(this.backdrop, {
@@ -385,6 +386,70 @@ export class MenuUI {
       ? t('menu.help.touch')
       : t('menu.help.mouse');
     this.panel.appendChild(help);
+
+    // 언어 진입 — 푸터 톤(작고 흐리게)에 맞춘 한 줄. 우상단 코너 버튼으로 두지 않은 이유:
+    // 사운드 토글(40px) 옆에 하나 더 놓으면 좁은 패널(min 340px)에서 타이틀과 겹친다.
+    const lang = document.createElement('button');
+    lang.textContent = `🌐 ${LOCALE_LABEL[getLocale()]} ▸`;
+    css(lang, {
+      marginTop: '10px',
+      padding: COARSE ? '8px 0' : '4px 0',
+      minHeight: COARSE ? '36px' : '',
+      background: 'transparent',
+      border: 'none',
+      color: NEON.dim,
+      font: '600 11px/1.6 system-ui, sans-serif',
+      cursor: 'pointer',
+      textAlign: 'left',
+    });
+    lang.onclick = () => this.showLangs();
+    this.panel.appendChild(lang);
+  }
+
+  /**
+   * 언어 선택 시트. 각 언어는 **그 언어로** 적는다(번역하지 않는다) — 못 읽는 언어로 적혀 있으면
+   * 고를 수가 없다. 'auto'는 지금 감지된 언어를 괄호로 함께 보여줘, 고르면 뭐가 될지 알 수 있게 한다.
+   */
+  private showLangs(onBack: () => void = () => this.showMenu(), backLabel = t('menu.back.menu')): void {
+    this.panel.replaceChildren();
+    this.panel.appendChild(this.title(t('menu.section.lang')));
+
+    const list = document.createElement('div');
+    css(list, { display: 'flex', flexDirection: 'column', gap: '7px', marginBottom: '14px' });
+    const opts: { value: LocaleSetting; label: string }[] = [
+      { value: 'auto', label: `${t('lang.auto')} · ${LOCALE_LABEL[detectLocale()]}` },
+      ...LOCALES.map((c) => ({ value: c as LocaleSetting, label: LOCALE_LABEL[c] })),
+    ];
+    for (const o of opts) {
+      const on = this.settings.lang === o.value;
+      const b = document.createElement('button');
+      b.textContent = o.label;
+      css(b, {
+        width: '100%',
+        padding: COARSE ? '12px 14px' : '10px 13px',
+        minHeight: COARSE ? '44px' : '',
+        borderRadius: '10px',
+        border: `1px solid ${on ? 'rgba(255,213,74,0.5)' : 'rgba(255,255,255,0.18)'}`,
+        background: on ? 'rgba(255,213,74,0.14)' : 'rgba(255,255,255,0.05)',
+        color: on ? NEON.gold : NEON.text,
+        font: `${on ? 800 : 600} 13px/1 system-ui, sans-serif`,
+        cursor: 'pointer',
+        textAlign: 'left',
+      });
+      b.onclick = () => {
+        this.onLang(o.value); // 적용+저장은 Boot 핸들러가 (setLocale 포함)
+        this.showLangs(onBack, backLabel); // 새 언어로 이 시트를 다시 그린다 — 바뀐 걸 즉시 보여준다
+      };
+      list.appendChild(b);
+    }
+    this.panel.appendChild(list);
+
+    // ⚠️ backLabel은 **들어올 때의 언어**로 받은 문자열이다. 여기서 언어를 바꿨다면 이미 낡았으므로
+    //    되돌아가는 라벨은 지금 언어로 다시 만든다(메뉴에서 왔으면 메뉴 라벨).
+    const back = this.ghostButton(backLabel === t('menu.back.pause') ? t('menu.back.pause') : t('menu.back.menu'), { size: 13 });
+    back.onclick = onBack;
+    this.panel.appendChild(back);
+    this.reveal();
   }
 
   private start() {
@@ -528,6 +593,12 @@ export class MenuUI {
         cfg.onQuality(s.quality === 'high' ? 'perf' : 'high');
         this.showPause(cfg);
       }),
+    );
+    list.appendChild(
+      // 값은 **실제로 쓰이는 언어**를 보여준다('자동'이면 감지 결과가 곧 답이다).
+      this.settingRow(t('menu.section.lang'), LOCALE_LABEL[getLocale()], true, () =>
+        this.showLangs(() => this.showPause(cfg), t('menu.back.pause')),
+      ),
     );
     this.panel.appendChild(list);
 

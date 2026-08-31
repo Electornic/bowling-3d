@@ -248,6 +248,13 @@ function buildScene(engine: Engine): {
       sound.enabled = v; // setter가 끄면 BGM·럼블 즉시 정지, 켜면 다음 프레임에 BGM 재개
       saveSettings(settings);
     },
+    (lang) => {
+      settings.lang = lang;
+      saveSettings(settings);
+      // setLocale이 <html lang>을 맞추고 정적 라벨 구독자(☰ 메뉴·스핀 힌트)를 깨운다.
+      // 메뉴 패널 자체는 호출부가 다시 그린다(showLangs가 스스로 재렌더).
+      setLocale(resolveLocale(lang));
+    },
   );
   game.setBallSkin(resolveSkin(loadRewards().selectedSkin)); // 저장된 장착 스킨 초기 적용
   // 저장된 커스텀 전광판 초기 적용. 영상은 IndexedDB라 비동기 — 부팅을 막지 않고 늦게 붙인다.
