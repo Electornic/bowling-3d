@@ -25,6 +25,12 @@ const DIGIT_FS = 'clamp(13px, 4.3vw, 18px)'; // 마크·누적 점수 글자 크
  * 좁은 화면: ☰ 메뉴(좌상단)와 한 줄에 못 들어간다 — 10프레임 시트가 최소 그 폭을 요구하므로
  *   버튼 줄 **아래로** 내려 가운데 정렬한다(예전 배치와 같은 자리). 가로로 피할 수 없어 세로로 비킨다.
  */
+/**
+ * 좁은 화면 판정 — **주입 CSS의 @media와 같은 값이어야 한다.** 두 곳이 갈리면
+ * 알약/시트 가시성(CSS)과 5칸 청크(JS)가 서로 다른 폭에서 전환돼 한 줄 10칸이 좁은 화면에 남는다.
+ */
+const NARROW_Q = '(max-width: 760px)';
+const isNarrowSheet = () => matchMedia(NARROW_Q).matches;
 
 function ensureSheetStyles(): void {
   if (document.getElementById('hud-sheet-css')) return;
@@ -43,7 +49,29 @@ function ensureSheetStyles(): void {
   max-width:calc(100vw - 128px - env(safe-area-inset-left) - env(safe-area-inset-right));
 }
 #hud-scoreboard.is-hidden{ display:none; }
-`;
+#hud-pill{ display:none; }
+
+@media (max-width:760px){
+  /* 좁은 화면 = 격자를 상시로 두지 않는다. 10프레임 한 줄은 폰에서 칸이 ~30px 슬리버가 되고
+     상단 16%를 먹어 위·옆으로 다 답답하다(실측 320px: 307×74, 상단 UI 130px). */
+  #hud-scoreboard{ display:none; }
+  #hud-scoreboard.is-open:not(.is-hidden){
+    /* 펼침은 상단 띠가 아니라 **화면 중앙 패널** — 상단에 밀어 넣으면 열어도 답답하다.
+       열었을 땐 점수를 보려는 순간이라 레인을 가려도 된다. */
+    display:flex;
+    top:50%; left:50%; right:auto;
+    transform:translate(-50%, -50%);
+    align-items:center;
+    max-width:96vw;
+  }
+  #hud-pill:not(.is-hidden){
+    display:inline-flex; align-items:center;
+    position:fixed; z-index:21;
+    top:calc(8px + env(safe-area-inset-top));
+    right:calc(var(--col-edge, 0px) + 8px + env(safe-area-inset-right));
+    pointer-events:auto;
+  }
+}`;
   document.head.appendChild(st);
 }
 
@@ -120,6 +148,18 @@ export class Hud {
    * 말하는 **기능 정보**라, 없애면 플레이어가 입력 버그로 읽는다(GameState.readyToThrow와 같은 조건).
    */
   private readonly stateLine: HTMLDivElement;
+  /**
+   * 좁은 화면 전용 알약 — 격자를 접은 자리에 **현재 점수**를 남긴다.
+   * ⚠️ 점수를 반드시 넣어야 한다: 옛 상태 줄은 `1F · 1구 · 조준`으로 **점수가 없었고**,
+   * 점수는 격자 안에만 있었다. 격자를 접으면서 알약에 점수를 안 넣으면 점수가 통째로 사라진다.
+   */
+  private readonly pill: HTMLButtonElement;
+  private readonly pillLabel: HTMLSpanElement;
+  private readonly pillCaret: HTMLSpanElement;
+  /** 좁은 화면에서 전체 시트를 펼쳤는가. 넓은 화면에선 의미 없다(항상 보인다). */
+  private expanded = false;
+  /** 마지막 뷰 — 브레이크포인트가 넘어갈 때 재렌더하려고 들고 있는다(리사이즈는 상태 변화가 없다). */
+  private lastView: HudView | null = null;
   // 직전 렌더의 누적 점수(플레이어별) — 값이 바뀐 셀만 팝시키려 비교 (매 프레임 재렌더라 필요). MENU서 리셋.
   private prevScores: (number | undefined)[][] = [];
 
@@ -151,15 +191,69 @@ export class Hud {
 
     this.wrap.append(this.stateLine, this.sheets);
     document.body.appendChild(this.wrap);
+
+    // --- 좁은 화면 알약 ---
+    this.pill = document.createElement('button');
+    this.pill.id = 'hud-pill';
+    this.pill.type = 'button';
+    this.pill.classList.add('is-hidden');
+    this.pill.setAttribute('aria-controls', 'hud-scoreboard');
+    this.pill.setAttribute('aria-expanded', 'false');
+    applyPanel(this.pill, NEON.cyan);
+    css(this.pill, {
+      // 좌상단 ☰ 메뉴(높이 40)와 같은 가로선 — top이 같으니 높이를 맞춰 세로 중심을 일치시킨다.
+      minHeight: '40px',
+      boxSizing: 'border-box',
+      padding: '10px 13px',
+      cursor: 'pointer',
+      appearance: 'none',
+      color: NEON.text,
+      font: FONT_UI,
+      letterSpacing: '0.02em',
+      whiteSpace: 'nowrap',
+      gap: '8px',
+    });
+    this.pillLabel = document.createElement('span');
+    this.pillCaret = document.createElement('span');
+    this.pillCaret.textContent = '▾';
+    css(this.pillCaret, {
+      opacity: '0.65',
+      fontSize: '10px',
+      transition: 'transform 0.18s ease', // 감속만 — 오버슈트·스프링 재도입 금지(확정 사항)
+    });
+    this.pill.append(this.pillLabel, this.pillCaret);
+    this.pill.onclick = () => {
+      this.expanded = !this.expanded;
+      this.applyExpanded();
+    };
+    document.body.appendChild(this.pill);
+
+    // 시트는 매 update()마다 통째로 재렌더되니 상태 변화엔 자동으로 따라간다. 리사이즈만
+    // 상태 변화가 없어 스스로 재렌더되지 않으므로 브레이크포인트 전환에서 한 번 밀어준다.
+    matchMedia(NARROW_Q).addEventListener('change', () => {
+      if (this.lastView) this.update(this.lastView);
+    });
+  }
+
+  private applyExpanded() {
+    this.wrap.classList.toggle('is-open', this.expanded);
+    this.pillCaret.style.transform = this.expanded ? 'rotate(180deg)' : '';
+    this.pill.setAttribute('aria-expanded', String(this.expanded));
   }
 
   update(d: HudView) {
+    this.lastView = d;
     if (d.state === 'MENU' || !d.players.length) {
       this.wrap.classList.add('is-hidden');
+      this.pill.classList.add('is-hidden');
+      this.expanded = false; // 매치를 나가면 접힘으로 리셋
+      this.applyExpanded();
       this.prevScores = []; // 새 게임 시작 시 팝 오발동 방지
       return;
     }
     this.wrap.classList.remove('is-hidden');
+    this.pill.classList.remove('is-hidden');
+    this.applyExpanded();
     this.sheets.replaceChildren();
 
     d.players.forEach((p, i) => {
@@ -178,6 +272,27 @@ export class Hud {
       // 플레이어가 '왜 안 던져지지'로 읽지 않는다 (GameState.readyToThrow와 같은 조건).
       const label = d.resetting && d.state === 'AIMING' ? '핀 정리 중…' : (STATE_LABEL[d.state] ?? d.state);
       this.stateLine.textContent = `${cur.frame}F · ${cur.ball}구 · ${label}`;
+    }
+
+    // --- 알약 라벨: 프레임 · 구 · **현재 점수** ---
+    // 점수가 이 알약의 존재 이유다. 상태 라벨은 '조준'처럼 자명한 값이면 생략하고,
+    // 던질 수 없는 이유를 말할 때만(핀 정리 중·핀 카운트·롤링) 뒤에 붙인다 — 길이를 아끼려고.
+    const cum = frameScores(cur.rolls.flat(), d.frames);
+    let total = 0;
+    for (let i = cum.length - 1; i >= 0; i--) {
+      if (cum[i] !== undefined) {
+        total = cum[i];
+        break;
+      }
+    }
+    if (d.state === 'GAME_OVER') {
+      this.pillLabel.textContent = `🎳 ${total}`;
+    } else if (d.mode === 'spare') {
+      this.pillLabel.textContent = `${cur.frame}/${d.frames} · 성공 ${cur.conversions}`;
+    } else {
+      const st = d.resetting && d.state === 'AIMING' ? '핀 정리 중…' : (STATE_LABEL[d.state] ?? d.state);
+      const suffix = st === '조준' ? '' : ` · ${st}`;
+      this.pillLabel.textContent = `${cur.frame}F ${cur.ball}구 · ${total}${suffix}`;
     }
   }
 
@@ -258,6 +373,28 @@ export class Hud {
       return row;
     }
 
+    // --- 좁은 화면: 5칸씩 두 줄 ---
+    // 한 줄 10칸은 375px에서 마크 셀이 15.3px밖에 안 된다(실측). 5칸씩 쪼개면 31~34px — 2.1배.
+    // 세로는 ~65px 늘지만 모바일 시트는 이제 **화면 중앙 패널**이라(상단 띠가 아니라) 그 여유가 있다.
+    // 원래 "항상 한 줄(스크롤 0)" 전제는 상단 띠 시절의 제약이었다.
+    //
+    // ⚠️ CSS 그리드(repeat(5,1fr))로 하면 안 된다 — 10프레임은 마크 칸이 3개라 남들 2칸 폭에
+    //    쑤셔넣게 된다. 아래처럼 DOM을 행으로 쪼개면 각 행이 자기 안에서 flex 비례 배분을 해서
+    //    (1행 10유닛 / 2행 11유닛) 행 간 마크 셀 차이가 ~9%로 그친다.
+    const narrow = isNarrowSheet();
+    const perLine = 5;
+    const lines: HTMLDivElement[] = [];
+    if (narrow && d.frames > perLine) {
+      css(sheet, { flexDirection: 'column' });
+      for (let i = 0; i < Math.ceil(d.frames / perLine); i++) {
+        const ln = document.createElement('div');
+        css(ln, { display: 'flex', gap: '3px' });
+        lines.push(ln);
+        sheet.appendChild(ln);
+      }
+    }
+    const lineFor = (f: number) => (lines.length ? lines[Math.floor(f / perLine)] : sheet);
+
     const cum = frameScores(p.rolls.flat(), d.frames);
     const prev = this.prevScores[index]; // 직전 렌더 값 (첫 렌더면 undefined → 팝 안 함)
     for (let f = 0; f < d.frames; f++) {
@@ -309,7 +446,7 @@ export class Hud {
 
       box.appendChild(marks);
       box.appendChild(score);
-      sheet.appendChild(box);
+      lineFor(f).appendChild(box);
     }
     this.prevScores[index] = cum; // 다음 렌더 비교용 저장
     row.appendChild(sheet);
