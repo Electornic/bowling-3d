@@ -85,16 +85,16 @@ const BTN_ACCENTS = {
 } as const;
 type BtnAccent = keyof typeof BTN_ACCENTS;
 
-const MODES: { key: GameMode; label: string; desc: string }[] = [
-  { key: 'full', label: '풀게임', desc: '10프레임 정식 룰' },
-  { key: 'blitz', label: '블리츠', desc: '3프레임 스피드전' },
-  { key: 'spare', label: '스페어 챌린지', desc: '클래식 리브 10연속 픽업 (솔로)' },
+const MODES: { key: GameMode; labelKey: I18nKey; descKey: I18nKey }[] = [
+  { key: 'full', labelKey: 'mode.full', descKey: 'mode.full.desc' },
+  { key: 'blitz', labelKey: 'mode.blitz', descKey: 'mode.blitz.desc' },
+  { key: 'spare', labelKey: 'mode.spare', descKey: 'mode.spare.desc' },
 ];
 
-const AIM_AIDS: { key: AimAid; label: string; desc: string }[] = [
-  { key: 'easy', label: '쉬움', desc: '훅 끝까지 그리는 풀 예측선' },
-  { key: 'normal', label: '보통', desc: '오일 존(직진 구간)까지만 — 훅은 직접 읽기' },
-  { key: 'hard', label: '어려움', desc: '조준 방향 표식만 — 라인은 온전히 실력' },
+const AIM_AIDS: { key: AimAid; labelKey: I18nKey; descKey: I18nKey }[] = [
+  { key: 'easy', labelKey: 'aim.easy', descKey: 'aim.easy.desc' },
+  { key: 'normal', labelKey: 'aim.normal', descKey: 'aim.normal.desc' },
+  { key: 'hard', labelKey: 'aim.hard', descKey: 'aim.hard.desc' },
 ];
 
 /**
@@ -190,7 +190,7 @@ export class MenuUI {
     const b = document.createElement('button');
     const paint = () => {
       b.textContent = this.settings.sound ? '🔊' : '🔇';
-      b.setAttribute('aria-label', this.settings.sound ? '사운드 끄기' : '사운드 켜기');
+      b.setAttribute('aria-label', t(this.settings.sound ? 'menu.sound.off' : 'menu.sound.on'));
     };
     css(b, {
       position: 'absolute',
@@ -235,12 +235,12 @@ export class MenuUI {
   /** 모드(풀/블리츠/스페어) + 상대(혼자/AI) — 칩맵이 서로를 참조해 한 섹션에 묶는다. */
   private buildMatchupSection(): void {
     // 모드 선택
-    this.panel.appendChild(this.sectionLabel('모드'));
+    this.panel.appendChild(this.sectionLabel(t('menu.section.mode')));
     const modeRow = document.createElement('div');
     css(modeRow, { display: 'flex', gap: '8px', marginBottom: '14px' });
     const modeBtns = new Map<GameMode, HTMLButtonElement>();
     for (const m of MODES) {
-      const b = this.chipButton(`${m.label}`, m.desc);
+      const b = this.chipButton(t(m.labelKey), t(m.descKey));
       b.onclick = () => {
         this.mode = m.key;
         if (m.key === 'spare') this.rivalKey = null; // 스페어 챌린지는 솔로만 (AI 불가)
@@ -253,11 +253,11 @@ export class MenuUI {
     this.panel.appendChild(modeRow);
 
     // 상대 선택 — 혼자 / AI 라이벌 3인
-    this.panel.appendChild(this.sectionLabel('상대'));
+    this.panel.appendChild(this.sectionLabel(t('menu.section.rival')));
     const rivalRow = document.createElement('div');
     css(rivalRow, { display: 'flex', gap: '8px', marginBottom: '12px', flexWrap: 'wrap' });
     const rivalBtns = new Map<string | null, HTMLButtonElement>();
-    const solo = this.chipButton('혼자', '연습 모드');
+    const solo = this.chipButton(t('menu.rival.solo'), t('menu.rival.solo.desc'));
     solo.onclick = () => {
       this.rivalKey = null;
       this.refreshRivalChips(rivalBtns);
@@ -293,12 +293,12 @@ export class MenuUI {
    * 계속 돌고, AI hookDriftFor(endZ)도 그걸 따라간다. 여기서 뺀 건 선택 UI뿐이다.
    */
   private buildAimAidSection(): void {
-    this.panel.appendChild(this.sectionLabel('조준 난이도'));
+    this.panel.appendChild(this.sectionLabel(t('menu.section.aim')));
     const aimRow = document.createElement('div');
     css(aimRow, { display: 'flex', gap: '8px', marginBottom: '14px' });
     const aimBtns = new Map<AimAid, HTMLButtonElement>();
     for (const a of AIM_AIDS) {
-      const b = this.chipButton(a.label, a.desc);
+      const b = this.chipButton(t(a.labelKey), t(a.descKey));
       b.onclick = () => {
         this.aimAid = a.key;
         this.refreshChips(aimBtns, this.aimAid);
@@ -313,7 +313,7 @@ export class MenuUI {
   /** 볼 무게 슬라이더(6~16lb) — 입력 즉시 onWeight로 라이브 반영. */
   private buildWeightSection(): void {
     // 볼 무게 (인게임 HUD 대신 여기서 — 한 번 정하면 끝인 설정이라 매 투구 컨트롤과 분리)
-    this.panel.appendChild(this.sectionLabel('볼 무게'));
+    this.panel.appendChild(this.sectionLabel(t('menu.section.weight')));
     const wRow = document.createElement('div');
     css(wRow, { display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '16px' });
     const wInput = document.createElement('input');
@@ -359,7 +359,7 @@ export class MenuUI {
 
   /** 게임 시작 버튼 (fire 프라이머리). */
   private buildStartButton(): void {
-    const start = this.primaryButton('게임 시작', 'fire', { size: 16, padding: '12px', radius: 10, marginBottom: '14px' });
+    const start = this.primaryButton(t('menu.start'), 'fire', { size: 16, padding: '12px', radius: 10, marginBottom: '14px' });
     start.onclick = () => this.start();
     this.panel.appendChild(start);
   }
@@ -375,21 +375,21 @@ export class MenuUI {
       font: '500 12px/1.7 system-ui, sans-serif',
       color: NEON.dim,
     });
-    stats.innerHTML = `풀게임 — ${s.full}<br>블리츠 — ${s.blitz}<br>스페어 챌린지 — ${s.spare}`;
+    stats.innerHTML = t('menu.statsFooter', { full: s.full, blitz: s.blitz, spare: s.spare });
     this.panel.appendChild(stats);
 
     // 조작법
     const help = document.createElement('div');
     css(help, { marginTop: '8px', font: '500 11px/1.6 system-ui, sans-serif', color: NEON.faint });
     help.textContent = COARSE
-      ? '누른 채 좌우로 조준 · 떼면 파워 발사 · 하단 바 = 스핀'
-      : '마우스 이동 = 조준 · 꾹 눌렀다 떼기 = 파워 발사 · 휠 = 좌/우 스핀';
+      ? t('menu.help.touch')
+      : t('menu.help.mouse');
     this.panel.appendChild(help);
   }
 
   private start() {
     // 사람 1명 + (AI 라이벌 선택 시) AI 1명.
-    const players: MatchConfig['players'] = [{ name: '나' }];
+    const players: MatchConfig['players'] = [{ name: t('menu.me') }];
     if (this.mode !== 'spare' && this.rivalKey) {
       const profile = AI_PROFILES.find((p) => p.key === this.rivalKey);
       if (profile) players.push({ name: t(profile.nameKey), ai: profile }); // 매치 시작 시점의 언어로 굳는다(진행 중 변경은 옛 이름 유지)
@@ -411,11 +411,11 @@ export class MenuUI {
     const me = summary.players[0];
 
     let headline: string;
-    if (summary.mode === 'spare') headline = `스페어 ${me.score}/10 성공!`;
-    else if (solo) headline = `최종 ${me.score}점`;
-    else if (summary.winner === -1) headline = '무승부!';
-    else if (summary.winner === 0) headline = '🏆 승리!';
-    else headline = `패배… ${summary.players[summary.winner].name}의 승리`;
+    if (summary.mode === 'spare') headline = t('menu.result.spare', { score: me.score });
+    else if (solo) headline = t('menu.result.final', { score: me.score });
+    else if (summary.winner === -1) headline = t('menu.result.draw');
+    else if (summary.winner === 0) headline = t('menu.result.win');
+    else headline = t('menu.result.lose', { name: summary.players[summary.winner].name });
     this.panel.appendChild(this.title(headline));
 
     const list = document.createElement('div');
@@ -428,7 +428,7 @@ export class MenuUI {
         gap: '24px',
         color: i === summary.winner ? NEON.gold : NEON.text,
       });
-      const unit = summary.mode === 'spare' ? `/10` : '점';
+      const unit = summary.mode === 'spare' ? '/10' : t('menu.result.unit');
       row.innerHTML = `<span>${p.ai ? '🤖 ' : ''}${p.name}</span><span>${p.score}${unit}</span>`;
       list.appendChild(row);
     });
@@ -436,7 +436,7 @@ export class MenuUI {
 
     if (summary.newBest) {
       const badge = document.createElement('div');
-      badge.textContent = '✨ 새 기록!';
+      badge.textContent = t('menu.result.newRecord');
       css(badge, {
         color: NEON.gold,
         font: '800 14px/1 system-ui, sans-serif',
@@ -481,14 +481,14 @@ export class MenuUI {
 
     const note = document.createElement('div');
     css(note, { font: '500 12px/1.5 system-ui, sans-serif', color: NEON.dim, marginBottom: '16px' });
-    note.textContent = '프레임별 점수는 상단 점수표에서 확인';
+    note.textContent = t('menu.result.frameHint');
     this.panel.appendChild(note);
 
     const btnRow = document.createElement('div');
     css(btnRow, { display: 'flex', gap: '8px' });
-    const again = this.primaryButton('다시 하기', 'fire', { size: 14, padding: '11px', radius: 10, weight: 700, flex1: true });
+    const again = this.primaryButton(t('menu.result.retry'), 'fire', { size: 14, padding: '11px', radius: 10, weight: 700, flex1: true });
     again.onclick = () => this.start(); // 같은 설정으로 재시작
-    const menu = this.ghostButton('메뉴로', { flex1: true });
+    const menu = this.ghostButton(t('menu.toMenu'), { flex1: true });
     menu.onclick = () => {
       this.onMenu();
       this.showMenu();
@@ -506,25 +506,25 @@ export class MenuUI {
   showPause(cfg: PauseConfig) {
     const s = cfg.settings;
     this.panel.replaceChildren();
-    this.panel.appendChild(this.title('⏸ 일시정지'));
+    this.panel.appendChild(this.title(t('menu.pause.title')));
 
     // 설정 (게임 중 변경해도 안전 — 물리·점수·기록 무영향. 토글 → 즉시 적용·저장 후 재렌더로 상태 반영)
     const list = document.createElement('div');
     css(list, { display: 'flex', flexDirection: 'column', gap: '7px', marginBottom: '14px' });
     list.appendChild(
-      this.settingRow('🔊 사운드', s.sound ? '켜짐' : '꺼짐', s.sound, () => {
+      this.settingRow(t('menu.pause.sound'), t(s.sound ? 'menu.on' : 'menu.off'), s.sound, () => {
         cfg.onSound(!s.sound);
         this.showPause(cfg);
       }),
     );
     list.appendChild(
-      this.settingRow('📳 햅틱', s.haptics ? '켜짐' : '꺼짐', s.haptics, () => {
+      this.settingRow(t('menu.pause.haptics'), t(s.haptics ? 'menu.on' : 'menu.off'), s.haptics, () => {
         cfg.onHaptics(!s.haptics);
         this.showPause(cfg);
       }),
     );
     list.appendChild(
-      this.settingRow('🖼️ 그래픽', s.quality === 'high' ? '고품질' : '성능', s.quality === 'high', () => {
+      this.settingRow(t('menu.pause.graphics'), t(s.quality === 'high' ? 'menu.quality.high' : 'menu.quality.perf'), s.quality === 'high', () => {
         cfg.onQuality(s.quality === 'high' ? 'perf' : 'high');
         this.showPause(cfg);
       }),
@@ -537,7 +537,7 @@ export class MenuUI {
     const pauseEarned = loadRewards().earned;
     const pauseAchN = ACHIEVEMENTS.filter((a) => pauseEarned.includes(a.id)).length;
     const collBtn = document.createElement('button');
-    collBtn.textContent = `🏆 컬렉션 · 업적 ${pauseAchN}/${ACHIEVEMENTS.length} ▸`;
+    collBtn.textContent = t('menu.pause.collection', { n: pauseAchN, total: ACHIEVEMENTS.length });
     css(collBtn, {
       width: '100%',
       padding: COARSE ? '12px' : '10px',
@@ -550,7 +550,7 @@ export class MenuUI {
       cursor: 'pointer',
       marginBottom: '14px',
     });
-    collBtn.onclick = () => this.showSkins(() => this.showPause(cfg), '← 일시정지');
+    collBtn.onclick = () => this.showSkins(() => this.showPause(cfg), t('menu.back.pause'));
     this.panel.appendChild(collBtn);
 
     // 조작 안내 (입력 환경별)
@@ -565,22 +565,22 @@ export class MenuUI {
       marginBottom: '16px',
     });
     help.innerHTML = COARSE
-      ? '🎯 <b>드래그</b> 조준 · <b>홀드</b> 파워 · <b>하단 바</b> 스핀'
-      : '🎯 <b>마우스</b> 조준 · <b>꾹 눌렀다 떼기</b> 파워 · <b>휠</b> 스핀';
+      ? t('menu.pause.help.touch')
+      : t('menu.pause.help.mouse');
     this.panel.appendChild(help);
 
     // 계속하기 (주 버튼)
-    const resume = this.primaryButton('▶ 계속하기', 'ice', { size: 15, padding: '13px', radius: 11, coarseMinHeight: '48px', marginBottom: '8px' });
+    const resume = this.primaryButton(t('menu.pause.resume'), 'ice', { size: 15, padding: '13px', radius: 11, coarseMinHeight: '48px', marginBottom: '8px' });
     resume.onclick = cfg.onResume;
     this.panel.appendChild(resume);
 
     // 포기 (파괴적, 하단)
-    const quit = this.ghostButton('포기하고 나가기', { danger: true, size: 13, coarseMinHeight: '44px' });
+    const quit = this.ghostButton(t('menu.pause.forfeit'), { danger: true, size: 13, coarseMinHeight: '44px' });
     quit.onclick = cfg.onForfeit;
     this.panel.appendChild(quit);
 
     const note = document.createElement('div');
-    note.textContent = '포기 시 현재 게임 기록은 저장되지 않아요.';
+    note.textContent = t('menu.pause.forfeitNote');
     css(note, { font: '500 11px/1.4 system-ui, sans-serif', color: NEON.faint, textAlign: 'center', marginTop: '9px' });
     this.panel.appendChild(note);
 
@@ -624,14 +624,15 @@ export class MenuUI {
 
   // --- 헬퍼 ---
   private title(text: string): HTMLDivElement {
-    const t = document.createElement('div');
-    t.textContent = text;
-    css(t, {
+    // ⚠️ 지역명 `t`를 쓰지 않는다 — 모듈 스코프의 i18n `t()`를 가려서, 이 안에서 번역을 부르면 조용히 깨진다.
+    const el = document.createElement('div');
+    el.textContent = text;
+    css(el, {
       font: '800 24px/1.2 system-ui, sans-serif',
       marginBottom: '18px',
       textAlign: 'center',
     });
-    return t;
+    return el;
   }
 
   private sectionLabel(text: string): HTMLDivElement {
@@ -722,7 +723,7 @@ export class MenuUI {
   /** '장착' 골드 배지(#7) — 히어로(인라인)·스킨셀(우상단 absolute) 공용. */
   private equippedPill(absolute = false): HTMLSpanElement {
     const pill = document.createElement('span');
-    pill.textContent = '장착';
+    pill.textContent = t('menu.collection.equip');
     css(pill, {
       font: '800 9px/1 system-ui, sans-serif',
       color: '#1a1205',
@@ -775,12 +776,12 @@ export class MenuUI {
   // --- 컬렉션 시트 (REWARDS.md §10.2 — 같은 패널 세 번째 뷰. 스킨 미리보기 + 업적 진행 겸용) ---
   // 인게임 상단 '업적 아일랜드' 탭으로 열 때: 닫으면 메뉴가 아니라 게임으로 복귀.
   showCollection(onBack: () => void) {
-    this.showSkins(onBack, '← 게임으로');
+    this.showSkins(onBack, t('menu.back.game'));
   }
 
-  private showSkins(onBack: () => void = () => this.showMenu(), backLabel = '← 메뉴로') {
+  private showSkins(onBack: () => void = () => this.showMenu(), backLabel = t('menu.back.menu')) {
     this.panel.replaceChildren();
-    this.panel.appendChild(this.title('🎨 컬렉션'));
+    this.panel.appendChild(this.title(t('menu.collection.title')));
 
     const earned = loadRewards().earned;
     const unlocked = unlockedSkinIds(earned);
@@ -820,13 +821,14 @@ export class MenuUI {
     const tabBar = document.createElement('div');
     css(tabBar, { display: 'flex', marginBottom: '14px', borderBottom: '1px solid rgba(255,255,255,0.1)' });
     const mkTab = (label: string, count: string): HTMLButtonElement => {
-      const t = document.createElement('button');
-      t.textContent = label;
+      // ⚠️ 지역명 `t` 금지 — i18n `t()`를 가린다(title()의 주석 참고).
+      const btn = document.createElement('button');
+      btn.textContent = label;
       const c = document.createElement('span');
       c.textContent = ` ${count}`;
       css(c, { font: '500 12px/1 system-ui, sans-serif', opacity: '0.7', marginLeft: '4px' });
-      t.appendChild(c);
-      css(t, {
+      btn.appendChild(c);
+      css(btn, {
         flex: '1',
         textAlign: 'center',
         padding: COARSE ? '11px 0' : '9px 0',
@@ -838,15 +840,15 @@ export class MenuUI {
         font: '700 13px/1 system-ui, sans-serif',
         cursor: 'pointer',
       });
-      return t;
+      return btn;
     };
-    const skinTabBtn = mkTab('볼 스킨', `${unlocked.size}/${skinList.length}`);
-    const achTabBtn = mkTab('업적', `${earnedCount}/${ACHIEVEMENTS.length}`);
+    const skinTabBtn = mkTab(t('menu.tab.skins'), `${unlocked.size}/${skinList.length}`);
+    const achTabBtn = mkTab(t('menu.tab.achievements'), `${earnedCount}/${ACHIEVEMENTS.length}`);
     tabBar.appendChild(skinTabBtn);
     tabBar.appendChild(achTabBtn);
     // 전광판 탭은 core 업적을 전부 깨야 나타난다 — 히든이라 잠긴 상태를 아예 안 보여준다.
     const screenUnlocked = isScreenCustomUnlocked(earned);
-    const screenTabBtn = screenUnlocked ? mkTab('전광판', '✦') : null;
+    const screenTabBtn = screenUnlocked ? mkTab(t('menu.tab.screen'), '✦') : null;
     if (screenTabBtn) tabBar.appendChild(screenTabBtn);
     if (this.skinTab === 'screen' && !screenUnlocked) this.skinTab = 'skins'; // 해금 초기화 대비
     this.panel.appendChild(tabBar);
@@ -993,18 +995,18 @@ export class MenuUI {
         font: '600 12px/1 system-ui, sans-serif',
         marginBottom: '10px',
       });
-      if (!current) preview.textContent = '기본 · 신스웨이브';
-      if (isVideo) preview.textContent = '🎬 영상';
+      if (!current) preview.textContent = t('menu.screen.default');
+      if (isVideo) preview.textContent = t('menu.screen.video');
       wrap.appendChild(preview);
 
       const status = document.createElement('div');
       css(status, { font: '500 11px/1.5 system-ui, sans-serif', color: NEON.faint, marginBottom: '10px', minHeight: '17px' });
-      status.textContent = '이미지 · GIF · 영상 — 영상은 무음으로 반복 재생됩니다.';
+      status.textContent = t('menu.screen.hint');
       wrap.appendChild(status);
       // 영상은 IndexedDB에 있어 동기로 못 읽는다 — 열린 뒤 이름·길이를 채워 넣는다.
       if (isVideo) {
         void loadScreenVideo().then((v) => {
-          if (v) status.textContent = `🎬 ${v.name}${v.duration ? ` · ${v.duration}초` : ''} · 무음 반복`;
+          if (v) status.textContent = t('menu.screen.videoStatus', { name: v.name, dur: v.duration ? ` · ${t('media.seconds', { sec: v.duration })}` : '' });
         });
       }
 
@@ -1016,7 +1018,7 @@ export class MenuUI {
         const f = input.files?.[0];
         input.value = ''; // 같은 파일 재선택도 change가 뜨도록
         if (!f) return;
-        status.textContent = '처리 중…';
+        status.textContent = t('menu.screen.processing');
         css(status, { color: NEON.faint });
         try {
           if (f.type.startsWith('video/')) {
@@ -1029,20 +1031,20 @@ export class MenuUI {
             saveCustomScreen(media.src);
             // 저장 성공 확인 — 쿼터 초과 시 save()가 조용히 실패한다(스토어 정책)
             if (loadRewards().customScreen !== media.src) {
-              throw new Error('저장 공간이 부족합니다. 더 작은 파일로 시도해주세요.');
+              throw new Error(t('menu.screen.noSpace'));
             }
             await clearScreenVideo(); // 이미지로 바꿨으면 남은 영상은 지운다(용량 회수)
             this.onCustomScreen({ kind: 'image', src: media.src });
           }
           this.showSkins(onBack, backLabel); // 미리보기 갱신
         } catch (e) {
-          status.textContent = e instanceof Error ? e.message : '적용하지 못했습니다.';
+          status.textContent = e instanceof Error ? e.message : t('menu.screen.failed');
           css(status, { color: '#f87171' });
         }
       };
       wrap.appendChild(input);
 
-      const pick = this.primaryButton(current ? '다른 파일 고르기' : '이미지 · 영상 고르기', 'ice', {
+      const pick = this.primaryButton(t(current ? 'menu.screen.pickOther' : 'menu.screen.pick'), 'ice', {
         size: 13,
         padding: '10px',
         radius: 9,
@@ -1052,7 +1054,7 @@ export class MenuUI {
       wrap.appendChild(pick);
 
       if (current) {
-        const reset = this.ghostButton('기본으로 되돌리기', { size: 13, coarseMinHeight: '44px' });
+        const reset = this.ghostButton(t('menu.screen.reset'), { size: 13, coarseMinHeight: '44px' });
         css(reset, { marginTop: '8px' });
         reset.onclick = () => {
           saveCustomScreen(null);

@@ -18,6 +18,7 @@ import { PIN_CONTACT_Z } from '../game/constants';
 import { ACHIEVEMENTS, evaluateAchievements, loadRewards, recordRewards, resetRewards, resolveSkin, VIDEO_MARKER } from '../game/rewards';
 import { loadScreenVideo, clearScreenVideo } from '../game/screenStore';
 import { loadSettings, saveSettings } from '../game/settings';
+import { setLocale, resolveLocale } from '../i18n';
 import { isCoarsePointer } from './device';
 
 let _rapier: typeof RAPIER | null = null;
@@ -212,6 +213,9 @@ function buildScene(engine: Engine): {
   replay: Replay;
 } {
   const settings = loadSettings();
+  // ⚠️ **UI를 만들기 전에** 로케일을 적용해야 한다 — Hud·Controls·Menu는 생성자에서 문자열을 넣는
+  // 것들이 있어서, 나중에 적용하면 첫 화면만 기본 언어(ko)로 뜬다.
+  setLocale(resolveLocale(settings.lang));
   engine.setQuality(settings.quality === 'high'); // 저장된 그래픽 품질 적용 (기본 high)
 
   const lane = new Lane(engine);
