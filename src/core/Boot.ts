@@ -56,7 +56,9 @@ export async function boot() {
       // 정지, 종료 시 Engine.snapToBodies + cameraRig.resync로 라이브 인계.)
       if (replay.active) {
         replay.update(dt);
-        environment.update(dt, true); // 리플레이 = 내 투구를 되짚는 중 → 인접 레인은 대기(lane courtesy)
+        // 물리 시간 0 — loop.paused로 라이브 물리가 얼어 있으니 옆 레인 사이클도 같이 멈춰야 한다.
+        // (리플레이 = 내 투구를 되짚는 중이므로 인접 레인은 courtesy 대기이기도 하다.)
+        environment.update(dt, true, 0);
         return;
       }
       controls.update(dt); // 렌더 프레임마다 UI(조준선·게이지) — dt 기반 파워 차징(프레임레이트 독립)
@@ -72,7 +74,7 @@ export async function boot() {
       //    그래서 차징 시작(=스탠스 진입)부터 안착까지로 좁혔다 — 투구당 5~8초.
       //    AI 턴도 자연히 포함된다(AI 투구는 ROLLING/SETTLING을 거치고 isCharging은 false).
       const delivering = controls.isCharging || game.state === 'ROLLING' || game.state === 'SETTLING';
-      environment.update(dt, delivering);
+      environment.update(dt, delivering, loop.timeScale); // 옆 레인 강체가 월드와 같은 시간축을 쓰게 (일시정지는 위에서 걸러짐)
       // 그림자 정적화: 공·핀이 멈춘 상태(AIMING/MENU/GAME_OVER)엔 셰도우맵 재렌더 중단,
       // ROLLING/SETTLING에만 갱신 (시간 대부분이 조준이라 이득 큼).
       const moving = game.state === 'ROLLING' || game.state === 'SETTLING';
