@@ -1,3 +1,4 @@
+import { t } from '../i18n';
 /**
  * 전광판 커스텀 이미지 처리 (히든 보상 §1차 — 정지 이미지 + GIF).
  *
@@ -35,7 +36,7 @@ function readAsDataURL(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
     const r = new FileReader();
     r.onload = () => resolve(String(r.result));
-    r.onerror = () => reject(new Error('파일을 읽지 못했습니다.'));
+    r.onerror = () => reject(new Error(t('media.readFailed')));
     r.readAsDataURL(file);
   });
 }
@@ -44,7 +45,7 @@ function loadImage(src: string): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
     const img = new Image();
     img.onload = () => resolve(img);
-    img.onerror = () => reject(new Error('이미지를 해석하지 못했습니다.'));
+    img.onerror = () => reject(new Error(t('media.decodeFailed')));
     img.src = src;
   });
 }
@@ -58,7 +59,7 @@ const kb = (n: number) => `${Math.round(n / 1024)}KB`;
  */
 export async function fileToScreenSource(file: File): Promise<ScreenMedia> {
   if (!file.type.startsWith('image/')) {
-    throw new Error('이미지 파일만 됩니다 (PNG · JPG · GIF · WebP).');
+    throw new Error(t('media.imageOnly'));
   }
 
   const raw = await readAsDataURL(file);
@@ -66,10 +67,10 @@ export async function fileToScreenSource(file: File): Promise<ScreenMedia> {
   if (file.type === 'image/gif') {
     const bytes = dataUrlBytes(raw);
     if (bytes > GIF_MAX_BYTES) {
-      throw new Error(`GIF가 너무 큽니다 (${kb(bytes)} · 최대 ${kb(GIF_MAX_BYTES)}). 프레임 수나 크기를 줄여주세요.`);
+      throw new Error(t('media.gifTooBig', { size: kb(bytes), max: kb(GIF_MAX_BYTES) }));
     }
     // 애니메이션 보존을 위해 원본 그대로. 화면 맞춤은 그릴 때 cover로 처리한다.
-    return { src: raw, note: `GIF · 원본 유지 ${kb(bytes)}` };
+    return { src: raw, note: t('media.gifKept', { size: kb(bytes) }) };
   }
 
   const img = await loadImage(raw);
@@ -77,7 +78,7 @@ export async function fileToScreenSource(file: File): Promise<ScreenMedia> {
   c.width = SCREEN_W;
   c.height = SCREEN_H;
   const g = c.getContext('2d');
-  if (!g) throw new Error('캔버스를 만들지 못했습니다.');
+  if (!g) throw new Error(t('media.canvasFailed'));
   // cover — 전광판을 꽉 채우고 넘치는 쪽을 잘라낸다(레터박스 검은 띠 방지)
   const s = Math.max(SCREEN_W / img.width, SCREEN_H / img.height);
   const dw = img.width * s;
@@ -112,9 +113,9 @@ export interface ScreenVideoPick {
  * 보고 ''를 돌려주는 경우가 많아 믿을 수 없어서, 메타데이터를 실제로 읽혀 본다.
  */
 export async function fileToScreenVideo(file: File): Promise<ScreenVideoPick> {
-  if (!file.type.startsWith('video/')) throw new Error('영상 파일이 아닙니다.');
+  if (!file.type.startsWith('video/')) throw new Error(t('media.notVideo'));
   if (file.size > VIDEO_MAX_BYTES) {
-    throw new Error(`영상이 너무 큽니다 (${kb(file.size)} · 최대 ${kb(VIDEO_MAX_BYTES)}).`);
+    throw new Error(t('media.videoTooBig', { size: kb(file.size), max: kb(VIDEO_MAX_BYTES) }));
   }
 
   const url = URL.createObjectURL(file);
@@ -129,7 +130,7 @@ export async function fileToScreenVideo(file: File): Promise<ScreenVideoPick> {
       };
       const timer = setTimeout(() => {
         done();
-        reject(new Error('영상을 읽는 데 너무 오래 걸립니다.'));
+        reject(new Error(t('media.videoTimeout')));
       }, 10_000);
       v.onloadedmetadata = () => {
         done();
@@ -137,17 +138,21 @@ export async function fileToScreenVideo(file: File): Promise<ScreenVideoPick> {
       };
       v.onerror = () => {
         done();
-        reject(new Error('이 브라우저가 재생할 수 없는 형식입니다 (MP4/H.264 권장).'));
+        reject(new Error(t('media.videoUnsupported')));
       };
       v.src = url;
     });
-    if (!meta.w || !meta.h) throw new Error('영상 트랙이 없습니다.');
+    if (!meta.w || !meta.h) throw new Error(t('media.noVideoTrack'));
     const secs = Number.isFinite(meta.duration) ? Math.round(meta.duration) : 0;
     return {
       blob: file,
       name: file.name,
       duration: secs,
-      note: `${meta.w}×${meta.h} · ${secs ? `${secs}초 · ` : ''}${kb(file.size)} · 무음 반복`,
+      note: t('media.videoNote', {
+        dim: `${meta.w}×${meta.h}`,
+        dur: secs ? `${t('media.seconds', { sec: secs })} · ` : '',
+        size: kb(file.size),
+      }),
     };
   } finally {
     URL.revokeObjectURL(url);

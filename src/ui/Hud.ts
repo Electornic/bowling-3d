@@ -1,5 +1,6 @@
 import { frameScores } from '../game/Scoreboard';
 import { SPARE_LEAVES, type GameStateName, type GameMode } from '../game/GameState';
+import { t, type I18nKey } from '../i18n';
 import { css, NEON, FONT_UI, FONT_DIGITS, rgba, applyPanel, ensureNeonStyles } from './theme';
 
 // 점수판은 항상 한 줄(스크롤 0). 행 폭 = min(96vw, SHEET_MAX), 프레임·셀은 flex-basis:0 비례 분배 →
@@ -94,11 +95,12 @@ export interface HudView {
   players: HudPlayerView[];
 }
 
-const STATE_LABEL: Record<string, string> = {
-  AIMING: '조준',
-  ROLLING: '롤링!',
-  SETTLING: '핀 카운트…',
-  GAME_OVER: '게임 종료',
+// ⚠️ 문자열이 아니라 **키** 맵 — 모듈 로드 시점엔 로케일이 없다(i18n/index.ts 규칙 2).
+const STATE_KEY: Record<string, I18nKey> = {
+  AIMING: 'hud.state.aiming',
+  ROLLING: 'hud.state.rolling',
+  SETTLING: 'hud.state.counting',
+  GAME_OVER: 'hud.state.gameover',
 };
 
 // 스페어 챌린지 라운드 성공 판정용 (성공 = knocked가 그 라운드 리브 전부)
@@ -139,6 +141,16 @@ const markColor = (m: string): string => (m === 'X' || m === '/' ? NEON.gold : '
  * 멀티(AI 라이벌) 대응: 시트 세로 스택, 현재 플레이어 골드 하이라이트 (로드맵 P1.5).
  * 비주얼은 씬과 통일된 네온 글래스 (theme.ts).
  */
+/**
+ * 지금 왜 못 던지는지까지 담은 상태 텍스트. 핀세터가 도는 동안은 상태가 AIMING이어도 던질 수
+ * 없으므로 그걸 우선한다(GameState.readyToThrow와 같은 조건).
+ */
+const stateText = (d: HudView): string => {
+  if (d.resetting && d.state === 'AIMING') return t('hud.resetting');
+  const key = STATE_KEY[d.state];
+  return key ? t(key) : d.state; // 모르는 상태는 원문 노출(디버깅 단서를 지우지 않는다)
+};
+
 export class Hud {
   private readonly wrap: HTMLDivElement;
   private readonly sheets: HTMLDivElement;
@@ -262,16 +274,15 @@ export class Hud {
 
     const cur = d.players[d.current];
     if (d.state === 'GAME_OVER') {
-      this.stateLine.textContent = '🎳 게임 종료';
+      this.stateLine.textContent = t('hud.stateLine.gameover');
     } else if (d.mode === 'spare') {
-      this.stateLine.textContent = `스페어 ${cur.frame}/${d.frames} · 성공 ${cur.conversions}`;
+      this.stateLine.textContent = t('hud.stateLine.spare', { frame: cur.frame, frames: d.frames, made: cur.conversions });
     } else {
       // 중앙 업적 아일랜드와 공존하도록 컴팩트하게. 누구 차례인지는 점수판 골드 하이라이트 + 차례 배너로,
       // 선 핀 수는 3D 장면으로 보이므로 상태바에서는 생략(프레임·구·상태만).
       // 핀세터가 도는 동안은 상태가 AIMING이어도 던질 수 없다 — 라벨이 그걸 말해야
       // 플레이어가 '왜 안 던져지지'로 읽지 않는다 (GameState.readyToThrow와 같은 조건).
-      const label = d.resetting && d.state === 'AIMING' ? '핀 정리 중…' : (STATE_LABEL[d.state] ?? d.state);
-      this.stateLine.textContent = `${cur.frame}F · ${cur.ball}구 · ${label}`;
+      this.stateLine.textContent = t('hud.stateLine.frame', { frame: cur.frame, ball: cur.ball, label: stateText(d) });
     }
 
     // --- 알약 라벨: 프레임 · 구 · **현재 점수** ---
@@ -286,13 +297,15 @@ export class Hud {
       }
     }
     if (d.state === 'GAME_OVER') {
-      this.pillLabel.textContent = `🎳 ${total}`;
+      this.pillLabel.textContent = t('hud.pill.gameover', { total });
     } else if (d.mode === 'spare') {
-      this.pillLabel.textContent = `${cur.frame}/${d.frames} · 성공 ${cur.conversions}`;
+      this.pillLabel.textContent = t('hud.pill.spare', { frame: cur.frame, frames: d.frames, made: cur.conversions });
     } else {
-      const st = d.resetting && d.state === 'AIMING' ? '핀 정리 중…' : (STATE_LABEL[d.state] ?? d.state);
-      const suffix = st === '조준' ? '' : ` · ${st}`;
-      this.pillLabel.textContent = `${cur.frame}F ${cur.ball}구 · ${total}${suffix}`;
+      // ⚠️ '조준'이라는 **문자열**이 아니라 **상태**로 판정한다 — 번역되면 문자열이 달라져서
+      //    텍스트 비교는 한국어에서만 맞는 코드가 된다(영어에선 상태가 늘 붙어 알약이 넘친다).
+      const plain = d.state === 'AIMING' && !d.resetting;
+      const suffix = plain ? '' : ` · ${stateText(d)}`;
+      this.pillLabel.textContent = t('hud.pill.frame', { frame: cur.frame, ball: cur.ball, total, suffix });
     }
   }
 

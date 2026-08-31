@@ -1,3 +1,5 @@
+import { t } from '../i18n';
+
 /**
  * 전광판 커스텀 **비디오** 저장소 (히든 보상 §2차).
  *
@@ -28,7 +30,7 @@ function openDb(): Promise<IDBDatabase> {
       if (!db.objectStoreNames.contains(STORE)) db.createObjectStore(STORE);
     };
     req.onsuccess = () => resolve(req.result);
-    req.onerror = () => reject(req.error ?? new Error('IndexedDB를 열지 못했습니다.'));
+    req.onerror = () => reject(req.error ?? new Error(t('store.idbOpenFailed')));
   });
 }
 
@@ -36,11 +38,12 @@ function tx<T>(mode: IDBTransactionMode, run: (store: IDBObjectStore) => IDBRequ
   return openDb().then(
     (db) =>
       new Promise<T>((resolve, reject) => {
-        const t = db.transaction(STORE, mode);
-        const req = run(t.objectStore(STORE));
+        // 지역명 `t` 금지 — i18n `t()`를 가린다(실제로 아래 줄에서 "not callable"로 터졌다).
+        const trans = db.transaction(STORE, mode);
+        const req = run(trans.objectStore(STORE));
         req.onsuccess = () => resolve(req.result);
-        req.onerror = () => reject(req.error ?? new Error('IndexedDB 작업 실패'));
-        t.oncomplete = () => db.close();
+        req.onerror = () => reject(req.error ?? new Error(t('store.idbFailed')));
+        trans.oncomplete = () => db.close();
       }),
   );
 }

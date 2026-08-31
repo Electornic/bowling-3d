@@ -18,7 +18,7 @@ import { PIN_CONTACT_Z } from '../game/constants';
 import { ACHIEVEMENTS, evaluateAchievements, loadRewards, recordRewards, resetRewards, resolveSkin, VIDEO_MARKER } from '../game/rewards';
 import { loadScreenVideo, clearScreenVideo } from '../game/screenStore';
 import { loadSettings, saveSettings } from '../game/settings';
-import { setLocale, resolveLocale } from '../i18n';
+import { setLocale, resolveLocale, t, onLocaleChange } from '../i18n';
 import { isCoarsePointer } from './device';
 
 let _rapier: typeof RAPIER | null = null;
@@ -167,7 +167,7 @@ function maybeShowOrientationHint() {
   const landscape = matchMedia('(orientation: landscape)');
 
   const el = document.createElement('div');
-  el.textContent = '↻ 세로로 돌려주세요';
+  el.textContent = t('boot.rotatePortrait');
   el.style.cssText = [
     'position:fixed',
     'left:50%',
@@ -216,6 +216,9 @@ function buildScene(engine: Engine): {
   // ⚠️ **UI를 만들기 전에** 로케일을 적용해야 한다 — Hud·Controls·Menu는 생성자에서 문자열을 넣는
   // 것들이 있어서, 나중에 적용하면 첫 화면만 기본 언어(ko)로 뜬다.
   setLocale(resolveLocale(settings.lang));
+  // 로더는 모듈보다 먼저 그려지는 정적 HTML이라 aria-label이 한국어로 박혀 있다 — 로케일이
+  // 정해진 지금 맞춰 준다(로더는 부팅이 끝날 때까지 떠 있으므로 스크린리더가 읽기 전에 도달한다).
+  document.getElementById('loading')?.setAttribute('aria-label', t('loader.aria'));
   engine.setQuality(settings.quality === 'high'); // 저장된 그래픽 품질 적용 (기본 high)
 
   const lane = new Lane(engine);
@@ -272,26 +275,26 @@ function buildScene(engine: Engine): {
       case 'strike': {
         const label =
           e.streak >= 4 ? `${e.streak} BAGGER!!` : e.streak === 3 ? 'TURKEY!!' : e.streak === 2 ? 'DOUBLE!' : 'STRIKE!';
-        const sub = e.streak >= 2 ? `${e.streak}연속 · ON FIRE` : '스트라이크';
+        const sub = e.streak >= 2 ? t('boot.onFire', { streak: e.streak }) : t('boot.strike');
         // 스트라이크 = 풀연출: 짧은 리플레이 → 프리즈에 스틸컷 슬램. 녹화 부족 시 즉시 스틸컷.
         if (!replay.start(() => stillCut.show('strike', label, sub))) stillCut.show('strike', label, sub);
         break;
       }
       case 'spare':
-        stillCut.show('spare', 'SPARE!', '스페어 정리'); // 스페어 = 스틸컷만 (리플레이 X)
+        stillCut.show('spare', 'SPARE!', t('boot.spareCleared')); // 스페어 = 스틸컷만 (리플레이 X)
         break;
       case 'gutter':
-        stillCut.show('gutter', 'GUTTER', '0 핀'); // 거터 = 디플레이팅 스틸컷 (축하 X)
+        stillCut.show('gutter', 'GUTTER', t('boot.zeroPins')); // 거터 = 디플레이팅 스틸컷 (축하 X)
         break;
       case 'split':
-        environment.announce(`${e.label} 스플릿!`, '#ef6a6a');
+        environment.announce(t('boot.split', { label: e.label }), '#ef6a6a');
         break;
       case 'splitConverted':
-        environment.announce(`${e.label} 변환!`, '#4ade80');
+        environment.announce(t('boot.splitConverted', { label: e.label }), '#4ade80');
         break;
       case 'turn':
         // AI 차례만 전광판 배너. 사람은 늘 같은 한 명이라 턴 전환 안내가 필요 없다.
-        if (e.ai) environment.announce(`${e.playerName} 차례`, '#aab3c2');
+        if (e.ai) environment.announce(t('boot.turn', { name: e.playerName }), '#aab3c2');
         break;
       case 'gameOver': {
         replay.cancel(); // 마지막 결정타 리플레이가 결과화면과 겹치지 않게 즉시 접음
@@ -348,7 +351,7 @@ function buildScene(engine: Engine): {
   const pauseHook = { set: (_paused: boolean) => {} };
 
   const exitBtn = document.createElement('button');
-  exitBtn.textContent = '☰ 메뉴';
+  exitBtn.textContent = t('boot.menu');
   exitBtn.style.cssText = [
     'position:fixed',
     'top:calc(8px + env(safe-area-inset-top))',
@@ -401,6 +404,10 @@ function buildScene(engine: Engine): {
       },
     });
   };
+  // 이 버튼은 여기서 한 번만 텍스트를 받는다(가시성만 onFrame이 토글한다) → 언어 변경을 구독한다.
+  onLocaleChange(() => {
+    exitBtn.textContent = t('boot.menu');
+  });
   exitBtn.onclick = forfeit;
   document.body.appendChild(exitBtn);
   window.addEventListener('keydown', (e) => {

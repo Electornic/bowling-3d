@@ -1,5 +1,6 @@
 import { rollStats } from './Scoreboard';
 import type { GameMode } from './GameState';
+import { t } from '../i18n';
 
 /**
  * 하이스코어 + 통계 (localStorage, 로드맵 P1).
@@ -87,11 +88,18 @@ export function statsSummary(): { full: string; blitz: string; spare: string } {
   const f = all['full'];
   const b = all['blitz'];
   const sp = all['spare'];
+  // `count`는 복수형 스위치다 — 영어만 `(1 game)` / `(3 games)`로 갈린다(i18n/index.ts 규칙 3).
   return {
     full: f
-      ? `최고 ${f.best} · 평균 ${Math.round(f.totalScore / f.games)} · 스트라이크 ${pct(f.strikes, f.strikeChances)}% · 스페어 ${pct(f.spares, f.spareChances)}% (${f.games}판)`
-      : '기록 없음',
-    blitz: b ? `최고 ${b.best} (${b.games}판)` : '기록 없음',
-    spare: sp ? `최고 ${sp.best}/10 (${sp.games}판)` : '기록 없음',
+      ? t('stats.full', {
+          best: f.best,
+          avg: Math.round(f.totalScore / f.games),
+          strikePct: pct(f.strikes, f.strikeChances),
+          sparePct: pct(f.spares, f.spareChances),
+          count: f.games,
+        })
+      : t('stats.none'),
+    blitz: b ? t('stats.blitz', { best: b.best, count: b.games }) : t('stats.none'),
+    spare: sp ? t('stats.spare', { best: sp.best, count: sp.games }) : t('stats.none'),
   };
 }

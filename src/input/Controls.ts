@@ -6,6 +6,7 @@ import type { Engine } from '../core/Engine';
 import type { GameState } from '../game/GameState';
 import type { Ball } from '../scene/Ball';
 import { isCoarsePointer } from '../core/device';
+import { t, onLocaleChange } from '../i18n';
 import {
   BALL_START_Z,
   BALL_RADIUS,
@@ -301,7 +302,7 @@ export class Controls {
 
     // 헤더: "스핀" 라벨 + 현재 수치
     const spinLabel = document.createElement('span');
-    spinLabel.textContent = '스핀';
+    spinLabel.textContent = t('controls.spin');
     css(spinLabel, {
       font: FONT_UI,
       fontSize: '10px',
@@ -391,7 +392,7 @@ export class Controls {
     spinTrack.appendChild(this.spinThumb);
 
     const spinHint = (this.spinHint = document.createElement('div'));
-    spinHint.textContent = '드래그로 좌/우 스핀'; // 휠을 보면 '휠 ◀ ▶'로 바뀐다
+    spinHint.textContent = t('controls.spin.hintDrag'); // 휠을 보면 controls.spin.hintWheel로 바뀐다
     css(spinHint, {
       font: FONT_UI,
       fontSize: '9px',
@@ -399,6 +400,12 @@ export class Controls {
       color: rgba(NEON.ice, 0.62),
       textAlign: 'center',
       margin: '4px 0 0',
+    });
+    // 이 두 라벨은 **생성자에서 한 번만** 쓰인다(HUD처럼 매 프레임 다시 그리지 않는다) → 언어가
+    // 바뀌면 스스로 갱신되지 않으므로 구독한다. 힌트는 휠 강등 상태(wheelSeen)를 존중해야 한다.
+    onLocaleChange(() => {
+      spinLabel.textContent = t('controls.spin');
+      spinHint.textContent = t(this.wheelSeen && !this.coarse ? 'controls.spin.hintWheel' : 'controls.spin.hintDrag');
     });
 
     const spinHeader = document.createElement('div'); // 2단 상단: 라벨 ↔ 현재 수치
@@ -430,7 +437,7 @@ export class Controls {
     if (this.wheelSeen) return;
     this.wheelSeen = true;
     if (this.coarse) return;
-    this.spinHint.textContent = '휠 ◀ ▶';
+    this.spinHint.textContent = t('controls.spin.hintWheel');
     this.spinTrack.style.pointerEvents = 'none';
     // opacity는 update()의 트랜지언트 로직이 이어받는다(wheelSeen 게이트가 이제 열렸다).
   }
