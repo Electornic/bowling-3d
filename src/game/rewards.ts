@@ -1,4 +1,5 @@
 import type { GameMode } from './GameState';
+import type { I18nKey } from '../i18n';
 
 /**
  * 보상 시스템 (로드맵 ③ 승리 보상) — 업적(뱃지) + 코스메틱 볼 스킨. 설계: docs/REWARDS.md.
@@ -11,7 +12,11 @@ export type SkinFinish = 'matte' | 'satin' | 'metallic' | 'chrome' | 'glow';
 /** 볼 스킨 — 외형 전용(§3 #1). massKg·maxSpeedScale 불가침. */
 export interface BallSkin {
   id: string;
-  label: string;
+  /**
+   * 표시 이름은 **키로 들고 있는다**(문자열이 아니다). 이 레코드는 모듈 로드 시점에 만들어지는데
+   * 그때는 로케일이 아직 정해지지 않았고, 문자열을 굳혀 두면 언어를 바꿔도 옛 언어로 남는다.
+   */
+  labelKey: I18nKey;
   finish: SkinFinish;
   /** classic만 — 무게 기반 색을 유지(skin.color 무시) */
   useWeightColor?: boolean;
@@ -32,8 +37,9 @@ export type AchievementTier = 'core' | 'stretch';
 /** 업적 — gameOver 시점 데이터로 판정(§8). 스킬/마스터리만(그라인드 없음). */
 export interface Achievement {
   id: string;
-  badge: string;
-  desc: string;
+  /** 뱃지 이름·설명도 키다 — BallSkin.labelKey와 같은 이유. */
+  badgeKey: I18nKey;
+  descKey: I18nKey;
   icon: string;
   reward: string; // SkinId
   tier: AchievementTier;
@@ -42,7 +48,7 @@ export interface Achievement {
 /** 기본·항상 해금 스킨. AI 볼·미해금 시 폴백. */
 export const CLASSIC_SKIN: BallSkin = {
   id: 'classic',
-  label: '클래식',
+  labelKey: 'skin.classic',
   finish: 'metallic',
   useWeightColor: true,
   roughness: 0.25,
@@ -52,29 +58,29 @@ export const CLASSIC_SKIN: BallSkin = {
 /** v1 스킨 카탈로그(§7). obsidian·holo·pulse는 stretch라 P5. */
 export const SKINS: Record<string, BallSkin> = {
   classic: CLASSIC_SKIN,
-  satin: { id: 'satin', label: '새틴', finish: 'satin', color: 0xdfe4ec, roughness: 0.4, metalness: 0.45, envMapIntensity: 0.8 },
-  ember: { id: 'ember', label: '엠버', finish: 'glow', color: 0x331100, roughness: 0.5, metalness: 0.2, emissive: 0xff7a18, emissiveIntensity: 1.1, decorColor: 0xffd9a8 },
-  chrome: { id: 'chrome', label: '크롬', finish: 'chrome', color: 0xdfe6ee, roughness: 0.04, metalness: 1.0, envMapIntensity: 1.4, decorColor: 0x1a2230 },
-  galaxy: { id: 'galaxy', label: '갤럭시', finish: 'glow', color: 0x1a1247, roughness: 0.4, metalness: 0.5, emissive: 0x5a2ad6, emissiveIntensity: 0.7, decorColor: 0xcdbcff },
-  volt: { id: 'volt', label: '볼트', finish: 'glow', color: 0x1a1a00, roughness: 0.45, metalness: 0.2, emissive: 0xfff200, emissiveIntensity: 1.0, decorColor: 0x222200 },
-  sunset: { id: 'sunset', label: '선셋', finish: 'glow', color: 0xff5e8a, roughness: 0.5, metalness: 0.2, emissive: 0xff3a6e, emissiveIntensity: 0.8, decorColor: 0x5e0a22 },
+  satin: { id: 'satin', labelKey: 'skin.satin', finish: 'satin', color: 0xdfe4ec, roughness: 0.4, metalness: 0.45, envMapIntensity: 0.8 },
+  ember: { id: 'ember', labelKey: 'skin.ember', finish: 'glow', color: 0x331100, roughness: 0.5, metalness: 0.2, emissive: 0xff7a18, emissiveIntensity: 1.1, decorColor: 0xffd9a8 },
+  chrome: { id: 'chrome', labelKey: 'skin.chrome', finish: 'chrome', color: 0xdfe6ee, roughness: 0.04, metalness: 1.0, envMapIntensity: 1.4, decorColor: 0x1a2230 },
+  galaxy: { id: 'galaxy', labelKey: 'skin.galaxy', finish: 'glow', color: 0x1a1247, roughness: 0.4, metalness: 0.5, emissive: 0x5a2ad6, emissiveIntensity: 0.7, decorColor: 0xcdbcff },
+  volt: { id: 'volt', labelKey: 'skin.volt', finish: 'glow', color: 0x1a1a00, roughness: 0.45, metalness: 0.2, emissive: 0xfff200, emissiveIntensity: 1.0, decorColor: 0x222200 },
+  sunset: { id: 'sunset', labelKey: 'skin.sunset', finish: 'glow', color: 0xff5e8a, roughness: 0.5, metalness: 0.2, emissive: 0xff3a6e, emissiveIntensity: 0.8, decorColor: 0x5e0a22 },
 };
 
 // --- 상대 공 스킨 (언락 대상 아님 — SKINS 레코드에 안 넣어 컬렉션에 노출되지 않음) ---
 // AI: 난이도별 신스랭크 팔레트 + 은은한 글로우 (초보=시안 / 중수=바이올렛 / 고수=마젠타). key는 AI_PROFILES와 일치.
 export const RIVAL_SKINS: Record<string, BallSkin> = {
-  kim: { id: 'rival-kim', label: '초보', finish: 'glow', color: 0x22d3ee, roughness: 0.4, metalness: 0.3, emissive: 0x22d3ee, emissiveIntensity: 0.5, decorColor: 0x06323a },
-  yoon: { id: 'rival-yoon', label: '중수', finish: 'glow', color: 0xa855f7, roughness: 0.4, metalness: 0.3, emissive: 0xa855f7, emissiveIntensity: 0.5, decorColor: 0x2a1147 },
-  han: { id: 'rival-han', label: '고수', finish: 'glow', color: 0xf0369b, roughness: 0.4, metalness: 0.3, emissive: 0xf0369b, emissiveIntensity: 0.5, decorColor: 0x4a0a2e },
+  kim: { id: 'rival-kim', labelKey: 'ai.kim', finish: 'glow', color: 0x22d3ee, roughness: 0.4, metalness: 0.3, emissive: 0x22d3ee, emissiveIntensity: 0.5, decorColor: 0x06323a },
+  yoon: { id: 'rival-yoon', labelKey: 'ai.yoon', finish: 'glow', color: 0xa855f7, roughness: 0.4, metalness: 0.3, emissive: 0xa855f7, emissiveIntensity: 0.5, decorColor: 0x2a1147 },
+  han: { id: 'rival-han', labelKey: 'ai.han', finish: 'glow', color: 0xf0369b, roughness: 0.4, metalness: 0.3, emissive: 0xf0369b, emissiveIntensity: 0.5, decorColor: 0x4a0a2e },
 };
 /** v1 업적(§6 core 6). 전부 gameOver 데이터로 판정. */
 export const ACHIEVEMENTS: Achievement[] = [
-  { id: 'first_game', badge: '첫 발걸음', desc: '첫 게임 완주', icon: '🎳', reward: 'satin', tier: 'core' },
-  { id: 'beat_kim', badge: '입문 졸업', desc: '초보 격파', icon: '🥉', reward: 'ember', tier: 'core' },
-  { id: 'beat_han', badge: '명인 격파', desc: '고수 격파', icon: '🏅', reward: 'chrome', tier: 'core' },
-  { id: 'beat_yoon', badge: '하이롤러', desc: '중수 격파', icon: '🎰', reward: 'galaxy', tier: 'core' },
-  { id: 'score_200', badge: '200 클럽', desc: '풀게임 200점 돌파', icon: '💯', reward: 'volt', tier: 'core' },
-  { id: 'turkey', badge: '터키', desc: '한 게임 3연속 스트라이크', icon: '🦃', reward: 'sunset', tier: 'core' },
+  { id: 'first_game', badgeKey: 'ach.first_game', descKey: 'ach.first_game.desc', icon: '🎳', reward: 'satin', tier: 'core' },
+  { id: 'beat_kim', badgeKey: 'ach.beat_kim', descKey: 'ach.beat_kim.desc', icon: '🥉', reward: 'ember', tier: 'core' },
+  { id: 'beat_han', badgeKey: 'ach.beat_han', descKey: 'ach.beat_han.desc', icon: '🏅', reward: 'chrome', tier: 'core' },
+  { id: 'beat_yoon', badgeKey: 'ach.beat_yoon', descKey: 'ach.beat_yoon.desc', icon: '🎰', reward: 'galaxy', tier: 'core' },
+  { id: 'score_200', badgeKey: 'ach.score_200', descKey: 'ach.score_200.desc', icon: '💯', reward: 'volt', tier: 'core' },
+  { id: 'turkey', badgeKey: 'ach.turkey', descKey: 'ach.turkey.desc', icon: '🦃', reward: 'sunset', tier: 'core' },
 ];
 
 const KEY = 'bowling3d.rewards.v1';

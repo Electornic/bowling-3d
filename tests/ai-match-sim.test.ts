@@ -232,7 +232,7 @@ describe.runIf(process.env.AI_SIM)('② AI 사다리 매치 sim', () => {
             if (k1 === 10) { rolls.push(10); continue; }
             rolls.push(k1, a1.length - spareThrow(profile, a1).length);
           }
-          console.log(`   ${profile.name} 5프레임 샘플 rolls=${JSON.stringify(rolls)}`);
+          console.log(`   ${profile.key} 5프레임 샘플 rolls=${JSON.stringify(rolls)}`);
         }
       }
       const N = Number(process.env.AI_SIM_N ?? 120);
@@ -246,7 +246,7 @@ describe.runIf(process.env.AI_SIM)('② AI 사다리 매치 sim', () => {
           const scores = Array.from({ length: N }, () => playGame(profile));
           const s = describeStats(scores);
           console.log(
-            `  ${profile.name.padEnd(7)} aimJ=${String(profile.aimJitterCm).padStart(4)} spareJ=${String(profile.spareAimJitterCm).padStart(4)} spin=${profile.spin}` +
+            `  ${profile.key.padEnd(7)} aimJ=${String(profile.aimJitterCm).padStart(4)} spareJ=${String(profile.spareAimJitterCm).padStart(4)} spin=${profile.spin}` +
               ` → mean=${s.mean.toFixed(1).padStart(6)}  sd=${s.sd.toFixed(1).padStart(5)}  min=${String(s.min).padStart(3)}  max=${String(s.max).padStart(3)}  p50=${String(s.p50).padStart(3)}`,
           );
         }

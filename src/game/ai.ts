@@ -1,5 +1,6 @@
 import { BALL_START_Z, HEADPIN_Z } from './constants';
 import { oilEndZ } from './oil';
+import type { I18nKey } from '../i18n';
 
 /**
  * AI 라이벌 (로드맵 P1.5). 같은 물리를 쓰되 (aim, power, spin)에
@@ -13,8 +14,12 @@ import { oilEndZ } from './oil';
 
 export interface AiProfile {
   key: string;
-  name: string;
-  tagline: string;
+  /**
+   * 이름·소개는 **키**다(문자열이 아니다) — 이 배열은 모듈 로드 시점에 만들어지고 그때는 로케일이
+   * 아직 정해지지 않았다. 매치가 시작될 때 `t()`로 풀어 `GameState`의 플레이어 이름이 된다.
+   */
+  nameKey: I18nKey;
+  taglineKey: I18nKey;
   style: 'straight' | 'hook';
   /** 1구(풀랙) 파워 평균 */
   power: number;
@@ -32,8 +37,8 @@ export interface AiProfile {
 export const AI_PROFILES: AiProfile[] = [
   {
     key: 'kim',
-    name: '초보',
-    tagline: '착실한 직구 — 꾸준하지만 포켓을 자주 놓친다',
+    nameKey: 'ai.kim',
+    taglineKey: 'ai.kim.tagline',
     style: 'straight',
     power: 1.0,
     powerJitter: 0.05,
@@ -44,8 +49,8 @@ export const AI_PROFILES: AiProfile[] = [
   },
   {
     key: 'yoon',
-    name: '중수',
-    tagline: '풀스핀 한 방 승부 — 대박 아니면 쪽박',
+    nameKey: 'ai.yoon',
+    taglineKey: 'ai.yoon.tagline',
     style: 'hook',
     power: 1.0,
     powerJitter: 0.04,
@@ -56,8 +61,8 @@ export const AI_PROFILES: AiProfile[] = [
   },
   {
     key: 'han',
-    name: '고수',
-    tagline: '빈틈없는 정밀 직구 — 포켓도 스페어도 놓치지 않는다',
+    nameKey: 'ai.han',
+    taglineKey: 'ai.han.tagline',
     style: 'straight',
     power: 0.95,
     powerJitter: 0.05,

@@ -7,6 +7,7 @@ import { fileToScreenSource, fileToScreenVideo } from './screenMedia';
 import { saveScreenVideo, loadScreenVideo, clearScreenVideo } from '../game/screenStore';
 import type { BallSkin, SkinFinish } from '../game/rewards';
 import type { Settings, Quality } from '../game/settings';
+import { t, type I18nKey } from '../i18n';
 import { css, NEON, rgba } from '../ui/theme'; // 디자인 시스템 단일소스(#6) — 로컬 css 복제 제거, NEON 팔레트 토큰 공유
 
 // === UI juice: 마이크로 모션 — 정적 CSS(.menu-panel button 트랜지션 + juicePanelIn/juiceFadeIn 키프레임 +
@@ -66,12 +67,13 @@ function skinPreviewStyle(skin: BallSkin): { background: string; shadow: string 
   };
 }
 
-const FINISH_LABEL: Record<SkinFinish, string> = {
-  matte: '무광',
-  satin: '새틴',
-  metallic: '메탈릭',
-  chrome: '크롬',
-  glow: '글로우',
+// ⚠️ 문자열이 아니라 **키** 맵이다 — 모듈 로드 시점엔 로케일이 없다(i18n/index.ts 규칙 2).
+const FINISH_KEY: Record<SkinFinish, I18nKey> = {
+  matte: 'finish.matte',
+  satin: 'finish.satin',
+  metallic: 'finish.metallic',
+  chrome: 'finish.chrome',
+  glow: 'finish.glow',
 };
 
 // 프라이머리 버튼 액센트(#7) — 그라디언트 + 그 위 텍스트색. start/again=fire · handoff/resume=ice · equip=gold.
@@ -263,7 +265,7 @@ export class MenuUI {
     rivalBtns.set(null, solo);
     rivalRow.appendChild(solo);
     for (const p of AI_PROFILES) {
-      const b = this.chipButton(p.name, p.tagline);
+      const b = this.chipButton(t(p.nameKey), t(p.taglineKey));
       b.onclick = () => {
         if (this.mode === 'spare') return;
         this.rivalKey = p.key;
@@ -338,7 +340,7 @@ export class MenuUI {
   private buildSkinEntry(): void {
     // 볼 스킨 진입 (외형 전용 — 시작 버튼 안 밀게 무게 슬라이더 아래 한 줄, REWARDS.md §10.1)
     const skinBtn = document.createElement('button');
-    skinBtn.textContent = `🎨 컬렉션 · ${resolveSkin(this.selectedSkin).label} ▸`;
+    skinBtn.textContent = t('menu.skinEntry', { label: t(resolveSkin(this.selectedSkin).labelKey) });
     css(skinBtn, {
       width: '100%',
       padding: COARSE ? '12px' : '10px',
@@ -390,7 +392,7 @@ export class MenuUI {
     const players: MatchConfig['players'] = [{ name: '나' }];
     if (this.mode !== 'spare' && this.rivalKey) {
       const profile = AI_PROFILES.find((p) => p.key === this.rivalKey);
-      if (profile) players.push({ name: profile.name, ai: profile });
+      if (profile) players.push({ name: t(profile.nameKey), ai: profile }); // 매치 시작 시점의 언어로 굳는다(진행 중 변경은 옛 이름 유지)
     }
     const go = () => {
       this.hide();
@@ -458,16 +460,16 @@ export class MenuUI {
         if (!ach) continue;
         const row = document.createElement('div');
         css(row, { font: '700 13px/1.6 system-ui, sans-serif', color: NEON.gold });
-        row.textContent = `${ach.icon} NEW · ${ach.badge} → ${resolveSkin(ach.reward).label}`;
+        row.textContent = t('menu.result.newUnlock', { icon: ach.icon, badge: t(ach.badgeKey), skin: t(resolveSkin(ach.reward).labelKey) });
         box.appendChild(row);
       }
       const lastAch = ACHIEVEMENTS.find((a) => a.id === fresh[fresh.length - 1]);
       if (lastAch) {
         const skin = resolveSkin(lastAch.reward);
-        const equip = this.primaryButton(`${skin.label} 장착하기`, 'gold', { size: 13, padding: '9px', radius: 8, marginTop: '8px' });
+        const equip = this.primaryButton(t('menu.result.equip', { label: t(skin.labelKey) }), 'gold', { size: 13, padding: '9px', radius: 8, marginTop: '8px' });
         equip.onclick = () => {
           this.equipSkin(skin.id);
-          equip.textContent = `✓ ${skin.label} 장착됨`;
+          equip.textContent = t('menu.result.equipped', { label: t(skin.labelKey) });
           equip.disabled = true;
           equip.style.opacity = '0.7';
           equip.style.cursor = 'default';
@@ -803,11 +805,11 @@ export class MenuUI {
     const heroName = document.createElement('div');
     css(heroName, { display: 'flex', alignItems: 'center', gap: '7px', font: '700 16px/1 system-ui, sans-serif', color: NEON.gold });
     const heroNameText = document.createElement('span');
-    heroNameText.textContent = equipped.label;
+    heroNameText.textContent = t(equipped.labelKey);
     heroName.appendChild(heroNameText);
     heroName.appendChild(this.equippedPill());
     const heroFinish = document.createElement('div');
-    heroFinish.textContent = `${FINISH_LABEL[equipped.finish]} 마감`;
+    heroFinish.textContent = t('menu.collection.finish', { finish: t(FINISH_KEY[equipped.finish]) });
     css(heroFinish, { font: '500 11px/1 system-ui, sans-serif', color: NEON.faint });
     hero.appendChild(heroBall);
     hero.appendChild(heroName);
@@ -882,10 +884,13 @@ export class MenuUI {
         }
 
         const labelEl = document.createElement('div');
-        labelEl.textContent = skin.label;
+        labelEl.textContent = t(skin.labelKey);
         css(labelEl, { font: '700 13px/1.2 system-ui, sans-serif', color: isEquipped ? NEON.gold : isUnlocked ? NEON.text : NEON.faint });
         const subEl = document.createElement('div');
-        subEl.textContent = isUnlocked ? FINISH_LABEL[skin.finish] : achievementForSkin(skin.id)?.desc ?? '잠김';
+        const unlockAch = achievementForSkin(skin.id);
+        subEl.textContent = isUnlocked
+          ? t(FINISH_KEY[skin.finish])
+          : unlockAch ? t(unlockAch.descKey) : t('menu.collection.locked');
         css(subEl, { font: '500 10px/1.3 system-ui, sans-serif', color: isUnlocked && isEquipped ? '#caa86a' : NEON.faint, marginTop: '2px' });
         const textWrap = document.createElement('div');
         css(textWrap, { textAlign: 'center' });
@@ -945,10 +950,10 @@ export class MenuUI {
         icon.textContent = a.icon;
         css(icon, { font: '18px/1 system-ui, sans-serif', flex: '0 0 auto', filter: got ? '' : 'grayscale(1)' });
         const badge = document.createElement('div');
-        badge.textContent = a.badge;
+        badge.textContent = t(a.badgeKey);
         css(badge, { font: '700 12px/1.3 system-ui, sans-serif', color: got ? NEON.gold : NEON.dim });
         const desc = document.createElement('div');
-        desc.textContent = `${a.desc} · ${resolveSkin(a.reward).label} 해금`;
+        desc.textContent = t('menu.collection.achUnlock', { desc: t(a.descKey), skin: t(resolveSkin(a.reward).labelKey) });
         // 해금/미해금을 설명 텍스트 색으로 나누지 않는다 — 미해금이었던 #6b7686이 대비 4.02로
         // 본문 기준 미달이었고, 상태는 오른쪽 상태 열(초록/faint)이 이미 진다.
         css(desc, { font: '500 10px/1.3 system-ui, sans-serif', color: NEON.faint });
