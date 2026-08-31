@@ -221,7 +221,7 @@ export class MenuUI {
   // --- 시작 메뉴 --- (섹션별 빌더로 분해, #8후반 — 각 빌더는 자족적으로 this.panel에 append)
   showMenu() {
     this.panel.replaceChildren();
-    this.panel.appendChild(this.title('🎳 BOWLING 3D'));
+    this.panel.appendChild(this.title('🎳 NEON LANES')); // 브랜드명 — 번역 대상이 아니다(4개 언어에서 차용어로 통한다)
     this.panel.appendChild(this.soundToggle()); // 우상단 사운드 토글
     this.buildMatchupSection(); // 모드 + 상대
     this.buildAimAidSection(); // 조준 난이도 (예측선 표시량 — 점수·물리 무영향)
