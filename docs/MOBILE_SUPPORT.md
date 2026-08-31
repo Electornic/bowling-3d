@@ -127,10 +127,24 @@ canvas     { touch-action: none; }         /* 게임 표면: 브라우저 제스
 
 ## 5. 화면 방향 (orientation)
 
-> 기본안: **가로 권장(소프트 안내) + 세로도 플레이 가능**. 강제 잠금은 안 함.
+> **확정: 세로 전용.** 안드로이드는 진짜 락, 웹은 안내. (2026-08-31 — 구 기본안 "가로 권장"을 실측으로 뒤집었다.)
 
-- 세로 감지 시 비차단 오버레이로 "가로로 돌리면 더 잘 보여요" 1회 안내(`screen.orientation`/`matchMedia('(orientation: portrait)')`).
-- 세로에서도 굴러가게: AIMING 카메라 FOV/거리를 방향에 따라 살짝 보정([CameraRig.ts:75](../src/camera/CameraRig.ts), [Engine.ts:58](../src/core/Engine.ts) FOV) — 세로면 레인이 화면을 더 채우도록. (M2에서 다듬기)
+**왜 뒤집었나** — `PerspectiveCamera.fov`는 **세로축**이라 종횡비와 무관하게 고정된다.
+볼링 레인은 좁고 깊은 피사체라 가로에선 짧은 변이 세로가 되며 **모든 게 2.2배 작아진다.**
+iPhone 15 실측: 공 지점의 레인 폭이 화면 가로의 **7.8%**(세로 37%), 화면 대부분이 벽·천장.
+훅 진폭은 거리에 반비례해 가까울수록 잘 보이므로 멀어질 이유도 없다.
+→ 구 기본안(가로 권장)은 **더 불리한 방향으로 유저를 유도하고 있었다.**
+
+- **안드로이드 APK**: `AndroidManifest.xml` 의 `android:screenOrientation="portrait"` — OS가 회전을
+  안 시키는 진짜 락. (매니페스트는 `src-tauri/gen/` 아래지만 **git 추적됨** — `/gen/schemas`만 무시.)
+- **웹(iOS 포함)**: 가로일 때 "↻ 세로로 돌려주세요" 오버레이. **방향에 종속**이라 세로로 돌리면 사라진다.
+  iOS Safari엔 방향 잠금 API가 없다(`screen.orientation.lock`은 안드로이드 크롬 전용 + 풀스크린 필요).
+- **앱 전체 역회전은 채택하지 않음** — `vw`/`vh` 27곳과 `window.innerWidth` 기반 **조준 매핑**
+  (`Controls`의 `aim = 1 - clientX/innerWidth·2`)까지 좌표계를 갈아야 해서 레이아웃 문제가
+  **입력 버그**로 번진다. 안드로이드에서 진짜 락이 무료로 되는데 그 위험을 살 이유가 없다.
+- **세로 프레이밍**: 핀덱 접근 거리를 종횡비에서 유도한다([CameraRig.ts](../src/camera/CameraRig.ts)
+  `approachZFor`) — 고정 z=16.85로는 세로폰에서 뒷줄 코너 핀 2개가 프레임을 벗어났다(실측 ndc ±1.199).
+  fov를 넓히는 방식은 조준 포즈(AIM_Y)와 세트로 묶여 있어 채택하지 않았다.
 
 ---
 

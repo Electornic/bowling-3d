@@ -143,16 +143,30 @@ export async function boot() {
 }
 
 /**
- * 세로(portrait) 터치 기기에서 "가로로 돌리면 더 잘 보여요" 1회 안내 (MOBILE_SUPPORT.md §5).
- * 비차단 오버레이 — 일정 시간 뒤 또는 가로 전환 시 사라진다. 강제 잠금은 하지 않음.
+ * 터치 기기가 **가로**일 때 세로로 돌려달라고 알린다 (웹 폴백).
+ *
+ * ⚠️ 이 함수는 예전에 정반대였다 — "가로로 돌리면 더 잘 보여요"로 **가로를 권장**했다
+ * (구 docs/MOBILE_SUPPORT.md §5 기본안). 실측이 그 반대를 말한다:
+ *   `PerspectiveCamera.fov`는 세로축이라 종횡비와 무관하게 고정된다. 볼링 레인은 **좁고 깊은**
+ *   피사체라 가로에선 짧은 변이 세로가 되며 모든 게 2.2배 작아진다 — iPhone 15 실측으로
+ *   공 지점의 레인 폭이 화면 가로의 **7.8%**(세로 37%)였고, 화면 대부분이 벽·천장이었다.
+ *   훅 진폭도 거리에 반비례해 가까울수록 잘 보이므로 멀어질 이유가 없다.
+ * 그래서 **세로를 주력 방향으로 확정**했다.
+ *
+ * 플랫폼별 강도가 다르다:
+ *  · 안드로이드 APK — AndroidManifest 의 `screenOrientation="portrait"` 로 **진짜 락**. OS가 아예
+ *    회전을 안 시키므로 이 오버레이가 뜰 일이 없다.
+ *  · iOS Safari — **방향 잠금 API가 없다**(`screen.orientation.lock`은 안드로이드 크롬 전용 +
+ *    풀스크린 필요). 화면을 세로로 유지하는 유일한 방법은 앱 전체 역회전인데, 그건 `vw`/`vh`
+ *    27곳과 `window.innerWidth` 기반 **조준 매핑**(Controls의 `aim = 1 - clientX/innerWidth·2`)까지
+ *    좌표계를 갈아야 해서 레이아웃 문제가 **입력 버그**로 번진다. 그래서 웹은 이 안내로 둔다.
  */
 function maybeShowOrientationHint() {
   if (!isCoarsePointer()) return;
-  const portrait = matchMedia('(orientation: portrait)');
-  if (!portrait.matches) return;
+  const landscape = matchMedia('(orientation: landscape)');
 
   const el = document.createElement('div');
-  el.textContent = '↻ 가로로 돌리면 더 잘 보여요';
+  el.textContent = '↻ 세로로 돌려주세요';
   el.style.cssText = [
     'position:fixed',
     'left:50%',
@@ -168,13 +182,18 @@ function maybeShowOrientationHint() {
     'pointer-events:none',
     'box-shadow:0 6px 26px rgba(0,0,0,0.5)',
   ].join(';');
-  document.body.appendChild(el);
 
-  const dismiss = () => el.remove();
-  setTimeout(dismiss, 3500);
-  portrait.addEventListener('change', (e) => {
-    if (!e.matches) dismiss();
-  });
+  // 가로인 동안만 붙어 있는다 — 시간제한 해제(구 3.5초)가 아니라 **방향에 종속**이다.
+  // 세로로 돌리면 사라지고, 다시 가로로 돌리면 다시 뜬다.
+  const apply = () => {
+    if (landscape.matches) {
+      if (!el.isConnected) document.body.appendChild(el);
+    } else {
+      el.remove();
+    }
+  };
+  apply();
+  landscape.addEventListener('change', apply);
 }
 
 /**
