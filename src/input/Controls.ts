@@ -207,32 +207,36 @@ export class Controls {
         : 'calc(var(--col-edge, 0px) + 24px + env(safe-area-inset-right))',
       zIndex: '20',
       pointerEvents: 'none',
-      padding: '10px 8px',
+      padding: '12px 10px',
       display: 'flex',
       flexDirection: 'column',
       alignItems: 'center',
-      gap: '6px',
+      gap: '7px',
     });
     // ⚡ 아이콘 — 세로 게이지 위. 이전엔 "POWER" 텍스트가 바(14px)보다 넓어 패널이 불균형해 뺐는데,
     // 아이콘 1자는 바 폭과 비슷해 균형 유지 + "이게 파워"임을 한눈에 (빈 캡슐 문제 해소, UI_REVAMP 진단①).
     const powerIcon = document.createElement('div');
     powerIcon.textContent = '⚡';
     css(powerIcon, {
-      fontSize: '13px',
+      fontSize: '15px',
       lineHeight: '1',
-      opacity: '0.9',
-      filter: `drop-shadow(0 0 4px ${rgba(NEON.cyan, 0.6)})`,
+      opacity: '0.95',
+      filter: `drop-shadow(0 0 5px ${rgba(NEON.cyan, 0.7)})`,
     });
     powerWrap.appendChild(powerIcon);
 
     const gaugeTrack = document.createElement('div');
     css(gaugeTrack, {
       position: 'relative',
-      width: '14px',
-      height: this.coarse ? '26vh' : '180px',
-      background: 'rgba(255,255,255,0.1)',
-      border: `1px solid ${rgba(NEON.cyan, 0.25)}`,
-      borderRadius: '8px',
+      // 14 → 20px. 주변시는 "크고 굵게, 강한 대비"만 읽는다 — 얇은 바는 위치를 당겨도 곁눈에 안 걸린다.
+      width: '20px',
+      // ⚠️ 예전엔 coarse에서 `26vh` 였다 — **방향에 따라 크기가 뒤집혔다**(세로 812px→211px /
+      // 가로 375px→97px). 세로 바의 길이는 화면 높이에 비례하는 게 맞지만 하한이 없으면 가로에서
+      // 반토막이 된다. clamp로 하한·상한을 줘서 두 방향 모두에서 충분히 길다.
+      height: this.coarse ? 'clamp(190px, 30vh, 300px)' : '220px',
+      background: 'rgba(255,255,255,0.12)',
+      border: `1.5px solid ${rgba(NEON.cyan, 0.42)}`, // 0.25 → 0.42 (대비↑)
+      borderRadius: '10px',
       overflow: 'hidden',
     });
     // 최적 파워 존(흐리게 암시) — 은은한 골드 띠 + 진입 하단 경계선만. 정확 눈금은 의도적으로 없음.
@@ -263,7 +267,7 @@ export class Controls {
       width: '100%',
       height: '0%',
       background: 'linear-gradient(0deg,#4ade80,#facc15,#ef4444)', // 아래=초록 위=빨강
-      boxShadow: '0 0 12px rgba(250,204,21,0.5)',
+      boxShadow: '0 0 16px rgba(250,204,21,0.62)', // 굵어진 바에 맞춰 글로우도 상향(대비↑)
     });
     gaugeTrack.appendChild(zoneBand); // 뒤: 존 띠
     gaugeTrack.appendChild(this.gaugeFill); // 중간: 차오르는 채움
@@ -279,7 +283,10 @@ export class Controls {
       left: this.coarse
         ? 'calc(var(--col-edge, 0px) + 12px + env(safe-area-inset-left))'
         : 'calc(var(--col-edge, 0px) + 24px + env(safe-area-inset-left))',
-      width: this.coarse ? 'min(46vw, 280px)' : '300px',
+      // ⚠️ 예전엔 `min(46vw, 280px)` — 파워의 26vh와 **반대 방향** 뷰포트 단위라 세로에선 좁고(172px)
+      // 가로에선 넓었다(373px). 가로 바의 폭은 화면 폭에 비례하는 게 맞고, clamp 하한으로 세로에서도
+      // 충분히 넓게 잡는다.
+      width: this.coarse ? 'clamp(250px, 62vw, 340px)' : '360px',
       zIndex: '20',
       pointerEvents: 'none',
       padding: '8px 12px',
@@ -306,8 +313,14 @@ export class Controls {
 
     // 드래그 가능한 트랙 (중앙=0, 좌/우로 차오름).
     // 터치(coarse): 히트영역 44px(투명) + 내부 얇은 시각 바 + 큰 썸 (§3.1). 데스크톱: 10px 바 자체가 시각.
-    const TRACK_HIT = this.coarse ? 44 : 10; // 세로 터치 히트영역
-    const THUMB = this.coarse ? 28 : 16; // 썸 지름
+    const TRACK_HIT = this.coarse ? 52 : 14; // 세로 터치 히트영역 (44→52 / 10→14)
+    const THUMB = this.coarse ? 32 : 20; // 썸 지름 (28→32 / 16→20)
+    /**
+     * **시각 바 굵기 단일소스.** 예전엔 10px가 세 곳(터치 시각 바·채움·중앙 눈금 기준)에 각각
+     * 박혀 있어서, 트랙을 키워도 정작 눈이 읽는 **채움**이 10px에 남아 굵어 보이지 않았다.
+     * fine은 히트영역(TRACK_HIT 14)을 꽉 채우고, coarse는 손가락 기준으로 조금 더 굵게.
+     */
+    const BAR_H = this.coarse ? 16 : 14;
     const spinTrack = (this.spinTrack = document.createElement('div'));
     css(spinTrack, {
       position: 'relative',
@@ -329,11 +342,11 @@ export class Controls {
         position: 'absolute',
         left: '0',
         top: '50%',
-        marginTop: '-5px',
+        marginTop: `${-BAR_H / 2}px`,
         width: '100%',
-        height: '10px',
-        background: 'rgba(255,255,255,0.1)',
-        border: `1px solid ${rgba(NEON.cyan, 0.25)}`,
+        height: `${BAR_H}px`,
+        background: 'rgba(255,255,255,0.12)',
+        border: `1.5px solid ${rgba(NEON.cyan, 0.42)}`, // 파워 트랙과 같은 대비로 통일
         borderRadius: '999px',
       });
       spinTrack.appendChild(line);
@@ -344,10 +357,10 @@ export class Controls {
       left: '50%',
       top: '50%',
       width: '2px',
-      height: '16px',
+      height: `${BAR_H + 8}px`, // 바보다 위아래로 4px씩 튀어나와 '중앙'을 읽히게
       marginLeft: '-1px',
-      marginTop: '-8px',
-      background: rgba(NEON.ice, 0.5),
+      marginTop: `${-(BAR_H + 8) / 2}px`,
+      background: rgba(NEON.ice, 0.62),
     });
     this.spinFill = document.createElement('div');
     css(this.spinFill, {
@@ -355,8 +368,8 @@ export class Controls {
       left: '50%',
       top: '50%',
       width: '0%',
-      height: '10px',
-      marginTop: '-5px',
+      height: `${BAR_H}px`,
+      marginTop: `${-BAR_H / 2}px`,
       borderRadius: '999px',
     });
     this.spinThumb = document.createElement('div');
