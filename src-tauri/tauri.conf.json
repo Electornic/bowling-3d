@@ -1,6 +1,6 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
-  "productName": "Bowling 3D",
+  "productName": "NEON LANES",
   "version": "0.1.0",
   "identifier": "com.electornic.bowling3d",
   "build": {
@@ -12,7 +12,7 @@
   "app": {
     "windows": [
       {
-        "title": "3D 볼링",
+        "title": "NEON LANES",
         "width": 1280,
         "height": 800,
         "minWidth": 640,
