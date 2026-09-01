@@ -36,27 +36,71 @@ const ANCHOR_GAP = 14; // [튜닝] 점수판 하단과 밴드 사이 간격(px)
 /**
  * [튜닝] 종류별 색·글자 크기. 밴드 높이는 글자 크기에 따라 핏.
  *
- * accent·dot·burst는 theme.ts 팔레트에서 유도한다 — 예전엔 #ff2d78·#22d3ee·#4ade80을 리터럴로
- * 다시 적어 뒀고, 그러면 팔레트를 바꿔도 여기만 옛 색으로 남는다.
- * color(큰 글자)는 각 accent를 흰쪽으로 끌어올린 **패널 전용 톤**이라 팔레트에 없는 값이 맞다.
+ * 색은 theme.ts 팔레트에서 유도한다 — 예전엔 #ff2d78·#22d3ee·#4ade80을 리터럴로 다시 적어 뒀고,
+ * 그러면 팔레트를 바꿔도 여기만 옛 색으로 남는다.
  *
- * ⚠️ 플랫 원색 블록이 **브릭 하나뿐인 건 대비 실측 때문이다.** 브릭은 휘도 0.067이라 cream 글자가
- * 7.1:1로 통과하지만, 터쿼이즈(0.307)·세이지(0.272)를 ground로 쓰면 cream이 2.3:1로 떨어진다.
- * 그래서 나머지는 잉크 패널 + 밝은 글자로 두고, 원색은 하프톤·버스트·규선으로만 진다.
- * 거터만 예외: 축하가 아니라 디플레이팅이라 무채색 + 버스트 0 + 그림자 0이 의도다.
+ * ⚠️ **한 번 틀렸다가 고친 자리다.** 처음엔 "플랫 원색 블록은 브릭만 가능"이라고 결론냈다 —
+ * cream 글자로만 검산했기 때문이다(터쿼이즈 0.307·세이지 0.272 위 cream = 2.3:1 미달). 그런데
+ * **글자를 잉크로 뒤집으면** 터쿼이즈 6.1:1 · 세이지 5.5:1로 넉넉히 통과한다. 그래서 축하 3종
+ * 전부가 플랫 원색 블록이 됐다 — 그게 300 갈래(워홀 색면 그리드·원색 필드)의 본래 문법이다.
+ * 브릭만 어두운 블록이라 글자가 cream이고, 나머지 둘은 밝은 블록이라 글자가 잉크다. 그 반전이
+ * 그대로 위계가 된다(가장 센 순간만 명암이 뒤집힌다).
+ *
+ * ⚠️ 보조문구를 accent와 같이 두면 안 된다 — 브릭 위 잉크가 **2.0:1**로 안 읽혔다(실측 버그).
+ * 그래서 `sub`를 `rule`(테두리·오프셋)과 **분리된 항목**으로 뽑았다. 테두리는 장식이라 낮은 대비가
+ * 허용되지만 보조문구는 글자다.
+ *
+ * 실측 대비: strike cream/brick 7.1 · spare 잉크/터쿼이즈 6.1 · split 잉크/세이지 5.5 ·
+ * gutter #aeb6c2/잉크 4.6. 전부 본문 기준(4.5) 통과.
+ * 거터만 축하가 아니라 디플레이팅이라 잉크 패널 + 버스트 0 + 그림자 0이 의도다.
  */
-const CFG: Record<StillCutKind, { ground: string; color: string; accent: string; dot: string; burst: string; size: string }> = {
+const CFG: Record<
+  StillCutKind,
+  { ground: string; text: string; sub: string; rule: string; shadow: string; dot: string; burst: string; size: string }
+> = {
+  // 어두운 원색 블록 + 밝은 글자 — 축하 3종 중 유일하게 명암이 뒤집힌다
   strike: {
     ground: NEON.brick,
-    color: NEON.cream,
-    accent: INK,
-    dot: rgba(INK, 0.24),
-    burst: rgba(NEON.cream, 0.1),
+    text: NEON.cream,
+    sub: NEON.cream,
+    rule: INK,
+    shadow: INK,
+    dot: rgba(INK, 0.3),
+    burst: rgba(NEON.cream, 0.16),
     size: 'clamp(32px,7.5vw,62px)',
   },
-  spare: { ground: INK, color: '#c9f4fb', accent: NEON.turquoise, dot: rgba(NEON.turquoise, 0.2), burst: rgba(NEON.turquoise, 0.07), size: 'clamp(28px,6vw,50px)' },
-  split: { ground: INK, color: '#d5fae1', accent: NEON.sage, dot: rgba(NEON.sage, 0.2), burst: rgba(NEON.sage, 0.07), size: 'clamp(28px,6vw,50px)' },
-  gutter: { ground: INK, color: '#aeb6c2', accent: '#5c6472', dot: 'rgba(92,100,114,0.22)', burst: '', size: 'clamp(24px,5vw,42px)' },
+  // 밝은 원색 블록 + 잉크 글자 — 인쇄된 색면. 오프셋은 cream(2색 잉크의 밝은 판)
+  spare: {
+    ground: NEON.turquoise,
+    text: INK,
+    sub: INK,
+    rule: INK,
+    shadow: NEON.cream,
+    dot: rgba(INK, 0.22),
+    burst: rgba(INK, 0.09),
+    size: 'clamp(28px,6vw,50px)',
+  },
+  split: {
+    ground: NEON.sage,
+    text: INK,
+    sub: INK,
+    rule: INK,
+    shadow: NEON.cream,
+    dot: rgba(INK, 0.22),
+    burst: rgba(INK, 0.09),
+    size: 'clamp(28px,6vw,50px)',
+  },
+  // 디플레이팅 — 색면 없음, 버스트 없음, 그림자 없음
+  gutter: {
+    ground: INK,
+    text: '#aeb6c2',
+    sub: NEON.faint,
+    rule: '#5c6472',
+    shadow: '',
+    dot: 'rgba(92,100,114,0.22)',
+    burst: '',
+    size: 'clamp(24px,5vw,42px)',
+  },
 };
 
 export class StillCut {
@@ -133,7 +177,7 @@ export class StillCut {
     // 버스트는 repeating-conic-gradient 쐐기. 밴드가 납작해서(전폭 × ~100px) 중심에서 퍼지는
     // 쐐기가 좌우로 길게 눕고, 그게 마침 코믹의 임팩트 선처럼 읽힌다.
     const ground = document.createElement('div');
-    const layers = [`radial-gradient(${c.dot} 1.4px, transparent 1.5px)`];
+    const layers = [`radial-gradient(${c.dot} 1.7px, transparent 1.8px)`]; // 1.4 → 1.7px: 6px 타일에서 점이 '보이는' 최소 크기
     const sizes = ['6px 6px'];
     if (c.burst) {
       layers.push(`repeating-conic-gradient(from 0deg at 50% 50%, ${c.burst} 0deg 3.5deg, transparent 3.5deg 11deg)`);
@@ -145,7 +189,7 @@ export class StillCut {
       `background-color:${c.ground}`,
       `background-image:${layers.join(',')}`,
       `background-size:${sizes.join(',')}`,
-      `border-top:3px solid ${c.accent}`, // 위 규선 — 코믹 셀의 테두리
+      `border-top:4px solid ${c.rule}`, // 코믹 패널 아웃라인 — 장식이라 대비 기준 대신 두께로 읽힌다
       'box-shadow:0 12px 34px rgba(0,0,0,0.5)',
       'animation:sc-ground 0.42s ease-out both',
     ].join(';');
@@ -158,7 +202,7 @@ export class StillCut {
       streak.style.cssText = [
         'position:absolute',
         'inset:0',
-        `background:repeating-linear-gradient(0deg,transparent 0 5px,${c.accent} 5px 6px)`,
+        `background:repeating-linear-gradient(0deg,transparent 0 5px,${c.rule} 5px 6px)`,
         'opacity:0.5',
         '-webkit-mask:linear-gradient(90deg,#000 0%,transparent 60%)',
         'mask:linear-gradient(90deg,#000 0%,transparent 60%)',
@@ -176,10 +220,10 @@ export class StillCut {
       'text-align:center',
       'position:relative',
       'will-change:transform',
-      `color:${c.color}`,
+      `color:${c.text}`,
       // 하드 오프셋 그림자 — 2색 잉크 인쇄의 어긋난 판. em이라 글자 크기에 따라 같이 커진다.
       // (예전엔 `0 0 22px 글로우`였다. 흐린 발광은 인쇄물에 없다.)
-      gutter ? '' : `text-shadow:0.05em 0.05em 0 ${c.accent}`,
+      c.shadow ? `text-shadow:0.05em 0.05em 0 ${c.shadow}` : '',
       `animation:${gutter ? 'sc-fly-limp 0.55s ease-out both' : 'sc-fly 0.5s cubic-bezier(0.16,1.1,0.3,1) both'}`,
     ]
       .filter(Boolean)
@@ -195,7 +239,7 @@ export class StillCut {
         'text-align:center',
         'position:relative',
         // 스트라이크는 바탕이 브릭이라 accent(잉크)가 보조문구로 맞다. 잉크 패널 쪽은 accent가 원색이다.
-        `color:${gutter ? NEON.faint : c.accent}`,
+        `color:${c.sub}`, // rule과 분리된 항목 — 테두리는 장식이지만 이건 글자다(브릭 위 잉크 2.0:1 사고)
         'animation:sc-sub 0.55s ease-out both',
       ].join(';');
       band.appendChild(s);
@@ -210,7 +254,7 @@ export class StillCut {
       'bottom:0',
       'height:4px',
       'transform-origin:left center',
-      `background:${c.accent}`,
+      `background:${c.rule}`,
       gutter ? 'opacity:0.5' : '',
       `animation:sc-bar ${gutter ? '0.55s' : '0.5s'} cubic-bezier(0.2,0.9,0.3,1) both`,
     ]
