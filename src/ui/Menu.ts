@@ -1,4 +1,4 @@
-import type { GameMode, MatchConfig, GameSummary, AimAid } from '../game/GameState';
+import type { GameMode, MatchConfig, GameSummary } from '../game/GameState';
 import { AI_PROFILES } from '../game/ai';
 import { statsSummary } from '../game/Stats';
 import { isCoarsePointer } from '../core/device';
@@ -124,11 +124,6 @@ const MODES: { key: GameMode; labelKey: I18nKey; descKey: I18nKey }[] = [
   { key: 'spare', labelKey: 'mode.spare', descKey: 'mode.spare.desc' },
 ];
 
-const AIM_AIDS: { key: AimAid; labelKey: I18nKey; descKey: I18nKey }[] = [
-  { key: 'easy', labelKey: 'aim.easy', descKey: 'aim.easy.desc' },
-  { key: 'normal', labelKey: 'aim.normal', descKey: 'aim.normal.desc' },
-  { key: 'hard', labelKey: 'aim.hard', descKey: 'aim.hard.desc' },
-];
 
 /**
  * 시작 메뉴 + 결과 화면 오버레이 (로드맵 P1).
@@ -141,7 +136,6 @@ export class MenuUI {
   private mode: GameMode = 'full';
   private rivalKey: string | null = null; // null=혼자 · 그 외=AI 라이벌 key
   private weight: number; // 볼 무게(lb) — 시작 메뉴·일시정지 모달에서 선택. 초기값은 저장된 설정.
-  private aimAid: AimAid = 'easy'; // 조준 보조 (P3, UI 전용) — 기본 easy(§2.7 스마트 기본값)
   private selectedSkin: string = loadRewards().selectedSkin; // 장착 볼 스킨 (보상)
   private skinTab: 'skins' | 'achievements' | 'screen' = 'skins'; // 컬렉션 시트 활성 탭 (A안 탭형)
 
@@ -264,7 +258,6 @@ export class MenuUI {
     this.panel.appendChild(this.houseSign('STARLITE LANES')); // 브랜드명 — 번역 대상이 아니다(4개 언어에서 차용어로 통한다)
     this.panel.appendChild(this.soundToggle()); // 우상단 사운드 토글
     this.buildMatchupSection(); // 모드 + 상대
-    this.buildAimAidSection(); // 조준 난이도 (예측선 표시량 — 점수·물리 무영향)
     this.buildWeightSection(); // 볼 무게 슬라이더
     this.buildSkinEntry(); // 컬렉션 진입
     this.buildStartButton(); // 게임 시작
@@ -318,36 +311,6 @@ export class MenuUI {
 
     this.refreshChips(modeBtns, this.mode);
     this.refreshRivalChips(rivalBtns);
-  }
-
-  /**
-   * 조준 난이도 한 줄(쉬움/보통/어려움) — 예측선을 어디까지 그려주는지만 바뀐다. 점수·물리 무영향.
-   *
-   * 원래 여기가 '레인 난이도'(오일 패턴 + 조준 보조 두 축 + 커스텀 접기)였는데 오일 축을 걷었다.
-   * 오일은 난이도가 아니라 **최적 전략이 이동하는** 축이라 단조 사다리에 안 맞는다 — sim-carry
-   * 스트라이크 윈도우가 하우스 직구4/훅7 vs 숏 직구6/훅3이라, '어려움=숏'이 직구 플레이어에겐
-   * 오히려 넓어졌다(AI 매치 sim도 프리셋 간 ±10점). 축이 하나가 되면서 프리셋 3종이 조준 보조
-   * 3단과 1:1이 돼 커스텀 구분 자체가 사라졌다. (docs/legacy/OIL_META_AND_AUTO.md §1.2·§1.5·§2.8)
-   *
-   * ⚠️ 오일 *시스템*은 그대로 살아 있다 — 하우스 고정 + 풀게임 레인 마름(advanceOilDrying)이
-   * 계속 돌고, AI hookDriftFor(endZ)도 그걸 따라간다. 여기서 뺀 건 선택 UI뿐이다.
-   */
-  private buildAimAidSection(): void {
-    this.panel.appendChild(this.sectionLabel(t('menu.section.aim')));
-    const aimRow = document.createElement('div');
-    css(aimRow, { display: 'flex', gap: '8px', marginBottom: '14px' });
-    const aimBtns = new Map<AimAid, HTMLButtonElement>();
-    for (const a of AIM_AIDS) {
-      const b = this.chipButton(t(a.labelKey), t(a.descKey));
-      b.onclick = () => {
-        this.aimAid = a.key;
-        this.refreshChips(aimBtns, this.aimAid);
-      };
-      aimBtns.set(a.key, b);
-      aimRow.appendChild(b);
-    }
-    this.panel.appendChild(aimRow);
-    this.refreshChips(aimBtns, this.aimAid);
   }
 
   /** 볼 무게 섹션(라벨 + 슬라이더) — 시작 메뉴용. 일시정지 모달도 같은 슬라이더를 쓴다. */
@@ -511,7 +474,7 @@ export class MenuUI {
     }
     const go = () => {
       this.hide();
-      this.onStart({ mode: this.mode, players, aimAid: this.aimAid }); // oilPattern 생략 = 하우스 고정(GameState 기본값)
+      this.onStart({ mode: this.mode, players }); // oilPattern·조준보조 생략 = GameState 기본값(하우스 오일)
     };
     // View Transitions로 메뉴→게임 크로스페이드 (지원 브라우저만; 미지원은 즉시). 3D 캔버스는 뒤에 상주.
     const startVT = (document as { startViewTransition?: (cb: () => void) => void }).startViewTransition?.bind(document);

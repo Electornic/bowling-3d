@@ -31,8 +31,6 @@ export function slowmoScale(timer: number, total: number): number {
 
 export type GameStateName = 'MENU' | 'AIMING' | 'ROLLING' | 'SETTLING' | 'GAME_OVER';
 export type GameMode = 'full' | 'blitz' | 'spare';
-/** 예측선 난이도 (조준 보조) — P3. UI 전용, 점수·물리 무영향. */
-export type AimAid = 'easy' | 'normal' | 'hard'; // 메뉴 라벨 쉬움/보통/어려움과 1:1
 
 export interface MatchPlayerConfig {
   name: string;
@@ -42,10 +40,21 @@ export interface MatchPlayerConfig {
 export interface MatchConfig {
   mode: GameMode;
   players: MatchPlayerConfig[]; // [0] = 사람 (스페어 챌린지는 솔로만)
-  // 오일 패턴 (기본 'house'). ⚠️ 메뉴에선 더 이상 안 고른다 — 난이도 축이 조준 보조 하나로 정리되며
-  // 선택 UI를 걷었다(§2.8). 프리셋 자체는 sim·테스트·후속(데일리 시드)용으로 살아 있다.
+  /**
+   * 오일 패턴 (기본 'house'). ⚠️ **메뉴에선 안 고른다** — 선택 UI가 둘 다 사라졌다.
+   *
+   * 원래 시작 메뉴에 '레인 난이도'로 **오일 패턴 + 조준 보조 두 축**이 있었다. 오일 축을 먼저 걷었는데,
+   * 오일은 난이도가 아니라 **최적 전략이 이동하는** 축이라 단조 사다리에 안 맞기 때문이다 — sim-carry
+   * 스트라이크 윈도우가 하우스 직구4/훅7 vs 숏 직구6/훅3이라 '어려움=숏'이 직구 플레이어에겐 오히려
+   * 넓어졌다(AI 매치 sim도 프리셋 간 ±10점). (docs/legacy/OIL_META_AND_AUTO.md §1.2·§1.5·§2.8)
+   * 남은 조준 보조 축도 2026-09-02에 걷었다 — 3단이 예측선 길이 하나만 바꾸는 축이라 설정으로 둘
+   * 값이 없었고, 길이를 '보통과 어려움 사이'로 고정했다(Controls.updateAimArrow의 endZ 주석).
+   *
+   * ⚠️ 오일 *시스템*은 그대로 살아 있다 — 하우스 고정 + 풀게임 레인 마름(advanceOilDrying)이 계속
+   * 돌고 AI hookDriftFor(endZ)도 그걸 따라간다. 프리셋도 sim·테스트·후속(데일리 시드)용으로 남는다.
+   * 걷어낸 건 **선택 UI뿐**이다.
+   */
   oilPattern?: OilPattern;
-  aimAid?: AimAid; // 조준 보조 (기본 'easy' — §2.7 스마트 기본값) — P3, UI 전용
 }
 
 interface PlayerState {
@@ -122,7 +131,6 @@ export class GameState {
   mode: GameMode = 'full';
   frames = 10;
   current = 0;
-  aimAid: AimAid = 'easy'; // 조준 보조 (Controls가 읽음) — P3, UI 전용. 기본 easy(§2.7 스마트 기본값)
   /** 게임 이벤트 (스트라이크/스페어/스플릿/게임오버) — 연출·사운드 연결점 */
   onEvent?: (e: GameEvent) => void;
   /** AI 턴 빨리감기용 Loop.timeScale 주입 (Boot에서 연결) */
@@ -205,7 +213,6 @@ export class GameState {
     this.pendingSplit = null;
     this.slowmoTimer = 0;
     this.slowmoUsed = false;
-    this.aimAid = config.aimAid ?? 'easy'; // 조준 보조 (P3, UI 전용) — 기본 easy(§2.7)
     const oilPattern = config.oilPattern ?? 'house';
     resetOil(oilPattern); // 오일 프리셋 적용 + 마름 초기화 (P3)
     this.lane.applyOilVisual(oilPattern); // 광택 시트 길이를 프리셋에 맞춤 (읽기 단서)

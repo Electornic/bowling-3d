@@ -35,7 +35,6 @@ export const en: Record<I18nKey, string> = {
   'menu.start': 'Start game',
   'menu.section.mode': 'Mode',
   'menu.section.rival': 'Opponent',
-  'menu.section.aim': 'Aim assist',
   'menu.section.weight': 'Ball weight',
   'menu.rival.solo': 'Solo',
   'menu.rival.solo.desc': 'Practice mode',
@@ -109,12 +108,6 @@ export const en: Record<I18nKey, string> = {
   'mode.spare': 'Spare challenge',
   'mode.spare.desc': 'Ten classic leaves in a row (solo)',
 
-  'aim.easy': 'Easy',
-  'aim.easy.desc': 'Full predicted line, all the way through the hook',
-  'aim.normal': 'Normal',
-  'aim.normal.desc': 'Only to the oil zone (the straight part) — read the hook yourself',
-  'aim.hard': 'Hard',
-  'aim.hard.desc': 'Direction marker only — the line is all on you',
 
   'finish.matte': 'Matte',
   'finish.satin': 'Satin',

@@ -36,7 +36,6 @@ export const ko = {
   'menu.start': '게임 시작',
   'menu.section.mode': '모드',
   'menu.section.rival': '상대',
-  'menu.section.aim': '조준 난이도',
   'menu.section.weight': '볼 무게',
   'menu.rival.solo': '혼자',
   'menu.rival.solo.desc': '연습 모드',
@@ -117,13 +116,6 @@ export const ko = {
   'mode.spare': '스페어 챌린지',
   'mode.spare.desc': '클래식 리브 10연속 픽업 (솔로)',
 
-  // ─── 조준 난이도 ───
-  'aim.easy': '쉬움',
-  'aim.easy.desc': '훅 끝까지 그리는 풀 예측선',
-  'aim.normal': '보통',
-  'aim.normal.desc': '오일 존(직진 구간)까지만 — 훅은 직접 읽기',
-  'aim.hard': '어려움',
-  'aim.hard.desc': '조준 방향 표식만 — 라인은 온전히 실력',
 
   // ─── 볼 마감 ───
   'finish.matte': '무광',

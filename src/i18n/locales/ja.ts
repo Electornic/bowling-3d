@@ -33,7 +33,6 @@ export const ja: Record<I18nKey, string> = {
   'menu.start': 'ゲーム開始',
   'menu.section.mode': 'モード',
   'menu.section.rival': '対戦相手',
-  'menu.section.aim': '照準アシスト',
   'menu.section.weight': 'ボールの重さ',
   'menu.rival.solo': 'ひとりで',
   'menu.rival.solo.desc': '練習モード',
@@ -107,12 +106,6 @@ export const ja: Record<I18nKey, string> = {
   'mode.spare': 'スペアチャレンジ',
   'mode.spare.desc': 'クラシックリーブ10連続処理（ソロ）',
 
-  'aim.easy': 'やさしい',
-  'aim.easy.desc': 'フックの終点まで描く完全な予測線',
-  'aim.normal': 'ふつう',
-  'aim.normal.desc': 'オイルゾーン（直進区間）まで — フックは自分で読む',
-  'aim.hard': 'むずかしい',
-  'aim.hard.desc': '照準方向のマーカーだけ — ラインは実力勝負',
 
   'finish.matte': 'マット',
   'finish.satin': 'サテン',

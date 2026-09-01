@@ -648,7 +648,7 @@ export class Controls {
   /**
    * 조준 곡선 라인 갱신 — 실제 발사 물리와 같은 수식으로 예측 경로를 적분(검증 오차 ~1cm)해
    * Line2(외곽선+코어 2겹)로 그린다. 오일 존 직진 → 드라이 존 레이트 훅.
-   * 길이는 조준 보조(aid)가 정하고, 끝은 페이드가 아니라 **화살촉**으로 맺는다
+   * 길이는 고정(endZ 주석 참고)이고, 끝은 페이드가 아니라 **화살촉**으로 맺는다
    * (끝 페이드는 6fa4ed2에서 걷어냈다 — 선은 처음부터 끝까지 한 색이다).
    */
   private updateAimArrow() {
@@ -656,22 +656,39 @@ export class Controls {
     // DRAW_Z 길이에 욱여넣는다. 짧게 그려도(DRAW_Z) 긴 거리(REF_Z)의 곡률이 그대로 보임(축소판 바나나).
     // 그냥 DRAW_Z까지만 적분하면 그 구간이 오일존(직진)이라 곡률이 거의 안 보였음. 균일 스케일이라 초기
     // 조준 방향(각도)은 불변. 조준선은 차징(파워 핑퐁)에 안 흔들리게 대표 파워로 고정(파워 체감은 게이지).
-    const REF_Z = 14; // 곡률 기준 길이 — 드라이존(오일 끝 뒤) 훅까지 포함해 더 휜 모양을 5에 압축
-    const DRAW_Z = 5; // 실제 그리는 온스크린 길이(압축 후). 게임플레이 도움량은 aid별 endZ가 결정 — 이건 시각 길이만.
+    const REF_Z = 14; // 압축 **기준** 길이 — endZ와 무관하게 항상 이 길이의 곡률을 DRAW_Z에 담는다
+    const DRAW_Z = 5; // REF_Z가 매핑되는 온스크린 길이(압축 후)
     const p = 0.6;
-    // 조준 난이도(P3): easy=풀 곡선(REF_Z까지) / normal=오일 존 끝까지만(직진 구간만, 훅 숨김) / hard=짧은 방향 표식.
-    // normal/pro 종료점은 오일 존 안(hook=0)이라 곡선이 안 생겨 "스키드만 보여주고 훅은 직접 읽어라"가 된다.
-    const aid = this.game.aimAid;
-    const endZ = aid === 'easy' ? REF_Z : aid === 'normal' ? oilEndZ() : BALL_START_Z + 4;
-    // 캐시 가드(#1): 조준·스핀·보조·오일끝·볼물성이 그대로면 재적분·배열재빌드·버퍼 재업로드를 통째 스킵.
-    // oilEndZ()는 aid와 별개로 반드시 키에 — hookFactor(z)가 모든 aid에서 오일 endZ에 의존(마름 반영).
+    /**
+     * 적분 종료 z — **고정값**이다(2026-09-02). 예전엔 '조준 난이도' 설정이 셋으로 갈랐다:
+     *   쉬움 `REF_Z`=14(적분 15m) · 보통 `oilEndZ()`≈10.5(11.5m) · 어려움 `BALL_START_Z+4`=3(4m)
+     * 설정을 없애고 **보통과 어려움 사이**로 고정했다(사용자 결정).
+     *
+     * ⚠️ 체감 길이는 endZ가 아니라 **endZ × k**다(k = (DRAW_Z−BALL_START_Z)/(REF_Z−BALL_START_Z) = 0.4).
+     *   보통 11.5×0.4 = 4.6m · 어려움 4×0.4 = 1.6m · **여기 7.5×0.4 = 3.0m** → 중간값 3.1m에 사실상 일치.
+     *   endZ만 보고 중간을 잡으면 압축을 빼먹어 틀린다.
+     *
+     * 왜 `oilEndZ()`를 안 따라가나: '보통'이 브레이크에 정확히 끝난 건 "여기서 꺾인다"를 **알려주는**
+     * 장치였다. 중간값은 브레이크를 표시하지 못하니 따라갈 이유가 없고, 오히려 프리셋(short 9.5 /
+     * house 10.5 / long 12.5)과 마름(최대 −1.5m)에 따라 길이가 흔들려 **패턴 정보를 흘린다.**
+     *
+     * 미리보기는 **항상 직선**이다 — 훅은 브레이크(최소 8.0m) 뒤에서 시작하고 적분은 6.5m에서 끝난다.
+     * 이건 신규 제약이 아니라 구 '보통'과 같다(그쪽도 종료점이 오일 존 안이라 곡선이 안 생겼다):
+     * 방향과 스키드는 보여주고 훅의 양은 온전히 플레이어가 읽는다.
+     */
+    const endZ = BALL_START_Z + 7.5;
+    // 캐시 가드(#1): 조준·스핀·오일끝·볼물성이 그대로면 재적분·배열재빌드·버퍼 재업로드를 통째 스킵.
+    // ⚠️ oilEndZ()는 **지금은 inert하지만 일부러 키에 남긴다.** 미리보기가 브레이크(최소 8.0m) 앞에서
+    //    끝나므로 hookFactor(z)가 구간 전체에서 0이고, 따라서 오일 마름이 선 모양을 안 바꾼다.
+    //    하지만 AIM_PREVIEW_Z를 브레이크 뒤로 늘리는 순간 의존이 되살아난다 — 그때 키에 없으면
+    //    마름이 반영 안 된 선이 굳는다(찾기 어려운 종류의 정지 렌더 버그).
     // 볼물성(speedScale/massKg)도 필수 — speed/inject가 의존하고 setSpec()은 조준 중 호출되는 정상 경로.
     // resolution만 리사이즈 대응차 매 프레임 갱신하고 종료(가벼운 uniform 쓰기).
     // 카메라 **위치**는 키에 남긴다 — 팔 길이가 카메라 거리에 비례하므로(ARROW_PX × camDist),
     // 위치가 빠지면 핀세터 사이클 뒤 카메라가 조준 포즈로 복귀하는 동안 만들어진 길이가 그대로 굳는다.
     // 회전·종횡비는 이제 화살촉에 안 쓰이므로 뺀다(그만큼 재적분이 줄어든다).
     const cp = this.camera.position;
-    const key = `${this.aim}|${this.spin}|${aid}|${oilEndZ()}|${this.ball.massKg}|${this.ball.speedScale}|${cp.x.toFixed(2)},${cp.y.toFixed(2)},${cp.z.toFixed(2)}`;
+    const key = `${this.aim}|${this.spin}|${oilEndZ()}|${this.ball.massKg}|${this.ball.speedScale}|${cp.x.toFixed(2)},${cp.y.toFixed(2)},${cp.z.toFixed(2)}`;
     if (key === this.lastAimKey) {
       this.aimCoreMat.resolution.set(window.innerWidth, window.innerHeight);
       this.aimCaseMat.resolution.set(window.innerWidth, window.innerHeight);
@@ -707,8 +724,10 @@ export class Controls {
       z += vz * PREVIEW_DT;
       path.push([x, z]);
     }
-    // 마지막 점을 정확히 endZ(파워 비례 길이)에 트림 — 적분 스텝(풀파워 ~0.96m) 단위로 끝점이 튀던 "버벅"
-    // 제거. endZ가 파워의 연속 함수라 끝점이 매끄럽게 전진/후퇴한다(스텝 스냅 없음).
+    // 마지막 점을 정확히 endZ에 트림 — 적분 스텝(~0.96m) 단위로 끝점이 튀던 "버벅" 제거.
+    // (예전 주석은 "endZ가 파워의 연속 함수라"고 적고 있었는데 **이미 거짓이었다** — endZ는 보조 단계별
+    //  상수였고 지금은 완전 상수다. 트림은 그래도 필요하다: 적분이 endZ를 넘어선 스텝에서 멈추기 때문에
+    //  트림이 없으면 끝점이 조준·스핀에 따라 최대 한 스텝만큼 들쭉날쭉해진다.)
     if (path.length >= 2) {
       const a = path[path.length - 2];
       const b = path[path.length - 1];

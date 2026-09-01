@@ -34,7 +34,6 @@ export const zh: Record<I18nKey, string> = {
   'menu.start': '开始游戏',
   'menu.section.mode': '模式',
   'menu.section.rival': '对手',
-  'menu.section.aim': '瞄准难度',
   'menu.section.weight': '球重',
   'menu.rival.solo': '单人',
   'menu.rival.solo.desc': '练习模式',
@@ -108,12 +107,6 @@ export const zh: Record<I18nKey, string> = {
   'mode.spare': '补中挑战',
   'mode.spare.desc': '连续处理 10 组经典余瓶（单人）',
 
-  'aim.easy': '简单',
-  'aim.easy.desc': '完整预测线，一直画到曲球终点',
-  'aim.normal': '普通',
-  'aim.normal.desc': '只画到油区（直行段）— 曲球自己读',
-  'aim.hard': '困难',
-  'aim.hard.desc': '只显示瞄准方向 — 球路全凭实力',
 
   'finish.matte': '哑光',
   'finish.satin': '缎面',
