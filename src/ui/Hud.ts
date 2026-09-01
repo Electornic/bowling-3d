@@ -1,7 +1,7 @@
 import { frameScores } from '../game/Scoreboard';
 import { SPARE_LEAVES, type GameStateName, type GameMode, type GameSummary } from '../game/GameState';
 import { t, type I18nKey } from '../i18n';
-import { css, INK, NEON, FONT_UI, FONT_DIGITS, rgba, applyPanel, ensureNeonStyles } from './theme';
+import { css, INK, HOUSE, FONT_UI, FONT_DIGITS, rgba, applyPanel, ensureHouseStyles } from './theme';
 import { PinDeck } from './PinDeck';
 
 // 점수판은 항상 한 줄(스크롤 0). 행 폭 = min(96vw, SHEET_MAX), 프레임·셀은 flex-basis:0 비례 분배 →
@@ -36,7 +36,7 @@ const DIGIT_FS = 'clamp(13px, 4.3vw, 18px)'; // 마크·누적 점수 글자 크
  * 예전엔 `1.5px solid rgba(cream,0.14)`로 굵고 흐렸다. 인쇄물의 격자는 그 반대다: **얇고 확실하다.**
  * (1.5→1px · 0.14→0.28) 두 값을 한 곳에 묶어 프레임 칸·마크 칸·스페어 칸이 갈리지 않게 한다.
  */
-const RULE = `1px solid ${rgba(NEON.cream, 0.28)}`;
+const RULE = `1px solid ${rgba(HOUSE.cream, 0.28)}`;
 
 const NARROW_Q = '(max-width: 760px)';
 const isNarrowSheet = () => matchMedia(NARROW_Q).matches;
@@ -150,7 +150,7 @@ function marksLast(fr: number[]): string[] {
 }
 
 /** 마크 글자색 — 스트라이크/스페어=골드, 그 외 평범 */
-const markColor = (m: string): string => (m === 'X' || m === '/' ? NEON.mustard : '#dfe6f2');
+const markColor = (m: string): string => (m === 'X' || m === '/' ? HOUSE.mustard : '#dfe6f2');
 
 /**
  * 지금 왜 못 던지는지까지 담은 상태 텍스트. 핀세터가 도는 동안은 상태가 AIMING이어도 던질 수
@@ -198,7 +198,7 @@ export class Hud {
   private prevScores: (number | undefined)[][] = [];
 
   constructor() {
-    ensureNeonStyles();
+    ensureHouseStyles();
     ensureSheetStyles(); // 위치·반응형은 주입 스타일시트가 갖는다 (인라인으로는 미디어 쿼리 불가)
 
     this.wrap = document.createElement('div');
@@ -212,7 +212,7 @@ export class Hud {
       font: FONT_UI,
       fontSize: '11px',
       letterSpacing: '0.06em',
-      color: NEON.dim,
+      color: HOUSE.dim,
       padding: '0 4px',
       whiteSpace: 'nowrap',
       overflow: 'hidden',
@@ -233,7 +233,7 @@ export class Hud {
     this.pill.classList.add('is-hidden');
     this.pill.setAttribute('aria-controls', 'hud-scoreboard');
     this.pill.setAttribute('aria-expanded', 'false');
-    applyPanel(this.pill, NEON.turquoise);
+    applyPanel(this.pill, HOUSE.turquoise);
     css(this.pill, {
       // 좌상단 ☰ 메뉴(높이 40)와 같은 가로선 — top이 같으니 높이를 맞춰 세로 중심을 일치시킨다.
       minHeight: '40px',
@@ -241,7 +241,7 @@ export class Hud {
       padding: '10px 13px',
       cursor: 'pointer',
       appearance: 'none',
-      color: NEON.text,
+      color: HOUSE.text,
       font: FONT_UI,
       letterSpacing: '0.02em',
       whiteSpace: 'nowrap',
@@ -383,7 +383,7 @@ function buildSheet(
   active: boolean,
   opts: SheetOpts = {},
 ): { row: HTMLDivElement; cum: (number | undefined)[] } {
-  const accent = active ? NEON.mustard : NEON.turquoise;
+  const accent = active ? HOUSE.mustard : HOUSE.turquoise;
   const multi = d.players.length > 1 && !opts.nameless;
 
   const row = document.createElement('div');
@@ -405,7 +405,7 @@ function buildSheet(
     applyPanel(name, accent);
     css(name, {
       font: FONT_UI,
-      color: active ? NEON.mustard : NEON.dim,
+      color: active ? HOUSE.mustard : HOUSE.dim,
       padding: '7px 9px',
       minWidth: '74px',
       textAlign: 'right',
@@ -440,9 +440,9 @@ function buildSheet(
         alignItems: 'center',
         justifyContent: 'center',
         borderRadius: '2px',
-        background: isCurrent ? NEON.mustard : '',
-        border: isCurrent ? `1px solid ${NEON.mustard}` : RULE,
-        color: isCurrent ? INK : done ? (cleared ? NEON.sage : NEON.red) : '#dfe6f2',
+        background: isCurrent ? HOUSE.mustard : '',
+        border: isCurrent ? `1px solid ${HOUSE.mustard}` : RULE,
+        color: isCurrent ? INK : done ? (cleared ? HOUSE.sage : HOUSE.red) : '#dfe6f2',
         fontSize: DIGIT_FS,
       });
       box.textContent = done ? (cleared ? '✓' : '✗') : '';
@@ -499,8 +499,8 @@ function buildSheet(
       // 현재 프레임 = **플랫 머스터드 블록**. 예전엔 알파 10% 바탕 + neonPulse(외곽 글로우 맥동)였다.
       // 정지한 고대비 색면이 맥동보다 곁눈에 강하고(그게 이 시트의 설계 근거다 — 파일 상단 주석),
       // 모션도 하나 줄어든다. 대비 실측: 잉크 글자 on 머스터드 = 7.8:1.
-      background: isCurrent ? NEON.mustard : 'rgba(255,255,255,0.04)',
-      border: isCurrent ? `1px solid ${NEON.mustard}` : RULE,
+      background: isCurrent ? HOUSE.mustard : 'rgba(255,255,255,0.04)',
+      border: isCurrent ? `1px solid ${HOUSE.mustard}` : RULE,
     });
 
     const marks = document.createElement('div');

@@ -24,7 +24,7 @@ import {
   BALL_RADIUS,
   BALL_START_Z,
 } from '../game/constants';
-import { NEON, rgba } from '../ui/theme'; // 네온 팔레트 단일소스(#5) — 씬 머티리얼·캔버스가 theme.ts와 같은 상수 공유(드리프트 0)
+import { HOUSE, rgba } from '../ui/theme'; // 하우스 팔레트 단일소스(#5) — 씬 머티리얼·캔버스가 theme.ts와 같은 상수 공유(드리프트 0)
 
 const LANE_START_Z = -2; // Lane.ts와 동일
 const LANE_END_Z = PIN_DECK_END + 1.5;
@@ -538,7 +538,7 @@ function buildHallSurfaces(engine: Engine) {
   const matRail = new THREE.MeshStandardMaterial({ color: 0x394153, roughness: 0.7 });
   const matCove = new THREE.MeshStandardMaterial({
     color: 0x000000,
-    emissive: NEON.cream,
+    emissive: HOUSE.cream,
     emissiveIntensity: 1.35, // 천장 스트립(1.6)보다 살짝 죽여 시선이 위로 안 끌리게
   });
   for (const side of [-1, 1]) {
@@ -578,7 +578,7 @@ function buildHallSurfaces(engine: Engine) {
   const STRIP_HALF_W = 0.15;
   const stripMat = new THREE.MeshStandardMaterial({
     color: 0x000000,
-    emissive: NEON.cream,
+    emissive: HOUSE.cream,
     emissiveIntensity: 1.6,
   });
   for (const x of STRIP_X) {
@@ -703,8 +703,8 @@ function buildWallBands(engine: Engine) {
   const matFrame = new THREE.MeshStandardMaterial({ color: 0x2a3142, roughness: 0.75 });
   // 액센트는 홀 팔레트에 맞춰 웜(골드)·쿨(시안) 한 쌍. 구 핑크/퍼플은 전광판 색이라 뺐다.
   const ads = [
-    { tex: makePosterTexture(NEON.mustard, NEON.amber), z: 3.5 },
-    { tex: makePosterTexture(NEON.turquoise, NEON.cream), z: 9.5 },
+    { tex: makePosterTexture(HOUSE.mustard, HOUSE.amber), z: 3.5 },
+    { tex: makePosterTexture(HOUSE.turquoise, HOUSE.cream), z: 9.5 },
   ];
   for (const side of [-1, 1]) {
     for (const ad of ads) {
@@ -1263,7 +1263,7 @@ export class Environment {
       ctx.save();
       ctx.globalAlpha = i % 2 ? 0.10 : 0.20;
       pinPath(ctx, pitch * (i + 0.5), pinBase, k);
-      ctx.fillStyle = NEON.cream;
+      ctx.fillStyle = HOUSE.cream;
       ctx.fill();
       ctx.restore();
     }
@@ -1288,8 +1288,8 @@ export class Environment {
       ctx.lineWidth = lw;
       ctx.stroke();
     };
-    sweep(0.80, 32, NEON.brick); // 굵은 본 띠 — 핀 스트라이프 적색
-    sweep(0.955, 8, NEON.mustard); // 얇은 짝 띠 — 미드센추리 2겹 관용구
+    sweep(0.80, 32, HOUSE.brick); // 굵은 본 띠 — 핀 스트라이프 적색
+    sweep(0.955, 8, HOUSE.mustard); // 얇은 짝 띠 — 미드센추리 2겹 관용구
 
     // ── ③ 슬랩 로고타입 + 태그라인 + 터쿼이즈 밑줄 ──
     ctx.save();
@@ -1298,25 +1298,30 @@ export class Environment {
     const cx = W / 2;
     const nameY = artH * 0.44;
     ctx.font = '700 54px Georgia, "Times New Roman", serif';
-    ctx.fillStyle = NEON.cream;
-    ctx.fillText('NEON LANES', cx, nameY);
-    // 밑줄 스우시 — 이름 아래를 한 번 훑는다(미드센추리 로고 관용구)
+    ctx.fillStyle = HOUSE.cream;
+    const NAME = 'STARLITE LANES';
+    ctx.fillText(NAME, cx, nameY);
+    // 밑줄 스우시 — 이름 아래를 한 번 훑는다(미드센추리 로고 관용구).
+    // ⚠️ 폭을 **실측에서 유도한다.** 예전엔 ±168 하드코딩이었고, 이름이 NEON LANES(385px) →
+    //    STARLITE LANES(504px)로 길어지면서 가운데만 밑줄이 그어졌다. measureText로 뽑으면
+    //    다음에 이름이 또 바뀌어도 따라온다. 0.94 = 글자보다 살짝 짧게(글리프 사이드베어링 보정).
+    const half = (ctx.measureText(NAME).width / 2) * 0.94;
     ctx.beginPath();
-    ctx.moveTo(cx - 168, nameY + 15);
-    ctx.quadraticCurveTo(cx, nameY + 30, cx + 168, nameY + 11);
-    ctx.strokeStyle = NEON.turquoise;
+    ctx.moveTo(cx - half, nameY + 15);
+    ctx.quadraticCurveTo(cx, nameY + 30, cx + half, nameY + 11);
+    ctx.strokeStyle = HOUSE.turquoise;
     ctx.lineWidth = 6;
     ctx.lineCap = 'round';
     ctx.stroke();
     ctx.font = '700 17px Georgia, "Times New Roman", serif';
-    ctx.fillStyle = NEON.mustard;
+    ctx.fillStyle = HOUSE.mustard;
     ctx.fillText('S T R I K E   I T   U P', cx, nameY + 52);
     ctx.restore();
 
     // ── ④ 하단 레인 번호 띠 ──
     ctx.fillStyle = '#150e0a';
     ctx.fillRect(0, artH, W, bandH);
-    ctx.fillStyle = rgba(NEON.cream, 0.16);
+    ctx.fillStyle = rgba(HOUSE.cream, 0.16);
     ctx.fillRect(0, artH, W, 1.5);
     // 번호 x는 실제 레인 중심에서 유도 — 텍스처 폭이 홀 전폭(HALL_HALF_W*2)에 대응한다.
     const laneStep = (LANE_UNIT / (HALL_HALF_W * 2)) * W;
@@ -1327,12 +1332,12 @@ export class Environment {
     for (let i = 0; i < 5; i++) {
       const x = W / 2 + (i - 2) * laneStep;
       ctx.font = '700 19px Georgia, "Times New Roman", serif';
-      ctx.fillStyle = NEON.cream;
+      ctx.fillStyle = HOUSE.cream;
       ctx.fillText(String(i + 1), x, bandMid + 1);
       if (i < 4) {
         // 번호 사이 브릭 다이아 — 실물 띠의 구분자
         const dx = x + laneStep / 2;
-        ctx.fillStyle = NEON.brick;
+        ctx.fillStyle = HOUSE.brick;
         ctx.beginPath();
         ctx.moveTo(dx, bandMid - 4);
         ctx.lineTo(dx + 4, bandMid);

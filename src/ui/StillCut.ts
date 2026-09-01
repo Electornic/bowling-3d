@@ -18,7 +18,7 @@
  * 스트라이크만 **플랫 원색 블록**(브릭)이고 나머지는 잉크 패널이다 — 가장 센 순간에 가장 센 장치를 쓴다
  * (이벤트의 경중은 색·크기·모션이 말한다는 아래 HOLD_MS 원칙의 연장).
  */
-import { INK, NEON, rgba } from './theme';
+import { INK, HOUSE, rgba } from './theme';
 
 export type StillCutKind = 'strike' | 'spare' | 'split' | 'gutter';
 
@@ -63,42 +63,42 @@ const CFG: Record<
   { ground: string; text: string; sub: string; outline: string; bar: string; shadow: string; dot: string; burst: string; size: string }
 > = {
   strike: {
-    ground: NEON.brick, // 348° — 팔레트 원색 그대로. 이미 인쇄 농도라 손댈 게 없었다
-    text: NEON.cream,
-    sub: NEON.cream,
+    ground: HOUSE.brick, // 348° — 팔레트 원색 그대로. 이미 인쇄 농도라 손댈 게 없었다
+    text: HOUSE.cream,
+    sub: HOUSE.cream,
     outline: INK,
-    bar: NEON.cream,
+    bar: HOUSE.cream,
     shadow: INK,
     dot: rgba(INK, 0.3),
-    burst: rgba(NEON.cream, 0.16),
+    burst: rgba(HOUSE.cream, 0.16),
     size: 'clamp(32px,7.5vw,62px)',
   },
   spare: {
     ground: '#0d5a54', // turquoise와 같은 176°, 인쇄 농도
-    text: NEON.cream,
-    sub: NEON.cream,
+    text: HOUSE.cream,
+    sub: HOUSE.cream,
     outline: INK,
-    bar: NEON.cream,
+    bar: HOUSE.cream,
     shadow: INK,
     dot: rgba(INK, 0.28),
-    burst: rgba(NEON.cream, 0.12),
+    burst: rgba(HOUSE.cream, 0.12),
     size: 'clamp(28px,6vw,50px)',
   },
   split: {
     ground: '#14572f', // sage와 같은 140°, 인쇄 농도
-    text: NEON.cream,
-    sub: NEON.cream,
+    text: HOUSE.cream,
+    sub: HOUSE.cream,
     outline: INK,
-    bar: NEON.cream,
+    bar: HOUSE.cream,
     shadow: INK,
     dot: rgba(INK, 0.28),
-    burst: rgba(NEON.cream, 0.12),
+    burst: rgba(HOUSE.cream, 0.12),
     size: 'clamp(28px,6vw,50px)',
   },
   gutter: {
     ground: INK,
     text: '#aeb6c2',
-    sub: NEON.faint,
+    sub: HOUSE.faint,
     outline: '#5c6472',
     bar: '#5c6472',
     shadow: '',

@@ -7,7 +7,7 @@
       name="viewport"
       content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover"
     />
-    <title>NEON LANES</title>
+    <title>STARLITE LANES</title>
     <style>
       * { margin: 0; padding: 0; box-sizing: border-box; }
       /* overscroll-behavior: 당겨서새로고침·러버밴딩 차단(Safari 16+, html·body 양쪽). user-select/touch-callout: 롱프레스 선택·메뉴 차단 */
@@ -62,7 +62,7 @@
   <body>
     <div id="loading" role="status" aria-label="로딩 중">
       <div class="house">
-        <div id="boot-name">NEON LANES</div>
+        <div id="boot-name">STARLITE LANES</div>
         <svg id="boot-rule" viewBox="0 0 300 12" aria-hidden="true">
           <path d="M4 6 Q150 13 296 4" fill="none" stroke="#3aa8a0" stroke-width="4" stroke-linecap="round" />
         </svg>
@@ -188,9 +188,12 @@
         }
 
         // ── 부팅음: 탭=사용자 제스처라 오디오 언락 가능. 게임 사운드 설정(localStorage)이 OFF면 무음. ──
+        // ⚠️ 이 키는 settings.ts의 KEY와 **중복**이다 — 모듈보다 먼저 도는 코드라 import할 수 없다.
+        //    한쪽만 바꾸면 부팅음이 사운드 설정을 조용히 무시한다(이름 변경 때 실제로 걸렸던 자리).
+        //    구 키까지 함께 읽는다: 첫 방문이면 settings.ts의 migrateLegacy()가 아직 안 돌았을 수 있다.
         function soundEnabled() {
           try {
-            var raw = localStorage.getItem('bowling3d.settings.v1'); // settings.ts KEY
+            var raw = localStorage.getItem('starlite.settings.v1') || localStorage.getItem('bowling3d.settings.v1');
             if (!raw) return true;
             return JSON.parse(raw).sound !== false;
           } catch (e) { return true; }

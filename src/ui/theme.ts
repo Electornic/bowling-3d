@@ -1,5 +1,5 @@
 /**
- * 공통 네온/신스웨이브 UI 토큰 + 헬퍼.
+ * 공통 하우스 UI 토큰 + 헬퍼.
  * 씬(Environment.ts)의 팔레트와 통일 — 모든 오버레이 UI(점수판·볼무게·파워·스핀)가
  * 같은 비주얼 언어를 쓰도록 한 곳에서 관리한다.
  */
@@ -24,11 +24,20 @@ export const css = (el: HTMLElement, style: Partial<CSSStyleDeclaration>): void 
  *     방에 실물로 존재하는 유일한 고채도색이다(핀 10개 × 옆 레인).
  *
  * 이름이 색상값을 서술한다(구 cyan·pink·gold와 같은 규칙) — 값만 갈아치우면 이름이 거짓이 되므로
- * 키까지 함께 바꿨다. `NEON`이라는 객체명은 유지한다: 게임 이름이 NEON LANES이고,
- * 코스믹 볼링(90년대부터 블랙라이트·glow ink가 업계 표준 옵션)이 실재하는 근거이며,
- * Hud·Controls가 `ensureNeonStyles()`를 "네온 UI 표시 전 1회 호출" 계약으로 이미 부른다.
+ * 키까지 함께 바꿨다.
+ *
+ * ⚠️ 객체명도 `NEON` → `HOUSE`로 갔다(2026-09-02, 이름 변경과 같은 커밋). 처음엔 유지하려 했고
+ * 근거를 셋 적어뒀는데 **셋 다 그 뒤로 죽었다**:
+ *  ① "게임 이름이 NEON LANES다" → STARLITE LANES로 바뀌었다.
+ *  ② "코스믹 볼링(블랙라이트·glow ink)이 네온의 실재 근거다" → 글로우를 전부 걷어냈으니
+ *     이 팔레트는 발광하지 않는다. 인쇄 잉크다.
+ *  ③ "`ensureNeonStyles()`를 이미 부른다" → 그건 함수명을 바꾸면 되는 일이지 근거가 아니었다.
+ * 남은 건 "미드센추리 인쇄 팔레트를 NEON이라 부르는 상태"뿐이라, 다음 읽는 사람을 속인다.
  */
-export const NEON = {
+export const HOUSE = {
+  // ⚠️ 이 값들은 **액센트(테두리·글자·작은 면)용**이다. 100px 이상 솔리드 색면으로 깔면 탁하다 —
+  //    저채도 중간톤의 성질이다. 큰 색면이 필요하면 StillCut의 ground처럼 **같은 색상의 인쇄 농도판**을
+  //    따로 뽑아라(명도↓ + 채도↑). 잉크로 단순 혼색하면 올리브 진흙이 된다(실산출 기록은 StillCut 주석).
   turquoise: '#3aa8a0', // 프라이머리 — 쿨 축 210°와 같은 계열에서 채도를 뺀 자리
   brick: '#c8102e', // 핫 액센트 — 핀 넥 스트라이프. 방에 실재하는 고채도색
   mustard: '#e0a12b', // 강조 — 메이플 30°와 같은 색상군
@@ -38,7 +47,7 @@ export const NEON = {
   red: '#d1483f', // 실패·경고 (브릭보다 탈색해 액센트와 구분)
   // --- 텍스트 3단 스케일 ---
   // 회색 텍스트가 UI 전반에 9종(#aeb6c4·#aab3c2·#9aa3b2·#9aa6bd·#8a93a3·#7d8696·#6b7686 …)으로
-  // 흩어져 있었다. NEON에 중성색이 text·dim 둘뿐이라 중간 톤을 전부 호출부에서 즉석으로 만든 결과다
+  // 흩어져 있었다. HOUSE에 중성색이 text·dim 둘뿐이라 중간 톤을 전부 호출부에서 즉석으로 만든 결과다
   // (docs/legacy/POLISH_BACKLOG.md #6이 "스케일 시스템 부재"로 미뤄둔 항목).
   //
   // 메뉴 서피스 실측 — 패널 rgba(14,17,27,0.96) ← 스크림 0.45 ← 3D 배경 → 합성 #11131d(휘도 0.007).
@@ -81,7 +90,7 @@ export function rgba(hex: string, a: number): string {
  * (Menu.ts 자체 패널 rgba(14,17,27) = 226°와도 같은 계열로 통일).
  * 네온은 안 버린다 — 테두리·글로우의 accent가 그대로 지고, 액센트는 호출부가 정한다.
  */
-export function applyPanel(el: HTMLElement, accent: string = NEON.turquoise): void {
+export function applyPanel(el: HTMLElement, accent: string = HOUSE.turquoise): void {
   css(el, {
     background: PANEL_BG,
     border: `1px solid ${rgba(accent, 0.38)}`,
@@ -93,7 +102,7 @@ export function applyPanel(el: HTMLElement, accent: string = NEON.turquoise): vo
 /**
  * 인쇄 잉크 — '종이 반대편'. index.html 부팅 로더 body 배경과 같은 값이다.
  * 팝아트(카탈로그 300 갈래) 문법에서 **원색 블록 위에 앉는 글자·규선**이 이 색이다.
- * NEON 안에 넣지 않은 이유: NEON은 액센트 팔레트이고 이건 잉크(비-액센트)라 역할이 다르다.
+ * HOUSE 안에 넣지 않은 이유: HOUSE은 액센트 팔레트이고 이건 잉크(비-액센트)라 역할이 다르다.
  */
 export const INK = '#171210';
 
@@ -102,13 +111,13 @@ export const PANEL_BG = '#151a20';
 
 let varsEmitted = false;
 /**
- * NEON 팔레트를 :root CSS 변수(--neon-*)로 1회 방출 — ui.css(정적 애니메이션·의사요소, #4)가 var()로 소비(#5).
- * TS의 NEON이 유일 소스: CSS·DOM-JS·WebGL 세 세계가 같은 상수를 공유해 드리프트 0.
- * (함수명 유지 — Hud·Controls가 "네온 UI 표시 전 1회 호출" 계약으로 이미 부른다. 키프레임은 ui.css에 있다.)
+ * 하우스 팔레트를 :root CSS 변수(--house-*)로 1회 방출 — ui.css(정적 애니메이션·의사요소, #4)가 var()로 소비(#5).
+ * TS의 HOUSE이 유일 소스: CSS·DOM-JS·WebGL 세 세계가 같은 상수를 공유해 드리프트 0.
+ * (함수명 유지 — Hud·Controls가 "하우스 UI 표시 전 1회 호출" 계약으로 이미 부른다. 키프레임은 ui.css에 있다.)
  */
-export function ensureNeonStyles(): void {
+export function ensureHouseStyles(): void {
   if (varsEmitted) return;
   varsEmitted = true;
   const root = document.documentElement.style;
-  for (const [k, v] of Object.entries(NEON)) root.setProperty(`--neon-${k}`, v);
+  for (const [k, v] of Object.entries(HOUSE)) root.setProperty(`--house-${k}`, v);
 }

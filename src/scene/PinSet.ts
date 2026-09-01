@@ -14,7 +14,7 @@ import {
   PIN_FALL_ANGLE,
 } from '../game/constants';
 import { PIN_NUMBERS } from '../game/splits';
-import { NEON } from '../ui/theme';
+import { HOUSE } from '../ui/theme';
 
 const UP_COS_FALL = Math.cos(PIN_FALL_ANGLE); // ≈0.707 — 상수는 constants.ts가 갖는다(여기서 재구현 금지)
 
@@ -88,7 +88,7 @@ export function makeSweepBar(): THREE.Group {
     new THREE.BoxGeometry(SWEEP_BAR_W * 0.985, 0.014, 0.014),
     new THREE.MeshStandardMaterial({
       color: 0x0a1a20,
-      emissive: NEON.turquoise, // 레인 네온과 같은 톤
+      emissive: HOUSE.turquoise, // 레인 트림과 같은 톤
       emissiveIntensity: 2.4,
       metalness: 0,
       roughness: 1,

@@ -18,7 +18,26 @@ export interface ModeStats {
   spareChances: number;
 }
 
-const KEY = 'bowling3d.stats.v1';
+const KEY = 'starlite.stats.v1';
+const LEGACY_KEY = 'bowling3d.stats.v1'; // 구 이름(NEON LANES) 시절 키 — migrateLegacy()가 한 번 옮긴다
+/**
+ * 구 키 일회성 인계 — 이름을 NEON LANES → STARLITE LANES로 바꾸면서 접두사가 `bowling3d.*` →
+ * `starlite.*`로 갔다. 웹은 이미 배포돼 있어서 키만 갈면 **해금·설정·통계가 통째로 날아간다.**
+ * 새 키가 비었고 구 키가 있으면 한 번 옮기고 구 키를 지운다.
+ * ⚠️ 2026-10 이후엔 지워도 된다 — 그때쯤 활성 사용자는 전부 새 키를 갖는다.
+ */
+function migrateLegacy(): void {
+  try {
+    if (localStorage.getItem(KEY) != null) return;
+    const old = localStorage.getItem(LEGACY_KEY);
+    if (old == null) return;
+    localStorage.setItem(KEY, old);
+    localStorage.removeItem(LEGACY_KEY);
+  } catch {
+    /* 시크릿 모드 등 — 인계 실패는 조용히 넘긴다(기본값으로 시작) */
+  }
+}
+
 
 const emptyStats = (): ModeStats => ({
   best: 0,
@@ -31,6 +50,7 @@ const emptyStats = (): ModeStats => ({
 });
 
 export function loadStats(): Record<string, ModeStats> {
+  migrateLegacy();
   try {
     const raw = localStorage.getItem(KEY);
     if (!raw) return {};

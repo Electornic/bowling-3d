@@ -1,8 +1,8 @@
 /*
  * 정적 UI 스타일 + 애니메이션 (#4 — JS <style> 문자열에서 추출).
  * 성질별 3층 분리: 이 파일은 "정적/애니메이션"만 담는다.
- *   · 토큰(네온 팔레트)은 TS(theme.ts NEON)가 유일 소스 — WebGL도 같은 상수를 읽으므로 TS에 둔다.
- *     theme.ts ensureNeonStyles()가 부팅 시 :root { --neon-* } CSS 변수를 방출하고, 여기서 var()로 소비한다(#5).
+ *   · 토큰(하우스 팔레트)은 TS(theme.ts HOUSE)가 유일 소스 — WebGL도 같은 상수를 읽으므로 TS에 둔다.
+ *     theme.ts ensureHouseStyles()가 부팅 시 :root { --house-* } CSS 변수를 방출하고, 여기서 var()로 소비한다(#5).
  *   · 런타임 계산 인라인 스타일(요소별 height 트랜지션 등)은 TS에 남긴다.
  * main.ts가 한 줄로 import → Vite가 <head>에 주입(설정 0, HMR·린팅·문법 하이라이트 회복).
  * ⚠️ index.html 부팅 로더 CSS는 여기 없음 — 모듈보다 먼저 로드돼야 "즉시 핀 세팅"이라 의도적으로 인라인 유지.
@@ -14,7 +14,7 @@
 /* 누적 점수가 새로 뜨거나 바뀔 때 톡 튀는 팝 (Hud) — 차분한 감속 이징, 피크에서 골드 플래시 */
 @keyframes juiceScorePop {
   0%   { transform: scale(1); }
-  30%  { transform: scale(1.28); color: var(--neon-mustard); }
+  30%  { transform: scale(1.28); color: var(--house-mustard); }
   100% { transform: scale(1); }
 }
 .juice-score-pop { animation: juiceScorePop 0.42s cubic-bezier(0.22, 1, 0.36, 1); }

@@ -9,7 +9,24 @@ import { t } from '../i18n';
  * — "뭔가 설정돼 있다"는 판정과 해금·초기화 경로를 한 곳(rewards.ts)에 유지하기 위해서다.
  */
 
-const DB_NAME = 'bowling3d.screen';
+const DB_NAME = 'starlite.screen';
+/**
+ * 구 DB 정리 — 이름 변경으로 DB 이름이 `bowling3d.screen` → `starlite.screen`이 됐다.
+ * localStorage와 달리 **인계하지 않는다**: 값이 수십 MB 비디오라 옮기는 비용이 크고, 커스텀 전광판은
+ * 사용자가 직접 올린 옵트인 콘텐츠라 다시 올리면 된다. 대신 **구 DB를 지워 쿼터 누수를 막는다** —
+ * 안 지우면 브라우저에 수십 MB가 영구히 남는다(참조하는 코드는 이제 없다).
+ * ⚠️ 2026-10 이후엔 지워도 된다.
+ */
+let legacyDropped = false;
+function dropLegacyDb(): void {
+  if (legacyDropped) return;
+  legacyDropped = true;
+  try {
+    indexedDB.deleteDatabase('bowling3d.screen');
+  } catch {
+    /* 지원 안 하는 환경 — 무해하게 넘긴다 */
+  }
+}
 const DB_VERSION = 1;
 const STORE = 'media';
 const KEY = 'custom';
@@ -24,6 +41,7 @@ export interface ScreenVideo {
 
 function openDb(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
+    dropLegacyDb(); // 구 DB 쿼터 누수 방지 (한 번만 실제로 실행된다)
     const req = indexedDB.open(DB_NAME, DB_VERSION);
     req.onupgradeneeded = () => {
       const db = req.result;

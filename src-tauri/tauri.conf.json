@@ -1,8 +1,8 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
-  "productName": "NEON LANES",
+  "productName": "STARLITE LANES",
   "version": "0.1.0",
-  "identifier": "com.electornic.bowling3d",
+  "identifier": "com.electornic.starlitelanes",
   "build": {
     "frontendDist": "../dist",
     "devUrl": "http://localhost:5173",
@@ -12,7 +12,7 @@
   "app": {
     "windows": [
       {
-        "title": "NEON LANES",
+        "title": "STARLITE LANES",
         "width": 1280,
         "height": 800,
         "minWidth": 640,

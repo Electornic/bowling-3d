@@ -8,7 +8,7 @@ import { saveScreenVideo, loadScreenVideo, clearScreenVideo } from '../game/scre
 import type { BallSkin, SkinFinish } from '../game/rewards';
 import type { Settings, Quality } from '../game/settings';
 import { t, getLocale, detectLocale, LOCALES, LOCALE_LABEL, type I18nKey, type LocaleSetting } from '../i18n';
-import { css, NEON, PANEL_BG, rgba } from '../ui/theme'; // 디자인 시스템 단일소스(#6) — 로컬 css 복제 제거, NEON 팔레트 토큰 공유
+import { css, HOUSE, PANEL_BG, rgba } from '../ui/theme'; // 디자인 시스템 단일소스(#6) — 로컬 css 복제 제거, 하우스 팔레트 토큰 공유
 import { buildResultSheets, SHEET_MAX } from './Hud'; // 결과 모달 점수 시트 — HUD와 같은 렌더러(마크 규칙·5칸 접기 공유)
 
 // === UI juice: 마이크로 모션 — 정적 CSS(.menu-panel button 트랜지션 + juicePanelIn/juiceFadeIn 키프레임 +
@@ -112,9 +112,9 @@ const SPEAKER_SVG = (on: boolean): string =>
 // 미드센추리 하우스 사인은 잉크 한 벌로 찍고, 면이 평평해야 슬랩 레터링이 산다.
 // 키 이름(fire/ice/gold)은 호출부 5곳의 의미 구분이라 유지한다. 대비는 전부 6:1 이상.
 const BTN_ACCENTS = {
-  fire: { bg: NEON.brick, fg: NEON.cream }, // 7.1:1
-  ice: { bg: NEON.turquoise, fg: '#10171a' }, // 6.2:1
-  gold: { bg: NEON.mustard, fg: '#1a1205' }, // 8.2:1
+  fire: { bg: HOUSE.brick, fg: HOUSE.cream }, // 7.1:1
+  ice: { bg: HOUSE.turquoise, fg: '#10171a' }, // 6.2:1
+  gold: { bg: HOUSE.mustard, fg: '#1a1205' }, // 8.2:1
 } as const;
 type BtnAccent = keyof typeof BTN_ACCENTS;
 
@@ -186,7 +186,7 @@ export class MenuUI {
       border: '1px solid rgba(255,255,255,0.1)',
       borderRadius: '4px', // 16px → 4px. applyPanel(3px)과 같은 계열 — 미드센추리 인쇄물은 모서리를 굴리지 않는다
       padding: '28px 32px',
-      color: NEON.text,
+      color: HOUSE.text,
       font: '500 14px/1.5 system-ui, sans-serif',
       // 모바일은 뷰 무관 고정 폭으로 통일 — 안 그러면 패널이 내용 너비에 맞춰져, 내용이 좁은
       // 컬렉션 시트가 메뉴보다 홀쭉해진다. border-box+92vw 상한으로 좁은 폰 가로 오버플로도 방지.
@@ -244,7 +244,7 @@ export class MenuUI {
       borderRadius: '10px',
       border: '1px solid rgba(255,255,255,0.14)',
       background: 'rgba(255,255,255,0.04)',
-      color: NEON.text,
+      color: HOUSE.text,
       fontSize: '18px',
       lineHeight: '1',
       padding: '0',
@@ -261,7 +261,7 @@ export class MenuUI {
   // --- 시작 메뉴 --- (섹션별 빌더로 분해, #8후반 — 각 빌더는 자족적으로 this.panel에 append)
   showMenu() {
     this.panel.replaceChildren();
-    this.panel.appendChild(this.title('NEON LANES')); // 브랜드명 — 번역 대상이 아니다(4개 언어에서 차용어로 통한다)
+    this.panel.appendChild(this.title('STARLITE LANES')); // 브랜드명 — 번역 대상이 아니다(4개 언어에서 차용어로 통한다)
     this.panel.appendChild(this.soundToggle()); // 우상단 사운드 토글
     this.buildMatchupSection(); // 모드 + 상대
     this.buildAimAidSection(); // 조준 난이도 (예측선 표시량 — 점수·물리 무영향)
@@ -373,10 +373,10 @@ export class MenuUI {
     wInput.max = '16';
     wInput.step = '1'; // 1파운드 단위
     wInput.value = String(this.weight);
-    css(wInput, { flex: '1', accentColor: NEON.turquoise, minHeight: COARSE ? '44px' : '' });
+    css(wInput, { flex: '1', accentColor: HOUSE.turquoise, minHeight: COARSE ? '44px' : '' });
     const wVal = document.createElement('span');
     wVal.textContent = `${this.weight} lb`;
-    css(wVal, { font: "700 14px/1 ui-monospace, 'SF Mono', monospace", color: NEON.turquoise, minWidth: '54px', textAlign: 'right' });
+    css(wVal, { font: "700 14px/1 ui-monospace, 'SF Mono', monospace", color: HOUSE.turquoise, minWidth: '54px', textAlign: 'right' });
     wInput.addEventListener('input', () => {
       this.weight = parseFloat(wInput.value);
       wVal.textContent = `${this.weight} lb`;
@@ -399,7 +399,7 @@ export class MenuUI {
       borderRadius: '10px',
       border: '1px solid rgba(255,255,255,0.18)',
       background: 'rgba(255,255,255,0.05)',
-      color: NEON.text,
+      color: HOUSE.text,
       font: '700 13px/1 system-ui, sans-serif',
       cursor: 'pointer',
       marginBottom: '14px',
@@ -424,14 +424,14 @@ export class MenuUI {
       borderTop: '1px solid rgba(255,255,255,0.1)',
       paddingTop: '10px',
       font: '500 12px/1.7 system-ui, sans-serif',
-      color: NEON.dim,
+      color: HOUSE.dim,
     });
     stats.innerHTML = t('menu.statsFooter', { full: s.full, blitz: s.blitz, spare: s.spare });
     this.panel.appendChild(stats);
 
     // 조작법
     const help = document.createElement('div');
-    css(help, { marginTop: '8px', font: '500 11px/1.6 system-ui, sans-serif', color: NEON.faint });
+    css(help, { marginTop: '8px', font: '500 11px/1.6 system-ui, sans-serif', color: HOUSE.faint });
     help.textContent = COARSE
       ? t('menu.help.touch')
       : t('menu.help.mouse');
@@ -447,7 +447,7 @@ export class MenuUI {
       minHeight: COARSE ? '36px' : '',
       background: 'transparent',
       border: 'none',
-      color: NEON.dim,
+      color: HOUSE.dim,
       font: '600 11px/1.6 system-ui, sans-serif',
       cursor: 'pointer',
       textAlign: 'left',
@@ -479,9 +479,9 @@ export class MenuUI {
         padding: COARSE ? '12px 14px' : '10px 13px',
         minHeight: COARSE ? '44px' : '',
         borderRadius: '10px',
-        border: `1px solid ${on ? rgba(NEON.mustard, 0.5) : 'rgba(255,255,255,0.18)'}`,
-        background: on ? rgba(NEON.mustard, 0.14) : 'rgba(255,255,255,0.05)',
-        color: on ? NEON.mustard : NEON.text,
+        border: `1px solid ${on ? rgba(HOUSE.mustard, 0.5) : 'rgba(255,255,255,0.18)'}`,
+        background: on ? rgba(HOUSE.mustard, 0.14) : 'rgba(255,255,255,0.05)',
+        color: on ? HOUSE.mustard : HOUSE.text,
         font: `${on ? 800 : 600} 13px/1 system-ui, sans-serif`,
         cursor: 'pointer',
         textAlign: 'left',
@@ -550,7 +550,7 @@ export class MenuUI {
         display: 'flex',
         justifyContent: 'space-between',
         gap: '24px',
-        color: i === summary.winner ? NEON.mustard : NEON.text,
+        color: i === summary.winner ? HOUSE.mustard : HOUSE.text,
       });
       const unit = summary.mode === 'spare' ? '/10' : t('menu.result.unit');
       row.innerHTML = `<span>${p.name}</span><span>${p.score}${unit}</span>`; // 🤖 제거 — 이름이 이미 구분한다(Hud 주석)
@@ -564,7 +564,7 @@ export class MenuUI {
       const badge = document.createElement('div');
       badge.textContent = t('menu.result.newRecord');
       css(badge, {
-        color: NEON.mustard,
+        color: HOUSE.mustard,
         font: '800 14px/1 system-ui, sans-serif',
         marginBottom: '14px',
       });
@@ -576,8 +576,8 @@ export class MenuUI {
       const box = document.createElement('div');
       css(box, {
         borderRadius: '10px',
-        border: `1px solid ${rgba(NEON.mustard, 0.4)}`,
-        background: rgba(NEON.mustard, 0.08),
+        border: `1px solid ${rgba(HOUSE.mustard, 0.4)}`,
+        background: rgba(HOUSE.mustard, 0.08),
         padding: '10px 12px',
         marginBottom: '14px',
       });
@@ -585,7 +585,7 @@ export class MenuUI {
         const ach = ACHIEVEMENTS.find((a) => a.id === id);
         if (!ach) continue;
         const row = document.createElement('div');
-        css(row, { font: '700 13px/1.6 system-ui, sans-serif', color: NEON.mustard });
+        css(row, { font: '700 13px/1.6 system-ui, sans-serif', color: HOUSE.mustard });
         row.textContent = t('menu.result.newUnlock', { badge: t(ach.badgeKey), skin: t(resolveSkin(ach.reward).labelKey) });
         box.appendChild(row);
       }
@@ -681,9 +681,9 @@ export class MenuUI {
       padding: COARSE ? '12px' : '10px',
       minHeight: COARSE ? '44px' : '',
       borderRadius: '10px',
-      border: `1px solid ${rgba(NEON.mustard, 0.34)}`, // 아일랜드가 쓰던 골드 테두리를 이어받는다
+      border: `1px solid ${rgba(HOUSE.mustard, 0.34)}`, // 아일랜드가 쓰던 골드 테두리를 이어받는다
       background: 'rgba(255,255,255,0.05)',
-      color: NEON.text,
+      color: HOUSE.text,
       font: '700 13px/1 system-ui, sans-serif',
       cursor: 'pointer',
       marginBottom: '14px',
@@ -695,7 +695,7 @@ export class MenuUI {
     const help = document.createElement('div');
     css(help, {
       font: '500 12px/1.7 system-ui, sans-serif',
-      color: NEON.faint,
+      color: HOUSE.faint,
       padding: '10px 13px',
       borderRadius: '10px',
       background: 'rgba(255,255,255,0.03)',
@@ -719,7 +719,7 @@ export class MenuUI {
 
     const note = document.createElement('div');
     note.textContent = t('menu.pause.forfeitNote');
-    css(note, { font: '500 11px/1.4 system-ui, sans-serif', color: NEON.faint, textAlign: 'center', marginTop: '9px' });
+    css(note, { font: '500 11px/1.4 system-ui, sans-serif', color: HOUSE.faint, textAlign: 'center', marginTop: '9px' });
     this.panel.appendChild(note);
 
     this.reveal();
@@ -773,9 +773,9 @@ export class MenuUI {
         padding: COARSE ? '10px 13px' : '7px 13px',
         minHeight: COARSE ? '40px' : '',
         borderRadius: '999px',
-        border: `1px solid ${on ? rgba(NEON.mustard, 0.5) : 'rgba(255,255,255,0.18)'}`,
-        background: on ? rgba(NEON.mustard, 0.14) : 'rgba(255,255,255,0.05)',
-        color: on ? NEON.mustard : NEON.text,
+        border: `1px solid ${on ? rgba(HOUSE.mustard, 0.5) : 'rgba(255,255,255,0.18)'}`,
+        background: on ? rgba(HOUSE.mustard, 0.14) : 'rgba(255,255,255,0.05)',
+        color: on ? HOUSE.mustard : HOUSE.text,
         font: `${on ? 800 : 600} 12px/1 system-ui, sans-serif`,
         cursor: 'pointer',
         whiteSpace: 'nowrap',
@@ -811,7 +811,7 @@ export class MenuUI {
     });
     const l = document.createElement('span');
     l.textContent = label;
-    css(l, { font: '600 14px/1 system-ui, sans-serif', color: NEON.text });
+    css(l, { font: '600 14px/1 system-ui, sans-serif', color: HOUSE.text });
     const btn = document.createElement('button');
     btn.textContent = valueText;
     css(btn, {
@@ -821,7 +821,7 @@ export class MenuUI {
       borderRadius: '999px',
       border: `1px solid ${active ? '#5dca8f' : 'rgba(255,255,255,0.2)'}`,
       background: active ? 'rgba(93,202,143,0.16)' : 'rgba(255,255,255,0.04)',
-      color: active ? '#5dca8f' : NEON.dim,
+      color: active ? '#5dca8f' : HOUSE.dim,
       font: '800 12px/1 system-ui, sans-serif',
       cursor: 'pointer',
     });
@@ -847,7 +847,7 @@ export class MenuUI {
   private sectionLabel(text: string): HTMLDivElement {
     const l = document.createElement('div');
     l.textContent = text;
-    css(l, { font: '700 12px/1 system-ui, sans-serif', color: NEON.dim, marginBottom: '8px' });
+    css(l, { font: '700 12px/1 system-ui, sans-serif', color: HOUSE.dim, marginBottom: '8px' });
     return l;
   }
 
@@ -861,7 +861,7 @@ export class MenuUI {
       borderRadius: '9px',
       border: '1px solid rgba(255,255,255,0.18)',
       background: 'rgba(255,255,255,0.05)',
-      color: NEON.text,
+      color: HOUSE.text,
       font: '600 13px/1 system-ui, sans-serif',
       cursor: 'pointer',
     });
@@ -922,7 +922,7 @@ export class MenuUI {
       borderRadius: '10px',
       border: `1px solid ${opts.danger ? 'rgba(239,68,68,0.5)' : 'rgba(255,255,255,0.25)'}`,
       background: 'transparent',
-      color: opts.danger ? '#f87171' : NEON.text,
+      color: opts.danger ? '#f87171' : HOUSE.text,
       font: `700 ${opts.size ?? 14}px/1 system-ui, sans-serif`,
       cursor: 'pointer',
     });
@@ -936,7 +936,7 @@ export class MenuUI {
     css(pill, {
       font: '800 9px/1 system-ui, sans-serif',
       color: '#1a1205',
-      background: NEON.mustard,
+      background: HOUSE.mustard,
       borderRadius: '5px',
       ...(absolute ? { position: 'absolute', top: '7px', right: '8px', padding: '2px 5px' } : { padding: '3px 6px' }),
     });
@@ -962,9 +962,9 @@ export class MenuUI {
     for (const [k, b] of map) {
       const on = k === active;
       // 팝(바운스) 없이 색만 부드럽게 전환 (.menu-panel button transition이 담당). 여러 칩 동시 전환도 조용.
-      b.style.borderColor = on ? NEON.mustard : 'rgba(255,255,255,0.18)';
-      b.style.background = on ? rgba(NEON.mustard, 0.14) : 'rgba(255,255,255,0.05)';
-      b.style.color = on ? NEON.mustard : NEON.text;
+      b.style.borderColor = on ? HOUSE.mustard : 'rgba(255,255,255,0.18)';
+      b.style.background = on ? rgba(HOUSE.mustard, 0.14) : 'rgba(255,255,255,0.05)';
+      b.style.color = on ? HOUSE.mustard : HOUSE.text;
     }
   }
 
@@ -972,9 +972,9 @@ export class MenuUI {
     const spareMode = this.mode === 'spare';
     for (const [k, b] of map) {
       const active = k === this.rivalKey;
-      b.style.borderColor = active ? NEON.mustard : 'rgba(255,255,255,0.18)';
-      b.style.background = active ? rgba(NEON.mustard, 0.14) : 'rgba(255,255,255,0.05)';
-      b.style.color = active ? NEON.mustard : NEON.text;
+      b.style.borderColor = active ? HOUSE.mustard : 'rgba(255,255,255,0.18)';
+      b.style.background = active ? rgba(HOUSE.mustard, 0.14) : 'rgba(255,255,255,0.05)';
+      b.style.color = active ? HOUSE.mustard : HOUSE.text;
       if (k !== null) {
         b.style.opacity = spareMode ? '0.35' : '1';
         b.style.cursor = spareMode ? 'not-allowed' : 'pointer';
@@ -1009,14 +1009,14 @@ export class MenuUI {
     });
     const heroBall = this.ballSwatch(equipped, 78);
     const heroName = document.createElement('div');
-    css(heroName, { display: 'flex', alignItems: 'center', gap: '7px', font: '700 16px/1 system-ui, sans-serif', color: NEON.mustard });
+    css(heroName, { display: 'flex', alignItems: 'center', gap: '7px', font: '700 16px/1 system-ui, sans-serif', color: HOUSE.mustard });
     const heroNameText = document.createElement('span');
     heroNameText.textContent = t(equipped.labelKey);
     heroName.appendChild(heroNameText);
     heroName.appendChild(this.equippedPill());
     const heroFinish = document.createElement('div');
     heroFinish.textContent = t('menu.collection.finish', { finish: t(FINISH_KEY[equipped.finish]) });
-    css(heroFinish, { font: '500 11px/1 system-ui, sans-serif', color: NEON.faint });
+    css(heroFinish, { font: '500 11px/1 system-ui, sans-serif', color: HOUSE.faint });
     hero.appendChild(heroBall);
     hero.appendChild(heroName);
     hero.appendChild(heroFinish);
@@ -1041,7 +1041,7 @@ export class MenuUI {
         background: 'transparent',
         border: 'none',
         borderBottom: '2px solid transparent',
-        color: NEON.faint,
+        color: HOUSE.faint,
         font: '700 13px/1 system-ui, sans-serif',
         cursor: 'pointer',
       });
@@ -1087,7 +1087,7 @@ export class MenuUI {
             font: '17px/1 system-ui, sans-serif',
             // ⚠️ 색을 명시해야 한다 — 안 주면 상속이 rgba(16,16,16,0.3)으로 떨어져
             //    #2b3140 원 위에서 **아예 안 보인다**(렌더로 확인). dim이면 대비 5.0.
-            color: NEON.dim,
+            color: HOUSE.dim,
             opacity: '0.85',
           });
           ball.textContent = '—'; // 🔒 → 활자 대시. 미해금 = '아직 없음'이고, 어두운 스와치 자체가 이미 신호다
@@ -1095,13 +1095,13 @@ export class MenuUI {
 
         const labelEl = document.createElement('div');
         labelEl.textContent = t(skin.labelKey);
-        css(labelEl, { font: '700 13px/1.2 system-ui, sans-serif', color: isEquipped ? NEON.mustard : isUnlocked ? NEON.text : NEON.faint });
+        css(labelEl, { font: '700 13px/1.2 system-ui, sans-serif', color: isEquipped ? HOUSE.mustard : isUnlocked ? HOUSE.text : HOUSE.faint });
         const subEl = document.createElement('div');
         const unlockAch = achievementForSkin(skin.id);
         subEl.textContent = isUnlocked
           ? t(FINISH_KEY[skin.finish])
           : unlockAch ? t(unlockAch.descKey) : t('menu.collection.locked');
-        css(subEl, { font: '500 10px/1.3 system-ui, sans-serif', color: isUnlocked && isEquipped ? '#caa86a' : NEON.faint, marginTop: '2px' });
+        css(subEl, { font: '500 10px/1.3 system-ui, sans-serif', color: isUnlocked && isEquipped ? '#caa86a' : HOUSE.faint, marginTop: '2px' });
         const textWrap = document.createElement('div');
         css(textWrap, { textAlign: 'center' });
         textWrap.appendChild(labelEl);
@@ -1118,8 +1118,8 @@ export class MenuUI {
           padding: '11px 11px 9px',
           minHeight: COARSE ? '52px' : '',
           borderRadius: '11px',
-          border: isEquipped ? `1px solid ${NEON.mustard}` : isUnlocked ? '1px solid rgba(255,255,255,0.16)' : '1px solid rgba(255,255,255,0.1)',
-          background: isEquipped ? rgba(NEON.mustard, 0.14) : isUnlocked ? 'rgba(255,255,255,0.04)' : 'rgba(255,255,255,0.02)',
+          border: isEquipped ? `1px solid ${HOUSE.mustard}` : isUnlocked ? '1px solid rgba(255,255,255,0.16)' : '1px solid rgba(255,255,255,0.1)',
+          background: isEquipped ? rgba(HOUSE.mustard, 0.14) : isUnlocked ? 'rgba(255,255,255,0.04)' : 'rgba(255,255,255,0.02)',
           cursor: isUnlocked ? 'pointer' : 'not-allowed',
         });
         cell.appendChild(ball);
@@ -1152,25 +1152,25 @@ export class MenuUI {
           gap: '11px',
           padding: '9px 11px',
           borderRadius: '9px',
-          background: got ? rgba(NEON.mustard, 0.08) : 'rgba(255,255,255,0.02)',
-          border: got ? `1px solid ${rgba(NEON.mustard, 0.22)}` : '1px solid rgba(255,255,255,0.08)',
+          background: got ? rgba(HOUSE.mustard, 0.08) : 'rgba(255,255,255,0.02)',
+          border: got ? `1px solid ${rgba(HOUSE.mustard, 0.22)}` : '1px solid rgba(255,255,255,0.08)',
           opacity: got ? '1' : '0.75',
         });
         const badge = document.createElement('div');
         badge.textContent = t(a.badgeKey);
-        css(badge, { font: '700 12px/1.3 system-ui, sans-serif', color: got ? NEON.mustard : NEON.dim });
+        css(badge, { font: '700 12px/1.3 system-ui, sans-serif', color: got ? HOUSE.mustard : HOUSE.dim });
         const desc = document.createElement('div');
         desc.textContent = t('menu.collection.achUnlock', { desc: t(a.descKey), skin: t(resolveSkin(a.reward).labelKey) });
         // 해금/미해금을 설명 텍스트 색으로 나누지 않는다 — 미해금이었던 #6b7686이 대비 4.02로
         // 본문 기준 미달이었고, 상태는 오른쪽 상태 열(초록/faint)이 이미 진다.
-        css(desc, { font: '500 10px/1.3 system-ui, sans-serif', color: NEON.faint });
+        css(desc, { font: '500 10px/1.3 system-ui, sans-serif', color: HOUSE.faint });
         const body = document.createElement('div');
         css(body, { flex: '1' });
         body.appendChild(badge);
         body.appendChild(desc);
         const status = document.createElement('span');
         status.textContent = got ? '✓' : '—'; // ✓/— 활자 한 쌍 — 🔒는 이모지를 상태 아이콘으로 쓴 자리였다
-        css(status, { flex: '0 0 auto', font: got ? '800 13px/1 system-ui, sans-serif' : '600 11px/1 system-ui, sans-serif', color: got ? '#5dca8f' : NEON.faint });
+        css(status, { flex: '0 0 auto', font: got ? '800 13px/1 system-ui, sans-serif' : '600 11px/1 system-ui, sans-serif', color: got ? '#5dca8f' : HOUSE.faint });
         row.appendChild(body);
         row.appendChild(status);
         achWrap.appendChild(row);
@@ -1195,7 +1195,7 @@ export class MenuUI {
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
-        color: NEON.faint,
+        color: HOUSE.faint,
         font: '600 12px/1 system-ui, sans-serif',
         marginBottom: '10px',
       });
@@ -1204,7 +1204,7 @@ export class MenuUI {
       wrap.appendChild(preview);
 
       const status = document.createElement('div');
-      css(status, { font: '500 11px/1.5 system-ui, sans-serif', color: NEON.faint, marginBottom: '10px', minHeight: '17px' });
+      css(status, { font: '500 11px/1.5 system-ui, sans-serif', color: HOUSE.faint, marginBottom: '10px', minHeight: '17px' });
       status.textContent = t('menu.screen.hint');
       wrap.appendChild(status);
       // 영상은 IndexedDB에 있어 동기로 못 읽는다 — 열린 뒤 이름·길이를 채워 넣는다.
@@ -1223,7 +1223,7 @@ export class MenuUI {
         input.value = ''; // 같은 파일 재선택도 change가 뜨도록
         if (!f) return;
         status.textContent = t('menu.screen.processing');
-        css(status, { color: NEON.faint });
+        css(status, { color: HOUSE.faint });
         try {
           if (f.type.startsWith('video/')) {
             const vid = await fileToScreenVideo(f);
@@ -1282,7 +1282,7 @@ export class MenuUI {
       if (lastRenderedTab !== null && lastRenderedTab !== this.skinTab) playOnce(content, 'juice-fade-in');
       lastRenderedTab = this.skinTab;
       const mark = (btn: HTMLButtonElement | null, on: boolean) => {
-        if (btn) css(btn, { color: on ? NEON.turquoise : NEON.faint, borderBottomColor: on ? NEON.turquoise : 'transparent' });
+        if (btn) css(btn, { color: on ? HOUSE.turquoise : HOUSE.faint, borderBottomColor: on ? HOUSE.turquoise : 'transparent' });
       };
       mark(skinTabBtn, this.skinTab === 'skins');
       mark(achTabBtn, this.skinTab === 'achievements');
