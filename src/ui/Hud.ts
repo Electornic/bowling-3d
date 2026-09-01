@@ -143,7 +143,7 @@ function marksLast(fr: number[]): string[] {
 }
 
 /** 마크 글자색 — 스트라이크/스페어=골드, 그 외 평범 */
-const markColor = (m: string): string => (m === 'X' || m === '/' ? NEON.gold : '#dfe6f2');
+const markColor = (m: string): string => (m === 'X' || m === '/' ? NEON.mustard : '#dfe6f2');
 
 /**
  * 지금 왜 못 던지는지까지 담은 상태 텍스트. 핀세터가 도는 동안은 상태가 AIMING이어도 던질 수
@@ -226,7 +226,7 @@ export class Hud {
     this.pill.classList.add('is-hidden');
     this.pill.setAttribute('aria-controls', 'hud-scoreboard');
     this.pill.setAttribute('aria-expanded', 'false');
-    applyPanel(this.pill, NEON.cyan);
+    applyPanel(this.pill, NEON.turquoise);
     css(this.pill, {
       // 좌상단 ☰ 메뉴(높이 40)와 같은 가로선 — top이 같으니 높이를 맞춰 세로 중심을 일치시킨다.
       minHeight: '40px',
@@ -376,7 +376,7 @@ function buildSheet(
   active: boolean,
   opts: SheetOpts = {},
 ): { row: HTMLDivElement; cum: (number | undefined)[] } {
-  const accent = active ? NEON.gold : NEON.cyan;
+  const accent = active ? NEON.mustard : NEON.turquoise;
   const multi = d.players.length > 1 && !opts.nameless;
 
   const row = document.createElement('div');
@@ -396,7 +396,7 @@ function buildSheet(
     applyPanel(name, accent);
     css(name, {
       font: FONT_UI,
-      color: active ? NEON.gold : NEON.dim,
+      color: active ? NEON.mustard : NEON.dim,
       padding: '7px 9px',
       minWidth: '74px',
       textAlign: 'right',
@@ -431,9 +431,9 @@ function buildSheet(
         alignItems: 'center',
         justifyContent: 'center',
         borderRadius: '6px',
-        border: isCurrent ? '0' : `1.5px solid ${rgba(NEON.ice, 0.16)}`,
+        border: isCurrent ? '0' : `1.5px solid ${rgba(NEON.cream, 0.16)}`,
         animation: isCurrent ? 'neonPulse 1.4s ease-in-out infinite' : '',
-        color: done ? (cleared ? NEON.green : NEON.red) : '#dfe6f2',
+        color: done ? (cleared ? NEON.sage : NEON.red) : '#dfe6f2',
         fontSize: DIGIT_FS,
       });
       box.textContent = done ? (cleared ? '✓' : '✗') : '';
@@ -487,8 +487,8 @@ function buildSheet(
       minWidth: '0',
       borderRadius: '7px',
       overflow: 'hidden',
-      background: isCurrent ? rgba(NEON.gold, 0.1) : 'rgba(255,255,255,0.04)',
-      border: isCurrent ? '0' : `1.5px solid ${rgba(NEON.ice, 0.14)}`,
+      background: isCurrent ? rgba(NEON.mustard, 0.1) : 'rgba(255,255,255,0.04)',
+      border: isCurrent ? '0' : `1.5px solid ${rgba(NEON.cream, 0.14)}`,
       animation: isCurrent ? 'neonPulse 1.4s ease-in-out infinite' : '',
     });
 
@@ -504,7 +504,7 @@ function buildSheet(
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
-        borderLeft: `1px solid ${rgba(NEON.ice, 0.14)}`,
+        borderLeft: `1px solid ${rgba(NEON.cream, 0.14)}`,
         color: markColor(m),
       });
       cell.textContent = m;

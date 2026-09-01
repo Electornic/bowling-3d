@@ -29,9 +29,9 @@ const ANCHOR_GAP = 14; // [튜닝] 점수판 하단과 밴드 사이 간격(px)
 // color(큰 글자)는 각 accent를 흰쪽으로 끌어올린 **밴드 전용 톤**이라 팔레트에 없는 값이 맞다.
 // 거터만 예외: 축하가 아니라 디플레이팅이라 무채색 + 글로우 0이 의도다.
 const CFG: Record<StillCutKind, { color: string; accent: string; glow: string; size: string }> = {
-  strike: { color: '#ffe08a', accent: NEON.pink, glow: rgba(NEON.pink, 0.6), size: 'clamp(32px,7.5vw,62px)' },
-  spare: { color: '#c9f4fb', accent: NEON.cyan, glow: rgba(NEON.cyan, 0.55), size: 'clamp(28px,6vw,50px)' },
-  split: { color: '#d5fae1', accent: NEON.green, glow: rgba(NEON.green, 0.55), size: 'clamp(28px,6vw,50px)' },
+  strike: { color: '#ffe08a', accent: NEON.brick, glow: rgba(NEON.brick, 0.6), size: 'clamp(32px,7.5vw,62px)' },
+  spare: { color: '#c9f4fb', accent: NEON.turquoise, glow: rgba(NEON.turquoise, 0.55), size: 'clamp(28px,6vw,50px)' },
+  split: { color: '#d5fae1', accent: NEON.sage, glow: rgba(NEON.sage, 0.55), size: 'clamp(28px,6vw,50px)' },
   gutter: { color: '#aeb6c2', accent: '#5c6472', glow: 'rgba(0,0,0,0)', size: 'clamp(24px,5vw,42px)' },
 };
 
@@ -100,8 +100,8 @@ export class StillCut {
       'flex-direction:column',
       'align-items:center',
       'gap:6px',
-      '-webkit-backdrop-filter:blur(3px)',
-      'backdrop-filter:blur(3px)',
+      // blur(3px) 제거 — sc-tint가 rgba(5,6,10,0.9)까지 덮으므로 블러가 보태는 게 거의 없었고,
+      // 스틸컷은 씬 위로 **찍혀 들어오는 인쇄 카드**라 프로스티드 표면과 결이 반대다.
       'animation:sc-tint 0.42s ease-out both',
     ].join(';');
 

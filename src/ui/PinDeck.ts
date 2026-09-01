@@ -70,9 +70,9 @@ function ensurePinDeckStyles(): void {
   transition:background 0.16s ease, color 0.16s ease, box-shadow 0.16s ease;
 }
 #hud-pindeck .pd-dot.pd-up{
-  background:${NEON.ice}; color:#0b0e16;
-  border-color:${rgba(NEON.ice, 0.9)};
-  box-shadow:0 0 7px ${rgba(NEON.cyan, 0.45)};
+  background:${NEON.cream}; color:#0b0e16;
+  border-color:${rgba(NEON.cream, 0.9)};
+  box-shadow:0 0 7px ${rgba(NEON.turquoise, 0.45)};
 }
 
 @media (max-width:760px){
@@ -96,7 +96,7 @@ export class PinDeck {
     this.root.id = 'hud-pindeck';
     this.root.classList.add('is-hidden');
     this.root.setAttribute('role', 'img');
-    applyPanel(this.root, NEON.cyan);
+    applyPanel(this.root, NEON.turquoise);
     for (const nums of DISPLAY_ROWS) {
       const row = document.createElement('div');
       row.className = 'pd-row';

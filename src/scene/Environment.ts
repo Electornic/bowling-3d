@@ -526,7 +526,7 @@ function buildHallSurfaces(engine: Engine) {
   const matRail = new THREE.MeshStandardMaterial({ color: 0x394153, roughness: 0.7 });
   const matCove = new THREE.MeshStandardMaterial({
     color: 0x000000,
-    emissive: NEON.ice,
+    emissive: NEON.cream,
     emissiveIntensity: 1.35, // 천장 스트립(1.6)보다 살짝 죽여 시선이 위로 안 끌리게
   });
   for (const side of [-1, 1]) {
@@ -566,7 +566,7 @@ function buildHallSurfaces(engine: Engine) {
   const STRIP_HALF_W = 0.15;
   const stripMat = new THREE.MeshStandardMaterial({
     color: 0x000000,
-    emissive: NEON.ice,
+    emissive: NEON.cream,
     emissiveIntensity: 1.6,
   });
   for (const x of STRIP_X) {
@@ -691,8 +691,8 @@ function buildWallBands(engine: Engine) {
   const matFrame = new THREE.MeshStandardMaterial({ color: 0x2a3142, roughness: 0.75 });
   // 액센트는 홀 팔레트에 맞춰 웜(골드)·쿨(시안) 한 쌍. 구 핑크/퍼플은 전광판 색이라 뺐다.
   const ads = [
-    { tex: makePosterTexture(NEON.gold, NEON.amber), z: 3.5 },
-    { tex: makePosterTexture(NEON.cyan, NEON.ice), z: 9.5 },
+    { tex: makePosterTexture(NEON.mustard, NEON.amber), z: 3.5 },
+    { tex: makePosterTexture(NEON.turquoise, NEON.cream), z: 9.5 },
   ];
   for (const side of [-1, 1]) {
     for (const ad of ads) {
@@ -1184,7 +1184,7 @@ export class Environment {
       ctx.font = 'bold 26px sans-serif';
       ctx.textBaseline = 'top';
       ctx.fillStyle = 'rgba(255,255,255,0.85)';
-      ctx.shadowColor = NEON.cyan;
+      ctx.shadowColor = NEON.turquoise;
       ctx.shadowBlur = 12;
       const msg = '★  NEON LANES  ★  STRIKE IT UP  ★  ';
       const mw = ctx.measureText(msg).width;
@@ -1237,7 +1237,7 @@ export class Environment {
     const sun = ctx.createLinearGradient(0, horizon - sunR, 0, horizon);
     sun.addColorStop(0, NEON.amber);
     sun.addColorStop(0.55, '#ff6aa6'); // 핑크 중간톤 — 팔레트 토큰 아님(그라디언트 전용)이라 리터럴 유지
-    sun.addColorStop(1, NEON.pink);
+    sun.addColorStop(1, NEON.brick);
     ctx.fillStyle = sun;
     ctx.beginPath();
     ctx.arc(cx, horizon, sunR, 0, Math.PI * 2);
@@ -1255,13 +1255,13 @@ export class Environment {
     for (let i = 0; i < 16; i++) {
       const f = (i + scroll) / 16;
       const y = horizon + (H - horizon) * f * f;
-      ctx.strokeStyle = rgba(NEON.cyan, 0.1 + 0.55 * f);
+      ctx.strokeStyle = rgba(NEON.turquoise, 0.1 + 0.55 * f);
       ctx.beginPath();
       ctx.moveTo(0, y);
       ctx.lineTo(W, y);
       ctx.stroke();
     }
-    ctx.strokeStyle = rgba(NEON.pink, 0.45);
+    ctx.strokeStyle = rgba(NEON.brick, 0.45);
     for (let i = -8; i <= 8; i++) {
       ctx.beginPath();
       ctx.moveTo(cx + i * (W * 0.045), horizon);

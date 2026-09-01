@@ -18,7 +18,7 @@ import { PIN_CONTACT_Z } from '../game/constants';
 import { ACHIEVEMENTS, evaluateAchievements, loadRewards, recordRewards, resetRewards, resolveSkin, VIDEO_MARKER } from '../game/rewards';
 import { loadScreenVideo, clearScreenVideo } from '../game/screenStore';
 import { loadSettings, saveSettings, type Settings } from '../game/settings';
-import { css, NEON, rgba } from '../ui/theme';
+import { css, NEON, PANEL_BG, rgba } from '../ui/theme';
 import { setLocale, resolveLocale, t, onLocaleChange } from '../i18n';
 import { isCoarsePointer } from './device';
 
@@ -177,7 +177,7 @@ function maybeShowOrientationHint() {
     padding: '8px 16px',
     borderRadius: '999px',
     background: 'rgba(14,17,27,0.92)',
-    border: `1px solid ${rgba(NEON.cyan, 0.4)}`,
+    border: `1px solid ${rgba(NEON.turquoise, 0.4)}`,
     color: NEON.text,
     font: '600 12px/1.4 system-ui, sans-serif', // 안내 문구라 FONT_UI(13px)보다 한 단계 작다
     zIndex: '50',
@@ -213,13 +213,12 @@ function createExitButton(onForfeit: () => void): HTMLButtonElement {
     display: 'none',
     padding: '8px 12px',
     minHeight: '40px', // 터치 타깃 하한
-    borderRadius: '10px',
+    borderRadius: '3px', // applyPanel과 같은 라운드 — 10px는 패널과 어긋났다
     border: '1px solid rgba(255,255,255,0.2)',
-    background: 'rgba(14,17,27,0.82)',
+    background: PANEL_BG, // 반투명 0.82 + blur(4px) → 불투명 단색 (패널과 같은 서피스)
     color: NEON.text,
     font: '700 13px/1 system-ui, sans-serif', // 버튼이라 FONT_UI(600/1.4)보다 굵고 타이트하게
     cursor: 'pointer',
-    backdropFilter: 'blur(4px)',
   });
   // 텍스트를 여기서 **한 번만** 받으므로(가시성만 onFrame이 토글) 언어 변경을 직접 구독한다.
   onLocaleChange(() => {

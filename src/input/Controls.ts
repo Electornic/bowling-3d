@@ -65,7 +65,7 @@ const SPIN_WHEEL_MIN_MS = 60;
 // 채도뿐 아니라 **밝기**로도 표현돼 폭이 넓어진다 — 스핀 0은 차분한 가이드, 풀스핀은 형광 네온.
 /**
  * 조준선 코어의 중립색. `0xa8b2c8`(회청색)이었는데 **밝은 레인 위에서 명도 대비가 거의 없어**
- * 선이 뿌옇게 보였다 — 화살촉만 또렷했던 건 거기는 색을 NEON.ice로 고정하기 때문이다.
+ * 선이 뿌옇게 보였다 — 화살촉만 또렷했던 건 거기는 색을 NEON.cream로 고정하기 때문이다.
  * 화살촉과 같은 아이스로 맞춰 선-촉이 한 몸으로 읽히게 한다(스핀 색 물듦은 그대로).
  */
 const AIM_NEUTRAL = 0xdfe8ff;
@@ -226,7 +226,7 @@ export class Controls {
 
     // === 파워 게이지 (우측 하단 — 중앙은 공과 겹침) ===
     const powerWrap = (this.powerWrap = document.createElement('div'));
-    applyPanel(powerWrap, NEON.cyan);
+    applyPanel(powerWrap, NEON.turquoise);
     css(powerWrap, {
       position: 'fixed', // 우측 세로 파워바 (가운데 레인을 비움)
       bottom: DOCK_BOTTOM, // 스핀과 같은 베이스라인 — 좁은 화면에선 syncDockLayout()이 위로 올린다
@@ -249,7 +249,7 @@ export class Controls {
       fontSize: '15px',
       lineHeight: '1',
       opacity: '0.95',
-      filter: `drop-shadow(0 0 5px ${rgba(NEON.cyan, 0.7)})`,
+      filter: `drop-shadow(0 0 5px ${rgba(NEON.turquoise, 0.7)})`,
     });
     powerWrap.appendChild(powerIcon);
 
@@ -263,7 +263,7 @@ export class Controls {
       // 반토막이 된다. clamp로 하한·상한을 줘서 두 방향 모두에서 충분히 길다.
       height: this.coarse ? 'clamp(190px, 30vh, 300px)' : '220px',
       background: 'rgba(255,255,255,0.12)',
-      border: `1.5px solid ${rgba(NEON.cyan, 0.42)}`, // 0.25 → 0.42 (대비↑)
+      border: `1.5px solid ${rgba(NEON.turquoise, 0.42)}`, // 0.25 → 0.42 (대비↑)
       borderRadius: '10px',
       overflow: 'hidden',
     });
@@ -275,7 +275,7 @@ export class Controls {
       bottom: `${POWER_SWEET_LO * 100}%`,
       width: '100%',
       height: `${(POWER_SWEET_HI - POWER_SWEET_LO) * 100}%`,
-      background: rgba(NEON.gold, 0.13),
+      background: rgba(NEON.mustard, 0.13),
     });
     const zoneLine = document.createElement('div'); // 존 진입 경계 (은은한 골드 글로우 라인)
     css(zoneLine, {
@@ -284,8 +284,8 @@ export class Controls {
       right: '-1px',
       bottom: `${POWER_SWEET_LO * 100}%`,
       height: '1.5px',
-      background: rgba(NEON.gold, 0.5),
-      boxShadow: `0 0 6px ${rgba(NEON.gold, 0.45)}`,
+      background: rgba(NEON.mustard, 0.5),
+      boxShadow: `0 0 6px ${rgba(NEON.mustard, 0.45)}`,
     });
     this.gaugeFill = document.createElement('div');
     css(this.gaugeFill, {
@@ -294,8 +294,10 @@ export class Controls {
       bottom: '0', // 아래에서 위로 차오름
       width: '100%',
       height: '0%',
-      background: 'linear-gradient(0deg,#4ade80,#facc15,#ef4444)', // 아래=초록 위=빨강
-      boxShadow: '0 0 16px rgba(250,204,21,0.62)', // 굵어진 바에 맞춰 글로우도 상향(대비↑)
+      // 아래=안전 위=과다. 이 그라데는 **값을 인코딩하는 기능**이라 남긴다(장식 그라데와 다르다).
+      // 정지점만 팔레트에서 유도 — 예전엔 green-400·yellow-400·red-500 리터럴이었다.
+      background: `linear-gradient(0deg,${NEON.sage},${NEON.mustard},${NEON.brick})`,
+      boxShadow: `0 0 14px ${rgba(NEON.mustard, 0.5)}`, // 채움 위치를 어두운 트랙에서 읽히게 하는 최소 확산
     });
     gaugeTrack.appendChild(zoneBand); // 뒤: 존 띠
     gaugeTrack.appendChild(this.gaugeFill); // 중간: 차오르는 채움
@@ -304,7 +306,7 @@ export class Controls {
 
     // === 스핀 게이지 (파워 위) — 휠(데스크톱) 또는 드래그(터치)로 좌/우 훅 설정 ===
     const spinWrap = (this.spinWrap = document.createElement('div'));
-    applyPanel(spinWrap, NEON.cyan); // 파워와 동일 액센트로 통일 (입력 쌍)
+    applyPanel(spinWrap, NEON.turquoise); // 파워와 동일 액센트로 통일 (입력 쌍)
     css(spinWrap, {
       position: 'fixed', // 좌하단 컴팩트 — 풀폭 폐기(공·조준선 밑동 가림). 2단: 헤더(라벨+값) / 트랙.
       bottom: DOCK_BOTTOM,
@@ -356,7 +358,7 @@ export class Controls {
       minWidth: '0',
       height: `${TRACK_HIT}px`,
       background: this.coarse ? 'transparent' : 'rgba(255,255,255,0.1)',
-      border: this.coarse ? 'none' : `1px solid ${rgba(NEON.cyan, 0.25)}`,
+      border: this.coarse ? 'none' : `1px solid ${rgba(NEON.turquoise, 0.25)}`,
       borderRadius: '999px',
       // 데스크톱은 휠이 입력을 담당하고 바는 표시기 — 숨겨진 상태로 클릭되면 사고라 아예 끈다.
       pointerEvents: 'auto', // 휠 강등 시 none으로 바뀐다 — 그전까진 드래그가 유일한 입력일 수 있다
@@ -374,7 +376,7 @@ export class Controls {
         width: '100%',
         height: `${BAR_H}px`,
         background: 'rgba(255,255,255,0.12)',
-        border: `1.5px solid ${rgba(NEON.cyan, 0.42)}`, // 파워 트랙과 같은 대비로 통일
+        border: `1.5px solid ${rgba(NEON.turquoise, 0.42)}`, // 파워 트랙과 같은 대비로 통일
         borderRadius: '999px',
       });
       spinTrack.appendChild(line);
@@ -388,7 +390,7 @@ export class Controls {
       height: `${BAR_H + 8}px`, // 바보다 위아래로 4px씩 튀어나와 '중앙'을 읽히게
       marginLeft: '-1px',
       marginTop: `${-(BAR_H + 8) / 2}px`,
-      background: rgba(NEON.ice, 0.62),
+      background: rgba(NEON.cream, 0.62),
     });
     this.spinFill = document.createElement('div');
     css(this.spinFill, {
@@ -411,8 +413,8 @@ export class Controls {
       marginTop: `${-THUMB / 2}px`,
       borderRadius: '50%',
       background: '#fff',
-      border: `2px solid ${NEON.ice}`,
-      boxShadow: `0 0 8px ${rgba(NEON.ice, 0.8)}`,
+      border: `2px solid ${NEON.cream}`,
+      boxShadow: `0 0 8px ${rgba(NEON.cream, 0.8)}`,
     });
     spinTrack.appendChild(this.spinFill);
     spinTrack.appendChild(tick);
@@ -586,13 +588,13 @@ export class Controls {
 
     // 스핀 게이지: 중앙에서 좌(시안)/우(앰버)로 차오름 + 썸. 입력은 휠 또는 바 드래그.
     const s = this.spin;
-    const dirColor = s < 0 ? NEON.cyan : NEON.amber;
+    const dirColor = s < 0 ? NEON.turquoise : NEON.amber;
     this.spinFill.style.width = `${Math.abs(s) * 50}%`;
     this.spinFill.style.left = s < 0 ? `${50 - Math.abs(s) * 50}%` : '50%';
     this.spinFill.style.background = dirColor;
     this.spinThumb.style.left = `${50 + s * 50}%`;
-    this.spinThumb.style.borderColor = s === 0 ? NEON.ice : dirColor;
-    this.spinThumb.style.boxShadow = `0 0 8px ${rgba(s === 0 ? NEON.ice : dirColor, 0.85)}`;
+    this.spinThumb.style.borderColor = s === 0 ? NEON.cream : dirColor;
+    this.spinThumb.style.boxShadow = `0 0 8px ${rgba(s === 0 ? NEON.cream : dirColor, 0.85)}`;
     // 데스크톱 트랜지언트 노출: 값이 바뀐 뒤 SPIN_HUD_HOLD 동안만 띄운다. 발사 직후 throwBall이
     // spin을 0으로 리셋하며 값이 '변하는' 것도 노출로 세지 않도록 조준 중일 때만 타이머를 건다.
     // lastSpinShown은 매 프레임 갱신 — 안 그러면 리셋된 0이 다음 조준 턴에서 변화로 잡힌다.
@@ -755,7 +757,7 @@ export class Controls {
     // 그래서 선은 이제 **처음부터 끝까지 한 색**이고, 정점색·색 배열도 필요 없다(머티리얼 색 하나).
     const spinMag = Math.abs(this.spin);
     const spinT = spinMag > 0 ? SPIN_TINT_FLOOR + (1 - SPIN_TINT_FLOOR) * spinMag : 0;
-    const dirCol = AIM_DIR_COL.set(this.spin < 0 ? NEON.cyan : NEON.amber);
+    const dirCol = AIM_DIR_COL.set(this.spin < 0 ? NEON.turquoise : NEON.amber);
     this.aimCoreMat.color.copy(AIM_SPIN_COL.set(AIM_NEUTRAL).lerp(dirCol, spinT));
 
     // 끝 화살촉: 가이드라인과 같은 stroke(core+case)로 슬림한 ∧ 를 폴리라인에 이어 붙인다. 팁=마지막 점,

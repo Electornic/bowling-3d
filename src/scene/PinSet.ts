@@ -88,7 +88,7 @@ export function makeSweepBar(): THREE.Group {
     new THREE.BoxGeometry(SWEEP_BAR_W * 0.985, 0.014, 0.014),
     new THREE.MeshStandardMaterial({
       color: 0x0a1a20,
-      emissive: NEON.cyan, // 레인 네온과 같은 톤
+      emissive: NEON.turquoise, // 레인 네온과 같은 톤
       emissiveIntensity: 2.4,
       metalness: 0,
       roughness: 1,

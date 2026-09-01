@@ -10,23 +10,26 @@
  * 알파 합성은 relative color syntax(rgb(from var(--x) r g b / a))로 토큰 하나에서 파생 — 값 복제 0.
  */
 
-/* === 네온 레인지 슬라이더 (인라인 불가한 의사요소) — theme.ts에서 이동 === */
+/* === 레인지 슬라이더 (인라인 불가한 의사요소) — theme.ts에서 이동 === */
+/* ⚠️ 트랙이 `linear-gradient(90deg, cyan, purple, pink)`였다 — 퍼플→시안 그라데는 "AI가 뽑은 UI"의
+   단일 최강 표식이다. 눈금 느낌은 그라데가 아니라 **평평한 인쇄 바 + 또렷한 노브**로 낸다.
+   글로우(0 0 10px)도 걷었다: 미드센추리 인쇄물에는 발광이 없고, 노브는 색과 테두리로 충분히 읽힌다. */
 .neon-range {
   -webkit-appearance: none; appearance: none;
-  width: 100%; height: 6px; border-radius: 999px; outline: none; cursor: pointer; margin: 0;
-  background: linear-gradient(90deg, var(--neon-cyan), var(--neon-purple), var(--neon-pink));
+  width: 100%; height: 6px; border-radius: 2px; outline: none; cursor: pointer; margin: 0;
+  background: rgb(from var(--neon-cream) r g b / 0.16);
 }
 .neon-range::-webkit-slider-thumb {
   -webkit-appearance: none; appearance: none;
   width: 18px; height: 18px; border-radius: 50%;
-  background: #fff; border: 2px solid var(--neon-cyan);
-  box-shadow: 0 0 10px rgb(from var(--neon-cyan) r g b / 0.9), 0 1px 3px rgba(0,0,0,0.6);
+  background: var(--neon-cream); border: 2px solid var(--neon-brick);
+  box-shadow: 0 1px 3px rgba(0,0,0,0.6);
 }
 .neon-range::-moz-range-thumb {
-  width: 18px; height: 18px; border: 2px solid var(--neon-cyan); border-radius: 50%;
-  background: #fff; box-shadow: 0 0 10px rgb(from var(--neon-cyan) r g b / 0.9);
+  width: 18px; height: 18px; border: 2px solid var(--neon-brick); border-radius: 50%;
+  background: var(--neon-cream); box-shadow: 0 1px 3px rgba(0,0,0,0.6);
 }
-.neon-range::-moz-range-track { height: 6px; border-radius: 999px; background: transparent; }
+.neon-range::-moz-range-track { height: 6px; border-radius: 2px; background: transparent; }
 /* 터치(coarse): 슬라이더 썸 18→28px로 키워 손가락 타깃 확보 (MOBILE_SUPPORT.md §3.1) */
 @media (pointer: coarse) {
   .neon-range { height: 10px; }
@@ -34,15 +37,17 @@
   .neon-range::-moz-range-thumb { width: 28px; height: 28px; }
 }
 
-/* === 네온 펄스 강조(업적 아일랜드 등) + HUD 점수 팝 — theme.ts에서 이동 === */
+/* === 현재 프레임 강조(Hud 점수 시트) + HUD 점수 팝 — theme.ts에서 이동 === */
+/* 외곽 글로우(0 0 9px→16px)를 걷고 **인셋 규선의 굵기·농도만** 맥동시킨다.
+   시트는 인쇄된 스코어 용지의 문법이라 칸이 빛나면 안 된다 — "지금 이 칸"은 테두리로 말한다. */
 @keyframes neonPulse {
-  0%, 100% { box-shadow: inset 0 0 0 1.5px rgb(from var(--neon-gold) r g b / 0.55), 0 0 9px rgb(from var(--neon-gold) r g b / 0.3); }
-  50%      { box-shadow: inset 0 0 0 1.5px var(--neon-gold), 0 0 16px rgb(from var(--neon-gold) r g b / 0.55); }
+  0%, 100% { box-shadow: inset 0 0 0 1.5px rgb(from var(--neon-mustard) r g b / 0.5); }
+  50%      { box-shadow: inset 0 0 0 2px var(--neon-mustard); }
 }
 /* 누적 점수가 새로 뜨거나 바뀔 때 톡 튀는 팝 (Hud) — 차분한 감속 이징, 피크에서 골드 플래시 */
 @keyframes juiceScorePop {
   0%   { transform: scale(1); }
-  30%  { transform: scale(1.28); color: var(--neon-gold); }
+  30%  { transform: scale(1.28); color: var(--neon-mustard); }
   100% { transform: scale(1); }
 }
 .juice-score-pop { animation: juiceScorePop 0.42s cubic-bezier(0.22, 1, 0.36, 1); }

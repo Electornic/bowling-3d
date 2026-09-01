@@ -8,7 +8,7 @@ import { saveScreenVideo, loadScreenVideo, clearScreenVideo } from '../game/scre
 import type { BallSkin, SkinFinish } from '../game/rewards';
 import type { Settings, Quality } from '../game/settings';
 import { t, getLocale, detectLocale, LOCALES, LOCALE_LABEL, type I18nKey, type LocaleSetting } from '../i18n';
-import { css, NEON, rgba } from '../ui/theme'; // 디자인 시스템 단일소스(#6) — 로컬 css 복제 제거, NEON 팔레트 토큰 공유
+import { css, NEON, PANEL_BG, rgba } from '../ui/theme'; // 디자인 시스템 단일소스(#6) — 로컬 css 복제 제거, NEON 팔레트 토큰 공유
 import { buildResultSheets, SHEET_MAX } from './Hud'; // 결과 모달 점수 시트 — HUD와 같은 렌더러(마크 규칙·5칸 접기 공유)
 
 // === UI juice: 마이크로 모션 — 정적 CSS(.menu-panel button 트랜지션 + juicePanelIn/juiceFadeIn 키프레임 +
@@ -79,7 +79,7 @@ function skinPreviewStyle(skin: BallSkin): { background: string; shadow: string 
   }
   const c = hex6(skin.color ?? 0x888888);
   return {
-    background: `radial-gradient(circle at 35% 30%,#ffffff,${c} 46%,#6b7280)`,
+    background: `radial-gradient(circle at 35% 30%,#ffffff,${c} 46%,#5c626b)`, // 끝단 = 중성 그림자(구 tailwind gray-500)
     shadow: 'inset -3px -4px 7px rgba(0,0,0,0.3)',
   };
 }
@@ -93,12 +93,18 @@ const FINISH_KEY: Record<SkinFinish, I18nKey> = {
   glow: 'finish.glow',
 };
 
-// 프라이머리 버튼 액센트(#7) — 그라디언트 + 그 위 텍스트색. start/again=fire · handoff/resume=ice · equip=gold.
+// 프라이머리 버튼 액센트(#7) — 배경 + 그 위 텍스트색. start/again=fire · handoff/resume=ice · equip=gold.
 // 색만 프리셋으로 묶고 크기(패딩·폰트·라운드)는 호출부가 제각각이라 옵션으로 — 손복사 5곳을 바이트 동일하게 접는다.
+//
+// ⚠️ 셋 다 **웜 그라디언트**였고 정지점 6개가 전부 Tailwind 기본값(amber-500 `#f59e0b` ·
+// red-500 `#ef4444` · cyan-400 `#22d3ee` · blue-500 `#3b82f6` · amber-400 `#fbbf24`)이었다.
+// 그라데 CTA는 그 자체로 표식인 데다, 값이 기본값이라 두 겹으로 걸렸다. **단색 인쇄 버튼**으로 바꾼다 —
+// 미드센추리 하우스 사인은 잉크 한 벌로 찍고, 면이 평평해야 슬랩 레터링이 산다.
+// 키 이름(fire/ice/gold)은 호출부 5곳의 의미 구분이라 유지한다. 대비는 전부 6:1 이상.
 const BTN_ACCENTS = {
-  fire: { bg: 'linear-gradient(90deg,#f59e0b,#ef4444)', fg: '#fff' },
-  ice: { bg: 'linear-gradient(90deg,#22d3ee,#3b82f6)', fg: '#06121a' },
-  gold: { bg: 'linear-gradient(90deg,#fbbf24,#f59e0b)', fg: '#1a1205' },
+  fire: { bg: NEON.brick, fg: NEON.cream }, // 7.1:1
+  ice: { bg: NEON.turquoise, fg: '#10171a' }, // 6.2:1
+  gold: { bg: NEON.mustard, fg: '#1a1205' }, // 8.2:1
 } as const;
 type BtnAccent = keyof typeof BTN_ACCENTS;
 
@@ -156,17 +162,19 @@ export class MenuUI {
       // 0.72 → 0.45: 벽·천장을 채운 뒤로는 스크림이 방금 만든 홀을 덮고 있었다.
       // 패널 자체가 rgba(14,17,27,0.96)로 거의 불투명해 **텍스트 가독성은 스크림에 의존하지 않는다**
       // (실측 대비: 스크림 0.72든 0.45든 패널 위 합성 휘도 0.006~0.009로 동일). 순수하게 배경 노출량 조절.
+      // blur(4px)는 걷었다 — 위 주석대로 **가독성이 스크림에 의존하지 않으므로** 순수 장식이었고,
+      // 프로스티드 표면은 걷어내는 중인 표식이다. 알파는 0.45 그대로 둔다(홀을 보여주려던 결정 유지).
+      // 부수 효과로 벽·천장·핀 랙이 더 또렷해져 원래 의도에 오히려 가까워진다.
       background: 'rgba(6,8,14,0.45)',
-      backdropFilter: 'blur(4px)',
       zIndex: '40',
     });
     this.panel = document.createElement('div');
     this.panel.classList.add('menu-panel'); // 스코프드 CSS(.menu-panel button)로 전 버튼 마이크로 모션
     css(this.panel, {
       position: 'relative', // 우상단 사운드 토글 등 absolute 자식의 기준
-      background: 'rgba(14,17,27,0.96)',
+      background: PANEL_BG, // 0.96 → 완전 불투명. applyPanel과 같은 서피스(색상 220°)로 통일
       border: '1px solid rgba(255,255,255,0.1)',
-      borderRadius: '16px',
+      borderRadius: '4px', // 16px → 4px. applyPanel(3px)과 같은 계열 — 미드센추리 인쇄물은 모서리를 굴리지 않는다
       padding: '28px 32px',
       color: NEON.text,
       font: '500 14px/1.5 system-ui, sans-serif',
@@ -352,10 +360,10 @@ export class MenuUI {
     wInput.max = '16';
     wInput.step = '1'; // 1파운드 단위
     wInput.value = String(this.weight);
-    css(wInput, { flex: '1', accentColor: NEON.cyan, minHeight: COARSE ? '44px' : '' });
+    css(wInput, { flex: '1', accentColor: NEON.turquoise, minHeight: COARSE ? '44px' : '' });
     const wVal = document.createElement('span');
     wVal.textContent = `${this.weight} lb`;
-    css(wVal, { font: "700 14px/1 ui-monospace, 'SF Mono', monospace", color: NEON.cyan, minWidth: '54px', textAlign: 'right' });
+    css(wVal, { font: "700 14px/1 ui-monospace, 'SF Mono', monospace", color: NEON.turquoise, minWidth: '54px', textAlign: 'right' });
     wInput.addEventListener('input', () => {
       this.weight = parseFloat(wInput.value);
       wVal.textContent = `${this.weight} lb`;
@@ -458,9 +466,9 @@ export class MenuUI {
         padding: COARSE ? '12px 14px' : '10px 13px',
         minHeight: COARSE ? '44px' : '',
         borderRadius: '10px',
-        border: `1px solid ${on ? rgba(NEON.gold, 0.5) : 'rgba(255,255,255,0.18)'}`,
-        background: on ? rgba(NEON.gold, 0.14) : 'rgba(255,255,255,0.05)',
-        color: on ? NEON.gold : NEON.text,
+        border: `1px solid ${on ? rgba(NEON.mustard, 0.5) : 'rgba(255,255,255,0.18)'}`,
+        background: on ? rgba(NEON.mustard, 0.14) : 'rgba(255,255,255,0.05)',
+        color: on ? NEON.mustard : NEON.text,
         font: `${on ? 800 : 600} 13px/1 system-ui, sans-serif`,
         cursor: 'pointer',
         textAlign: 'left',
@@ -529,7 +537,7 @@ export class MenuUI {
         display: 'flex',
         justifyContent: 'space-between',
         gap: '24px',
-        color: i === summary.winner ? NEON.gold : NEON.text,
+        color: i === summary.winner ? NEON.mustard : NEON.text,
       });
       const unit = summary.mode === 'spare' ? '/10' : t('menu.result.unit');
       row.innerHTML = `<span>${p.ai ? '🤖 ' : ''}${p.name}</span><span>${p.score}${unit}</span>`;
@@ -543,7 +551,7 @@ export class MenuUI {
       const badge = document.createElement('div');
       badge.textContent = t('menu.result.newRecord');
       css(badge, {
-        color: NEON.gold,
+        color: NEON.mustard,
         font: '800 14px/1 system-ui, sans-serif',
         marginBottom: '14px',
       });
@@ -555,8 +563,8 @@ export class MenuUI {
       const box = document.createElement('div');
       css(box, {
         borderRadius: '10px',
-        border: `1px solid ${rgba(NEON.gold, 0.4)}`,
-        background: rgba(NEON.gold, 0.08),
+        border: `1px solid ${rgba(NEON.mustard, 0.4)}`,
+        background: rgba(NEON.mustard, 0.08),
         padding: '10px 12px',
         marginBottom: '14px',
       });
@@ -564,7 +572,7 @@ export class MenuUI {
         const ach = ACHIEVEMENTS.find((a) => a.id === id);
         if (!ach) continue;
         const row = document.createElement('div');
-        css(row, { font: '700 13px/1.6 system-ui, sans-serif', color: NEON.gold });
+        css(row, { font: '700 13px/1.6 system-ui, sans-serif', color: NEON.mustard });
         row.textContent = t('menu.result.newUnlock', { icon: ach.icon, badge: t(ach.badgeKey), skin: t(resolveSkin(ach.reward).labelKey) });
         box.appendChild(row);
       }
@@ -660,7 +668,7 @@ export class MenuUI {
       padding: COARSE ? '12px' : '10px',
       minHeight: COARSE ? '44px' : '',
       borderRadius: '10px',
-      border: `1px solid ${rgba(NEON.gold, 0.34)}`, // 아일랜드가 쓰던 골드 테두리를 이어받는다
+      border: `1px solid ${rgba(NEON.mustard, 0.34)}`, // 아일랜드가 쓰던 골드 테두리를 이어받는다
       background: 'rgba(255,255,255,0.05)',
       color: NEON.text,
       font: '700 13px/1 system-ui, sans-serif',
@@ -752,9 +760,9 @@ export class MenuUI {
         padding: COARSE ? '10px 13px' : '7px 13px',
         minHeight: COARSE ? '40px' : '',
         borderRadius: '999px',
-        border: `1px solid ${on ? rgba(NEON.gold, 0.5) : 'rgba(255,255,255,0.18)'}`,
-        background: on ? rgba(NEON.gold, 0.14) : 'rgba(255,255,255,0.05)',
-        color: on ? NEON.gold : NEON.text,
+        border: `1px solid ${on ? rgba(NEON.mustard, 0.5) : 'rgba(255,255,255,0.18)'}`,
+        background: on ? rgba(NEON.mustard, 0.14) : 'rgba(255,255,255,0.05)',
+        color: on ? NEON.mustard : NEON.text,
         font: `${on ? 800 : 600} 12px/1 system-ui, sans-serif`,
         cursor: 'pointer',
         whiteSpace: 'nowrap',
@@ -915,7 +923,7 @@ export class MenuUI {
     css(pill, {
       font: '800 9px/1 system-ui, sans-serif',
       color: '#1a1205',
-      background: NEON.gold,
+      background: NEON.mustard,
       borderRadius: '5px',
       ...(absolute ? { position: 'absolute', top: '7px', right: '8px', padding: '2px 5px' } : { padding: '3px 6px' }),
     });
@@ -941,9 +949,9 @@ export class MenuUI {
     for (const [k, b] of map) {
       const on = k === active;
       // 팝(바운스) 없이 색만 부드럽게 전환 (.menu-panel button transition이 담당). 여러 칩 동시 전환도 조용.
-      b.style.borderColor = on ? NEON.gold : 'rgba(255,255,255,0.18)';
-      b.style.background = on ? rgba(NEON.gold, 0.14) : 'rgba(255,255,255,0.05)';
-      b.style.color = on ? NEON.gold : NEON.text;
+      b.style.borderColor = on ? NEON.mustard : 'rgba(255,255,255,0.18)';
+      b.style.background = on ? rgba(NEON.mustard, 0.14) : 'rgba(255,255,255,0.05)';
+      b.style.color = on ? NEON.mustard : NEON.text;
     }
   }
 
@@ -951,9 +959,9 @@ export class MenuUI {
     const spareMode = this.mode === 'spare';
     for (const [k, b] of map) {
       const active = k === this.rivalKey;
-      b.style.borderColor = active ? NEON.gold : 'rgba(255,255,255,0.18)';
-      b.style.background = active ? rgba(NEON.gold, 0.14) : 'rgba(255,255,255,0.05)';
-      b.style.color = active ? NEON.gold : NEON.text;
+      b.style.borderColor = active ? NEON.mustard : 'rgba(255,255,255,0.18)';
+      b.style.background = active ? rgba(NEON.mustard, 0.14) : 'rgba(255,255,255,0.05)';
+      b.style.color = active ? NEON.mustard : NEON.text;
       if (k !== null) {
         b.style.opacity = spareMode ? '0.35' : '1';
         b.style.cursor = spareMode ? 'not-allowed' : 'pointer';
@@ -988,7 +996,7 @@ export class MenuUI {
     });
     const heroBall = this.ballSwatch(equipped, 78);
     const heroName = document.createElement('div');
-    css(heroName, { display: 'flex', alignItems: 'center', gap: '7px', font: '700 16px/1 system-ui, sans-serif', color: NEON.gold });
+    css(heroName, { display: 'flex', alignItems: 'center', gap: '7px', font: '700 16px/1 system-ui, sans-serif', color: NEON.mustard });
     const heroNameText = document.createElement('span');
     heroNameText.textContent = t(equipped.labelKey);
     heroName.appendChild(heroNameText);
@@ -1071,7 +1079,7 @@ export class MenuUI {
 
         const labelEl = document.createElement('div');
         labelEl.textContent = t(skin.labelKey);
-        css(labelEl, { font: '700 13px/1.2 system-ui, sans-serif', color: isEquipped ? NEON.gold : isUnlocked ? NEON.text : NEON.faint });
+        css(labelEl, { font: '700 13px/1.2 system-ui, sans-serif', color: isEquipped ? NEON.mustard : isUnlocked ? NEON.text : NEON.faint });
         const subEl = document.createElement('div');
         const unlockAch = achievementForSkin(skin.id);
         subEl.textContent = isUnlocked
@@ -1094,8 +1102,8 @@ export class MenuUI {
           padding: '11px 11px 9px',
           minHeight: COARSE ? '52px' : '',
           borderRadius: '11px',
-          border: isEquipped ? `1px solid ${NEON.gold}` : isUnlocked ? '1px solid rgba(255,255,255,0.16)' : '1px solid rgba(255,255,255,0.1)',
-          background: isEquipped ? rgba(NEON.gold, 0.14) : isUnlocked ? 'rgba(255,255,255,0.04)' : 'rgba(255,255,255,0.02)',
+          border: isEquipped ? `1px solid ${NEON.mustard}` : isUnlocked ? '1px solid rgba(255,255,255,0.16)' : '1px solid rgba(255,255,255,0.1)',
+          background: isEquipped ? rgba(NEON.mustard, 0.14) : isUnlocked ? 'rgba(255,255,255,0.04)' : 'rgba(255,255,255,0.02)',
           cursor: isUnlocked ? 'pointer' : 'not-allowed',
         });
         cell.appendChild(ball);
@@ -1128,8 +1136,8 @@ export class MenuUI {
           gap: '11px',
           padding: '9px 11px',
           borderRadius: '9px',
-          background: got ? rgba(NEON.gold, 0.08) : 'rgba(255,255,255,0.02)',
-          border: got ? `1px solid ${rgba(NEON.gold, 0.22)}` : '1px solid rgba(255,255,255,0.08)',
+          background: got ? rgba(NEON.mustard, 0.08) : 'rgba(255,255,255,0.02)',
+          border: got ? `1px solid ${rgba(NEON.mustard, 0.22)}` : '1px solid rgba(255,255,255,0.08)',
           opacity: got ? '1' : '0.75',
         });
         const icon = document.createElement('span');
@@ -1137,7 +1145,7 @@ export class MenuUI {
         css(icon, { font: '18px/1 system-ui, sans-serif', flex: '0 0 auto', filter: got ? '' : 'grayscale(1)' });
         const badge = document.createElement('div');
         badge.textContent = t(a.badgeKey);
-        css(badge, { font: '700 12px/1.3 system-ui, sans-serif', color: got ? NEON.gold : NEON.dim });
+        css(badge, { font: '700 12px/1.3 system-ui, sans-serif', color: got ? NEON.mustard : NEON.dim });
         const desc = document.createElement('div');
         desc.textContent = t('menu.collection.achUnlock', { desc: t(a.descKey), skin: t(resolveSkin(a.reward).labelKey) });
         // 해금/미해금을 설명 텍스트 색으로 나누지 않는다 — 미해금이었던 #6b7686이 대비 4.02로
@@ -1262,7 +1270,7 @@ export class MenuUI {
       if (lastRenderedTab !== null && lastRenderedTab !== this.skinTab) playOnce(content, 'juice-fade-in');
       lastRenderedTab = this.skinTab;
       const mark = (btn: HTMLButtonElement | null, on: boolean) => {
-        if (btn) css(btn, { color: on ? NEON.cyan : NEON.faint, borderBottomColor: on ? NEON.cyan : 'transparent' });
+        if (btn) css(btn, { color: on ? NEON.turquoise : NEON.faint, borderBottomColor: on ? NEON.turquoise : 'transparent' });
       };
       mark(skinTabBtn, this.skinTab === 'skins');
       mark(achTabBtn, this.skinTab === 'achievements');
