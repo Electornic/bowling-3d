@@ -37,7 +37,7 @@ import { gauss, ENTRY_DIST } from '../game/ai'; // 릴리스 타이밍 노이즈
 const DOCK_BOTTOM = 'calc(10px + env(safe-area-inset-bottom))';
 /** 도크 패널 사이 최소 간격(px) — 겹침 판정과 회피 높이에 같은 값을 쓴다. */
 const DOCK_GAP = 8;
-import { css, NEON, FONT_UI, rgba, ensureNeonStyles, applyPanel } from '../ui/theme';
+import { css, INK, NEON, FONT_UI, rgba, ensureNeonStyles, applyPanel } from '../ui/theme';
 
 const PREVIEW_DT = 0.08; // 예측 경로 적분 스텝 (s)
 
@@ -412,9 +412,12 @@ export class Controls {
       marginLeft: `${-THUMB / 2}px`,
       marginTop: `${-THUMB / 2}px`,
       borderRadius: '50%',
-      background: '#fff',
-      border: `2px solid ${NEON.cream}`,
-      boxShadow: `0 0 8px ${rgba(NEON.cream, 0.8)}`,
+      // 글로우(0 0 8px) 제거 — 플레이 화면에서 유일하게 발광하던 요소였다.
+      // 노브는 **플랫 크림 원판 + 하드 잉크 테두리**로 읽는다(PinDeck의 서 있는 핀과 같은 문법).
+      // 흰색 #fff → cream: 팔레트 안으로 들이고, 잉크 테두리와 대비 15:1.
+      background: NEON.cream,
+      border: `2px solid ${INK}`,
+      boxShadow: '0 1px 3px rgba(0,0,0,0.55)', // 확산 아닌 드롭섀도 — 어두운 트랙에서 원판을 떼어놓는다
     });
     spinTrack.appendChild(this.spinFill);
     spinTrack.appendChild(tick);
@@ -593,8 +596,8 @@ export class Controls {
     this.spinFill.style.left = s < 0 ? `${50 - Math.abs(s) * 50}%` : '50%';
     this.spinFill.style.background = dirColor;
     this.spinThumb.style.left = `${50 + s * 50}%`;
-    this.spinThumb.style.borderColor = s === 0 ? NEON.cream : dirColor;
-    this.spinThumb.style.boxShadow = `0 0 8px ${rgba(s === 0 ? NEON.cream : dirColor, 0.85)}`;
+    // 방향은 **테두리 색**만으로 진다 — 글로우로 지던 걸 걷었으니 여기서도 box-shadow를 안 만진다.
+    this.spinThumb.style.borderColor = s === 0 ? INK : dirColor;
     // 데스크톱 트랜지언트 노출: 값이 바뀐 뒤 SPIN_HUD_HOLD 동안만 띄운다. 발사 직후 throwBall이
     // spin을 0으로 리셋하며 값이 '변하는' 것도 노출로 세지 않도록 조준 중일 때만 타이머를 건다.
     // lastSpinShown은 매 프레임 갱신 — 안 그러면 리셋된 0이 다음 조준 턴에서 변화로 잡힌다.

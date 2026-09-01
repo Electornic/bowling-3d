@@ -36,66 +36,71 @@ const ANCHOR_GAP = 14; // [튜닝] 점수판 하단과 밴드 사이 간격(px)
 /**
  * [튜닝] 종류별 색·글자 크기. 밴드 높이는 글자 크기에 따라 핏.
  *
- * 색은 theme.ts 팔레트에서 유도한다 — 예전엔 #ff2d78·#22d3ee·#4ade80을 리터럴로 다시 적어 뒀고,
- * 그러면 팔레트를 바꿔도 여기만 옛 색으로 남는다.
+ * ⚠️ **컬러를 두 번 고쳤다.** 기록해 둘 값어치가 있는 실패다.
+ *  ① 1차: 브릭만 색면, 나머지는 잉크 패널 → 스트라이크만 바뀐 셈이 됐다(하프톤·버스트가 안 보였다).
+ *  ② 2차: 팔레트 원색을 그대로 색면으로 깔고 글자를 잉크로 뒤집었다 → 대비는 통과했지만
+ *     **탁했다**(사용자 지적). 원인은 명확하다 — `turquoise #3aa8a0`·`sage #5c9e6b`는
+ *     **중간톤 저채도**다. 1px 테두리 알파 38%에서 좋은 색이 100px 솔리드 색면에서는 무너진다.
+ *     거기다 밝은 색면 둘 옆에 어두운 브릭 하나가 서니 명암이 들쭉날쭉해 한 세트로 안 읽혔다.
+ *  ③ 지금: **깊은 인쇄 잉크로 통일.** 셋 다 어두운 고채도 색면 + cream 레터링 + 잉크 오프셋이다.
+ *     위계는 명암 반전이 아니라 **색온도와 크기**가 진다(브릭 62px > 터쿼이즈·그린 50px > 거터 42px).
  *
- * ⚠️ **한 번 틀렸다가 고친 자리다.** 처음엔 "플랫 원색 블록은 브릭만 가능"이라고 결론냈다 —
- * cream 글자로만 검산했기 때문이다(터쿼이즈 0.307·세이지 0.272 위 cream = 2.3:1 미달). 그런데
- * **글자를 잉크로 뒤집으면** 터쿼이즈 6.1:1 · 세이지 5.5:1로 넉넉히 통과한다. 그래서 축하 3종
- * 전부가 플랫 원색 블록이 됐다 — 그게 300 갈래(워홀 색면 그리드·원색 필드)의 본래 문법이다.
- * 브릭만 어두운 블록이라 글자가 cream이고, 나머지 둘은 밝은 블록이라 글자가 잉크다. 그 반전이
- * 그대로 위계가 된다(가장 센 순간만 명암이 뒤집힌다).
+ * ground의 깊은 값은 팔레트와 **같은 색상(hue)의 인쇄 농도판**이다 — 터쿼이즈 176°·그린 140°를
+ * 유지하면서 명도를 내리고 채도를 올렸다. 잉크로 단순 혼색(mix-to-ink)하면 안 된다:
+ * 원색 자체가 저채도라 섞을수록 탁해진다(sage를 62% 섞으면 #314733 올리브 진흙이 된다 — 실산출).
  *
- * ⚠️ 보조문구를 accent와 같이 두면 안 된다 — 브릭 위 잉크가 **2.0:1**로 안 읽혔다(실측 버그).
- * 그래서 `sub`를 `rule`(테두리·오프셋)과 **분리된 항목**으로 뽑았다. 테두리는 장식이라 낮은 대비가
- * 허용되지만 보조문구는 글자다.
+ * 역할을 필드로 쪼갠 이유:
+ *  · `sub`는 `outline`과 **분리**한다 — 한 필드였을 때 브릭 위 잉크 보조문구가 2.0:1로 안 읽혔다.
+ *    테두리는 장식이라 낮은 대비가 허용되지만 보조문구는 글자다.
+ *  · `outline`(패널 윤곽)과 `bar`(왼→오로 그어지는 액센트)도 다르다 — 윤곽은 잉크라 어두운 색면
+ *    위에서 은은한 모서리로 앉고, 바는 **보여야 하는 연출**이라 cream이다.
  *
- * 실측 대비: strike cream/brick 7.1 · spare 잉크/터쿼이즈 6.1 · split 잉크/세이지 5.5 ·
- * gutter #aeb6c2/잉크 4.6. 전부 본문 기준(4.5) 통과.
- * 거터만 축하가 아니라 디플레이팅이라 잉크 패널 + 버스트 0 + 그림자 0이 의도다.
+ * 실측 대비(cream on ground): strike 7.1 · spare 6.4 · split 6.8 · gutter 4.6. 전부 본문 기준 통과.
+ * 거터만 축하가 아니라 디플레이팅이라 색면 0 · 버스트 0 · 그림자 0이 의도다.
  */
 const CFG: Record<
   StillCutKind,
-  { ground: string; text: string; sub: string; rule: string; shadow: string; dot: string; burst: string; size: string }
+  { ground: string; text: string; sub: string; outline: string; bar: string; shadow: string; dot: string; burst: string; size: string }
 > = {
-  // 어두운 원색 블록 + 밝은 글자 — 축하 3종 중 유일하게 명암이 뒤집힌다
   strike: {
-    ground: NEON.brick,
+    ground: NEON.brick, // 348° — 팔레트 원색 그대로. 이미 인쇄 농도라 손댈 게 없었다
     text: NEON.cream,
     sub: NEON.cream,
-    rule: INK,
+    outline: INK,
+    bar: NEON.cream,
     shadow: INK,
     dot: rgba(INK, 0.3),
     burst: rgba(NEON.cream, 0.16),
     size: 'clamp(32px,7.5vw,62px)',
   },
-  // 밝은 원색 블록 + 잉크 글자 — 인쇄된 색면. 오프셋은 cream(2색 잉크의 밝은 판)
   spare: {
-    ground: NEON.turquoise,
-    text: INK,
-    sub: INK,
-    rule: INK,
-    shadow: NEON.cream,
-    dot: rgba(INK, 0.22),
-    burst: rgba(INK, 0.09),
+    ground: '#0d5a54', // turquoise와 같은 176°, 인쇄 농도
+    text: NEON.cream,
+    sub: NEON.cream,
+    outline: INK,
+    bar: NEON.cream,
+    shadow: INK,
+    dot: rgba(INK, 0.28),
+    burst: rgba(NEON.cream, 0.12),
     size: 'clamp(28px,6vw,50px)',
   },
   split: {
-    ground: NEON.sage,
-    text: INK,
-    sub: INK,
-    rule: INK,
-    shadow: NEON.cream,
-    dot: rgba(INK, 0.22),
-    burst: rgba(INK, 0.09),
+    ground: '#14572f', // sage와 같은 140°, 인쇄 농도
+    text: NEON.cream,
+    sub: NEON.cream,
+    outline: INK,
+    bar: NEON.cream,
+    shadow: INK,
+    dot: rgba(INK, 0.28),
+    burst: rgba(NEON.cream, 0.12),
     size: 'clamp(28px,6vw,50px)',
   },
-  // 디플레이팅 — 색면 없음, 버스트 없음, 그림자 없음
   gutter: {
     ground: INK,
     text: '#aeb6c2',
     sub: NEON.faint,
-    rule: '#5c6472',
+    outline: '#5c6472',
+    bar: '#5c6472',
     shadow: '',
     dot: 'rgba(92,100,114,0.22)',
     burst: '',
@@ -189,7 +194,7 @@ export class StillCut {
       `background-color:${c.ground}`,
       `background-image:${layers.join(',')}`,
       `background-size:${sizes.join(',')}`,
-      `border-top:4px solid ${c.rule}`, // 코믹 패널 아웃라인 — 장식이라 대비 기준 대신 두께로 읽힌다
+      `border-top:4px solid ${c.outline}`, // 코믹 패널 윤곽 — 장식이라 대비 기준 대신 두께로 읽힌다
       'box-shadow:0 12px 34px rgba(0,0,0,0.5)',
       'animation:sc-ground 0.42s ease-out both',
     ].join(';');
@@ -202,8 +207,9 @@ export class StillCut {
       streak.style.cssText = [
         'position:absolute',
         'inset:0',
-        `background:repeating-linear-gradient(0deg,transparent 0 5px,${c.rule} 5px 6px)`,
-        'opacity:0.5',
+        // 스피드라인은 **보여야 하는 연출**이라 bar와 같은 cream이다. 잉크로 두면 어두운 색면에서 사라진다.
+        `background:repeating-linear-gradient(0deg,transparent 0 5px,${c.bar} 5px 6px)`,
+        'opacity:0.34',
         '-webkit-mask:linear-gradient(90deg,#000 0%,transparent 60%)',
         'mask:linear-gradient(90deg,#000 0%,transparent 60%)',
         'animation:sc-streak 0.6s ease-out both',
@@ -254,7 +260,7 @@ export class StillCut {
       'bottom:0',
       'height:4px',
       'transform-origin:left center',
-      `background:${c.rule}`,
+      `background:${c.bar}`,
       gutter ? 'opacity:0.5' : '',
       `animation:sc-bar ${gutter ? '0.55s' : '0.5s'} cubic-bezier(0.2,0.9,0.3,1) both`,
     ]
