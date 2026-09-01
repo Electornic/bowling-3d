@@ -84,7 +84,7 @@ export const ja: Record<I18nKey, string> = {
   'menu.back.game': '← ゲームへ',
   'menu.back.pause': '← 一時停止',
 
-  'menu.screen.default': 'デフォルト・シンセウェイブ',
+  'menu.screen.default': 'デフォルト・ハウスグラフィック',
   'menu.screen.video': '🎬 動画',
   'menu.screen.hint': '画像・GIF・動画 — 動画は無音でループ再生されます。',
   'menu.screen.videoStatus': '🎬 {name}{dur}・無音ループ',

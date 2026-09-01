@@ -79,6 +79,24 @@ export function makeWoodTexture(light = '#c89048', dark = '#96682c', boards = 39
  *
  * 핀 실루엣은 constants.PIN_PROFILE을 그대로 쓴다 — 진짜 핀·배경 장식 핀과 같은 단일소스(#9).
  */
+/**
+ * 핀 실루엣 경로를 현재 컨텍스트에 깐다 (PIN_PROFILE 실측 프로파일 그대로 — 좌 윤곽 위로, 우 윤곽 아래로).
+ *
+ * 마스킹 유닛(drawHousePanel)과 옆벽 밴드(makePosterTexture)가 **같은 핀 모양**을 쓰게 하려고 뽑았다.
+ * 하우스 그래픽이 한 벌로 읽히는 게 목적이고, 실제 볼링장 그래픽도 그 집 핀 도장을 반복해서 쓴다.
+ *
+ * @param baseY 핀 밑면의 y(px). @param k m → px 배율.
+ */
+function pinPath(g: CanvasRenderingContext2D, cx: number, baseY: number, k: number): void {
+  g.beginPath();
+  g.moveTo(cx - PIN_PROFILE[0][0] * k, baseY - PIN_PROFILE[0][1] * k);
+  for (const [r, y] of PIN_PROFILE) g.lineTo(cx - r * k, baseY - y * k); // 왼쪽 윤곽 위로
+  for (let i = PIN_PROFILE.length - 1; i >= 0; i--) {
+    g.lineTo(cx + PIN_PROFILE[i][0] * k, baseY - PIN_PROFILE[i][1] * k); // 오른쪽 윤곽 아래로
+  }
+  g.closePath();
+}
+
 function makePosterTexture(accent: string, accent2: string): THREE.CanvasTexture {
   const W = 1024;
   const H = 164; // 밴드 실물 비율 5.0:0.8 = 6.25에 맞춤
@@ -100,13 +118,7 @@ function makePosterTexture(accent: string, accent2: string): THREE.CanvasTexture
   const drawPin = (cx: number, alpha: number) => {
     g.save();
     g.globalAlpha = alpha;
-    g.beginPath();
-    g.moveTo(cx - PIN_PROFILE[0][0] * k, baseY - PIN_PROFILE[0][1] * k);
-    for (const [r, y] of PIN_PROFILE) g.lineTo(cx - r * k, baseY - y * k); // 왼쪽 윤곽 위로
-    for (let i = PIN_PROFILE.length - 1; i >= 0; i--) {
-      g.lineTo(cx + PIN_PROFILE[i][0] * k, baseY - PIN_PROFILE[i][1] * k); // 오른쪽 윤곽 아래로
-    }
-    g.closePath();
+    pinPath(g, cx, baseY, k);
     g.fillStyle = '#e9edf5';
     g.fill();
     g.clip(); // 목 띠를 핀 실루엣 안으로 가둔다
@@ -753,7 +765,7 @@ export class Environment {
   private readonly screenTex: THREE.CanvasTexture;
   private time = 0;
   private lastDraw = -1; // 전광판 마지막 재드로우 시각(#2 스로틀). -1 = 첫 프레임 강제 드로우.
-  // 커스텀 전광판 (히든 보상). null이면 기본 신스웨이브를 그린다.
+  // 커스텀 전광판 (히든 보상). null이면 기본 마스킹 유닛 아트를 그린다.
   private customImg: HTMLImageElement | null = null;
   private customReady = false;
   // GIF는 <img> 애니메이션에 기대지 않고 프레임을 직접 디코드해 돌린다 (아래 startGif 주석 참고).
@@ -931,17 +943,22 @@ export class Environment {
     if (this.videoEl && this.videoEl.paused && !document.hidden) {
       void this.videoEl.play().catch(() => {});
     }
-    // 재드로우 스로틀(#2): drawScreen()은 그라디언트2 + 태양 + 그리드 33선 + 마퀴를 매번 다시 그리고
-    // 768×256 텍스처를 통째 재업로드한다. 스크롤(0.3/s)·마퀴(80px/s)는 모두
-    // 24fps에서 무손실이므로 ~1/24초 간격으로만 갱신 → 렌더 비용 절반↓ (섀도우맵 정적화와 결 맞춤).
-    if (this.time - this.lastDraw >= 1 / 24) {
+    // 재드로우는 **커스텀 미디어일 때만** 돈다. 기본 마스킹 유닛은 인쇄된 패널이라 정적이고,
+    // 부팅 시 1프레임이면 끝난다(drawHousePanel 주석). 구 버전은 신스웨이브가 움직였기 때문에
+    // 24fps로 그라디언트2 + 태양 + 그리드 33선 + 마퀴를 매번 다시 그리고 768×256 텍스처를
+    // 통째 재업로드했다 — 그 비용이 그대로 0이 된다.
+    // 커스텀(이미지·GIF·영상)은 프레임이 넘어가므로 종전 스로틀을 유지한다(#2).
+    //
+    // ⚠️ `lastDraw < 0`(센티넬) 분기를 반드시 함께 둔다 — setCustomScreen이 **해제**될 때
+    //    customReady=false + lastDraw=-1 로 "다음 update에서 즉시 재드로우"를 기대한다.
+    //    customReady만 조건으로 걸면 커스텀을 끈 순간의 마지막 프레임이 영구히 남는다.
+    if (this.lastDraw < 0 || (this.customReady && this.time - this.lastDraw >= 1 / 24)) {
       this.lastDraw = this.time;
       this.drawScreen();
       this.screenTex.needsUpdate = true;
     }
   }
 
-  /** 전광판 한 프레임 렌더 (신스웨이브 + 스크롤 마퀴) */
   /**
    * 옆 레인 앰비언트 사이클 — 핀 10개가 **다이나믹 강체**, 공·레이크가 키네마틱:
    *   idle → roll → settle → hold → guard → sweep → set → rack → lift → idle
@@ -1167,35 +1184,16 @@ export class Environment {
     const ctx = this.screenCtx;
     const W = ctx.canvas.width;
     const H = ctx.canvas.height;
-    const t = this.time;
-    const cx = W / 2;
-    const horizon = H * 0.5;
 
     if (this.customReady) {
       this.drawCustomBackground(ctx, W, H, this.customImg);
     } else {
-      this.drawSynthwave(ctx, W, H, t, cx, horizon);
-    }
-
-    // 상단 스크롤 마퀴 — 커스텀 전광판일 땐 끈다(사용자 이미지를 가리지 않게).
-    // 이제 전광판엔 텍스트 연출이 없으므로(어나운스 제거) 커스텀은 통째로 그대로 노출된다.
-    if (!this.customReady) {
-      ctx.save();
-      ctx.font = 'bold 26px sans-serif';
-      ctx.textBaseline = 'top';
-      ctx.fillStyle = 'rgba(255,255,255,0.85)';
-      ctx.shadowColor = NEON.turquoise;
-      ctx.shadowBlur = 12;
-      const msg = '★  NEON LANES  ★  STRIKE IT UP  ★  ';
-      const mw = ctx.measureText(msg).width;
-      const off = (t * 80) % mw;
-      for (let x = -off; x < W; x += mw) ctx.fillText(msg, x, 8);
-      ctx.restore();
+      this.drawHousePanel(ctx, W, H);
     }
   }
 
   /**
-   * 커스텀 이미지를 cover로 깔고, 마퀴가 앉는 상단만 어둡게 눌러 가독성을 지킨다.
+   * 커스텀 이미지를 cover로 깐다 (상단 스크림 제거 — 마퀴가 없어져 가릴 이유가 없다).
    * GIF는 DOM에 붙은 <img>가 프레임을 넘기고 drawImage가 '현재 프레임'을 가져온다.
    */
   private drawCustomBackground(ctx: CanvasRenderingContext2D, W: number, H: number, img: HTMLImageElement | null) {
@@ -1212,72 +1210,148 @@ export class Environment {
     const dw = sw * s;
     const dh = sh * s;
     ctx.drawImage(src, (W - dw) / 2, (H - dh) / 2, dw, dh);
-    const scrim = ctx.createLinearGradient(0, 0, 0, 46);
-    scrim.addColorStop(0, 'rgba(4,6,12,0.72)');
-    scrim.addColorStop(1, 'rgba(4,6,12,0)');
-    ctx.fillStyle = scrim;
-    ctx.fillRect(0, 0, W, 46);
-  }
-
-  /** 기본 배경 — 신스웨이브(하늘 그라디언트 + 태양 + 스크롤 그리드). */
-  private drawSynthwave(ctx: CanvasRenderingContext2D, W: number, H: number, t: number, cx: number, horizon: number) {
-    const sky = ctx.createLinearGradient(0, 0, 0, H);
-    sky.addColorStop(0, '#1a0b30');
-    sky.addColorStop(0.5, '#0a0418');
-    sky.addColorStop(1, '#040209');
-    ctx.fillStyle = sky;
-    ctx.fillRect(0, 0, W, H);
-
-    // 태양 (수평선 위 반원 + 가로 스트라이프)
-    ctx.save();
-    ctx.beginPath();
-    ctx.rect(0, 0, W, horizon);
-    ctx.clip();
-    const sunR = H * 0.36;
-    const sun = ctx.createLinearGradient(0, horizon - sunR, 0, horizon);
-    sun.addColorStop(0, NEON.amber);
-    sun.addColorStop(0.55, '#ff6aa6'); // 핑크 중간톤 — 팔레트 토큰 아님(그라디언트 전용)이라 리터럴 유지
-    sun.addColorStop(1, NEON.brick);
-    ctx.fillStyle = sun;
-    ctx.beginPath();
-    ctx.arc(cx, horizon, sunR, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.fillStyle = '#0a0418';
-    for (let i = 0; i < 5; i++) {
-      const yy = horizon - sunR * 0.5 + (i * sunR * 0.5) / 5;
-      ctx.fillRect(cx - sunR, yy, sunR * 2, ((sunR * 0.5) / 5) * (0.3 + i * 0.13));
-    }
-    ctx.restore();
-
-    // 바닥 그리드 (스크롤)
-    ctx.lineWidth = 2;
-    const scroll = (t * 0.3) % 1;
-    for (let i = 0; i < 16; i++) {
-      const f = (i + scroll) / 16;
-      const y = horizon + (H - horizon) * f * f;
-      ctx.strokeStyle = rgba(NEON.turquoise, 0.1 + 0.55 * f);
-      ctx.beginPath();
-      ctx.moveTo(0, y);
-      ctx.lineTo(W, y);
-      ctx.stroke();
-    }
-    ctx.strokeStyle = rgba(NEON.brick, 0.45);
-    for (let i = -8; i <= 8; i++) {
-      ctx.beginPath();
-      ctx.moveTo(cx + i * (W * 0.045), horizon);
-      ctx.lineTo(cx + i * (W * 0.6), H);
-      ctx.stroke();
-    }
-
+    // 상단 46px 스크림은 걷었다 — 그건 **스크롤 마퀴 가독성 전용**이었고 마퀴가 없어졌다.
+    // 이제 사용자 이미지가 위아래 잘림 없이 통째로 노출된다(보상의 원래 의도).
   }
 
   /**
-   * 커스텀 전광판 이미지 적용 (null=기본 신스웨이브로 복귀).
+   * 기본 마스킹 유닛 아트 — 미드센추리 하우스 그래픽 (정적, 에셋 0).
+   *
+   * ⚠️ 여기 있던 것은 **신스웨이브**였다(하늘 그라디언트 + 반원 태양 + 스크롤 원근 그리드).
+   * 실제 마스킹 유닛 카탈로그 62종을 훑어보니 그런 도안은 **0종**이었다 — 베이퍼웨이브 선셋은
+   * 볼링장의 언어가 아니라 2010년대 인터넷이 80년대를 회상한 이미지이고, 그래서 "레트로 네온"을
+   * 요청받은 생성 모델이 항상 그걸 그린다. 화면 정중앙 최대 면적을 그게 차지하고 있었다.
+   *
+   * 실제 카탈로그는 다섯 갈래였고(실사·3D / 미드센추리 / 팝아트 / 추상 기하 / 두들) 공통점이
+   * 주제가 **장비 자체**(핀·볼·볼러)라는 것이었다. 여기서는 미드센추리 갈래를 쓴다 — 방의 실측
+   * 지배 색상이 웜 우드 30°라 그 계열이 벽·레인에 그대로 얹힌다.
+   *
+   * 구성 요소 넷은 전부 실물 카탈로그에서 온 관용구다:
+   *  ① 반복 핀 실루엣 — PATTERNS 갈래. 옆벽 밴드와 `pinPath`를 공유해 같은 핀 도장을 쓴다.
+   *  ② 2겹 부메랑 스우시 — 미드센추리 시그니처(Googie 시대 볼링장 사인).
+   *  ③ 슬랩 로고타입 + 태그라인 — 실물은 하우스 이름을 크게 **한 번** 앉힌다.
+   *     구 마퀴(`★ NEON LANES ★ STRIKE IT UP ★` 80px/s 스크롤)의 문구를 여기로 옮겼다:
+   *     이름을 판에 박는 것 자체는 정석이고(TROPIC LANES·DIAMOND LOUNGE 등) 틀린 건 티커였다.
+   *  ④ **하단 레인 번호 띠** — 62종 전부가 달고 있던 구조 요소인데 우리엔 없었다.
+   *     번호 위치는 실제 레인 중심에서 유도한다(LANE_UNIT ↔ 텍스처 폭).
+   *
+   * 애니메이션이 없다 — 인쇄된 패널이라 움직일 이유가 없고, 그래서 `update()`가 커스텀 미디어가
+   * 아닐 때 재드로우를 아예 건너뛴다(구 버전은 24fps로 그라디언트2+태양+그리드 33선+마퀴를
+   * 매번 다시 그리고 768×256 텍스처를 통째 재업로드했다).
+   */
+  private drawHousePanel(ctx: CanvasRenderingContext2D, W: number, H: number) {
+    // ── 바탕: 다크 월넛. 조명 불균일을 세로 비네트로 흉내 — 인쇄 패널은 위가 밝다 ──
+    ctx.fillStyle = '#241a15';
+    ctx.fillRect(0, 0, W, H);
+    const vg = ctx.createLinearGradient(0, 0, 0, H);
+    vg.addColorStop(0, 'rgba(255,238,214,0.05)');
+    vg.addColorStop(0.45, 'rgba(255,238,214,0.01)'); // 3정지점 — 2정지점이면 상단이 '띠'로 끊겨 보였다
+    vg.addColorStop(1, 'rgba(0,0,0,0.22)');
+    ctx.fillStyle = vg;
+    ctx.fillRect(0, 0, W, H);
+
+    const bandH = Math.round(H * 0.13); // 하단 레인 번호 띠
+    const artH = H - bandH;
+
+    // ── ① 반복 핀 실루엣 (아트 영역 전폭) ──
+    // 교대 알파로 리듬 — 전부 같은 농도면 울타리처럼 보인다(makePosterTexture와 같은 이유).
+    const pinTop = PIN_PROFILE[PIN_PROFILE.length - 1][1]; // 0.380m
+    const k = (artH * 0.62) / pinTop; // m → px
+    const pinBase = artH * 0.98;
+    const pitch = W / 13;
+    for (let i = 0; i < 13; i++) {
+      ctx.save();
+      ctx.globalAlpha = i % 2 ? 0.10 : 0.20;
+      pinPath(ctx, pitch * (i + 0.5), pinBase, k);
+      ctx.fillStyle = NEON.cream;
+      ctx.fill();
+      ctx.restore();
+    }
+
+    // ── ② 2겹 부메랑 스우시 ──
+    // ⚠️ 처음엔 바닥까지 **채운 영역**으로 그렸는데, 우측으로 쏠려 패널 절반을 덮어
+    //    핀 패턴이 좌측 1/3만 남고 우측 상단이 빈 갈색 면이 됐다(실측: 렌더 확인).
+    //    **띠(stroke)**로 바꾸면 핀이 띠 위아래로 이어져 패턴이 전폭에서 읽힌다 —
+    //    실물 카탈로그의 미드센추리 도안도 스우시를 '면'이 아니라 '선'으로 얹는다.
+    const sweep = (yFrac: number, lw: number, col: string) => {
+      ctx.beginPath();
+      ctx.moveTo(-12, artH * (yFrac + 0.13));
+      ctx.bezierCurveTo(
+        W * 0.32,
+        artH * (yFrac - 0.11),
+        W * 0.68,
+        artH * (yFrac + 0.07),
+        W + 12,
+        artH * (yFrac - 0.15),
+      );
+      ctx.strokeStyle = col;
+      ctx.lineWidth = lw;
+      ctx.stroke();
+    };
+    sweep(0.80, 32, NEON.brick); // 굵은 본 띠 — 핀 스트라이프 적색
+    sweep(0.955, 8, NEON.mustard); // 얇은 짝 띠 — 미드센추리 2겹 관용구
+
+    // ── ③ 슬랩 로고타입 + 태그라인 + 터쿼이즈 밑줄 ──
+    ctx.save();
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'alphabetic';
+    const cx = W / 2;
+    const nameY = artH * 0.44;
+    ctx.font = '700 54px Georgia, "Times New Roman", serif';
+    ctx.fillStyle = NEON.cream;
+    ctx.fillText('NEON LANES', cx, nameY);
+    // 밑줄 스우시 — 이름 아래를 한 번 훑는다(미드센추리 로고 관용구)
+    ctx.beginPath();
+    ctx.moveTo(cx - 168, nameY + 15);
+    ctx.quadraticCurveTo(cx, nameY + 30, cx + 168, nameY + 11);
+    ctx.strokeStyle = NEON.turquoise;
+    ctx.lineWidth = 6;
+    ctx.lineCap = 'round';
+    ctx.stroke();
+    ctx.font = '700 17px Georgia, "Times New Roman", serif';
+    ctx.fillStyle = NEON.mustard;
+    ctx.fillText('S T R I K E   I T   U P', cx, nameY + 52);
+    ctx.restore();
+
+    // ── ④ 하단 레인 번호 띠 ──
+    ctx.fillStyle = '#150e0a';
+    ctx.fillRect(0, artH, W, bandH);
+    ctx.fillStyle = rgba(NEON.cream, 0.16);
+    ctx.fillRect(0, artH, W, 1.5);
+    // 번호 x는 실제 레인 중심에서 유도 — 텍스처 폭이 홀 전폭(HALL_HALF_W*2)에 대응한다.
+    const laneStep = (LANE_UNIT / (HALL_HALF_W * 2)) * W;
+    ctx.save();
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    const bandMid = artH + bandH / 2;
+    for (let i = 0; i < 5; i++) {
+      const x = W / 2 + (i - 2) * laneStep;
+      ctx.font = '700 19px Georgia, "Times New Roman", serif';
+      ctx.fillStyle = NEON.cream;
+      ctx.fillText(String(i + 1), x, bandMid + 1);
+      if (i < 4) {
+        // 번호 사이 브릭 다이아 — 실물 띠의 구분자
+        const dx = x + laneStep / 2;
+        ctx.fillStyle = NEON.brick;
+        ctx.beginPath();
+        ctx.moveTo(dx, bandMid - 4);
+        ctx.lineTo(dx + 4, bandMid);
+        ctx.lineTo(dx, bandMid + 4);
+        ctx.lineTo(dx - 4, bandMid);
+        ctx.closePath();
+        ctx.fill();
+      }
+    }
+    ctx.restore();
+  }
+
+  /**
+   * 커스텀 전광판 이미지 적용 (null=기본 마스킹 유닛 아트로 복귀).
    *
    * ⚠️ GIF 애니메이션을 텍스처로 돌리려면 <img>가 **문서에 붙어 렌더돼야** 한다 —
    *    WebGL은 GIF를 못 풀고, 떼어놓은 Image는 브라우저가 프레임을 안 넘긴다.
    *    그래서 1px짜리 투명 엘리먼트로 DOM에 심어두고 drawScreen이 매 프레임 긁어간다
-   *    (전광판은 어차피 24fps로 재드로우 중이라 추가 비용이 사실상 없다).
+   *    (커스텀일 때만 24fps 재드로우가 돌아간다 — 기본 패널은 정적이라 0회).
    */
   setCustomScreen(src: string | null) {
     this.stopVideo();

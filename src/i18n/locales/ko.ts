@@ -91,7 +91,7 @@ export const ko = {
   'menu.back.pause': '← 일시정지',
 
   // ─── 전광판 커스텀 ───
-  'menu.screen.default': '기본 · 신스웨이브',
+  'menu.screen.default': '기본 · 하우스 그래픽',
   'menu.screen.video': '🎬 영상',
   'menu.screen.hint': '이미지 · GIF · 영상 — 영상은 무음으로 반복 재생됩니다.',
   'menu.screen.videoStatus': '🎬 {name}{dur} · 무음 반복',

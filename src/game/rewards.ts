@@ -148,7 +148,7 @@ export type CustomScreenMedia = { kind: 'image'; src: string } | { kind: 'video'
 export const VIDEO_MARKER = 'video';
 
 /**
- * 전광판 커스텀 이미지 저장 (null=기본 신스웨이브로 복귀).
+ * 전광판 커스텀 이미지 저장 (null=기본 마스킹 유닛 아트로 복귀).
  * ⚠️ 같은 localStorage 키에 들어가므로 저장 전에 반드시 축소·용량 검사를 거칠 것
  * (screenMedia.ts). 원본을 그대로 넣으면 5MB 쿼터를 한 방에 넘긴다.
  */

@@ -86,7 +86,7 @@ export const en: Record<I18nKey, string> = {
   'menu.back.game': '← Game',
   'menu.back.pause': '← Paused',
 
-  'menu.screen.default': 'Default · Synthwave',
+  'menu.screen.default': 'Default · House graphics',
   'menu.screen.video': '🎬 Video',
   'menu.screen.hint': 'Image · GIF · video — videos loop muted.',
   'menu.screen.videoStatus': '🎬 {name}{dur} · muted loop',

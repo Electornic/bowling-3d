@@ -85,7 +85,7 @@ export const zh: Record<I18nKey, string> = {
   'menu.back.game': '← 返回游戏',
   'menu.back.pause': '← 暂停',
 
-  'menu.screen.default': '默认 · 合成波',
+  'menu.screen.default': '默认 · 球馆图形',
   'menu.screen.video': '🎬 视频',
   'menu.screen.hint': '图片 · GIF · 视频 — 视频会静音循环播放。',
   'menu.screen.videoStatus': '🎬 {name}{dur} · 静音循环',
