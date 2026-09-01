@@ -97,7 +97,7 @@ let varsEmitted = false;
 /**
  * NEON 팔레트를 :root CSS 변수(--neon-*)로 1회 방출 — ui.css(정적 애니메이션·의사요소, #4)가 var()로 소비(#5).
  * TS의 NEON이 유일 소스: CSS·DOM-JS·WebGL 세 세계가 같은 상수를 공유해 드리프트 0.
- * (함수명 유지 — Hud·Controls가 "네온 UI 표시 전 1회 호출" 계약으로 이미 부른다. .neon-range·키프레임은 ui.css로 이동.)
+ * (함수명 유지 — Hud·Controls가 "네온 UI 표시 전 1회 호출" 계약으로 이미 부른다. 키프레임은 ui.css에 있다.)
  */
 export function ensureNeonStyles(): void {
   if (varsEmitted) return;

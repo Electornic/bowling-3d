@@ -12,7 +12,7 @@
       * { margin: 0; padding: 0; box-sizing: border-box; }
       /* overscroll-behavior: 당겨서새로고침·러버밴딩 차단(Safari 16+, html·body 양쪽). user-select/touch-callout: 롱프레스 선택·메뉴 차단 */
       html, body {
-        width: 100%; height: 100%; overflow: hidden; background: #101018;
+        width: 100%; height: 100%; overflow: hidden; background: #171210;
         overscroll-behavior: none;
         -webkit-user-select: none; user-select: none; -webkit-touch-callout: none;
       }
@@ -23,157 +23,154 @@
          살아난다 — 커서가 실제로 필요한 순간엔 항상 보인다. */
       canvas { display: block; touch-action: none; cursor: none; }
 
-      /* 터미널 부팅 로더 — 게임 네온(시안+마젠타) 톤. 정적 HTML이라 모듈/WASM 로드와 병렬로 즉시 타이핑 시작. */
+      /* 부팅 로더 — 하우스 마스킹 유닛과 **같은 그래픽 언어**(미드센추리)로 그린다.
+         정적 HTML이라 모듈/WASM 로드와 병렬로 즉시 시작한다.
+         ⚠️ 팔레트는 theme.ts NEON과 같은 값을 손으로 적어둔다 — 모듈 로드 전이라 import가 불가능하다.
+            값이 갈리면 첫 화면과 게임 화면의 톤이 어긋난다(월넛 #241a15 · cream #ebe4d6 ·
+            brick #c8102e · mustard #e0a12b · turquoise #3aa8a0). */
       /* z-index 1000: 메뉴(40)·도크·안내(50) 등 모든 UI 위에. 메뉴는 boot() 중 미리 만들어지므로
          로더가 그 위를 완전히 덮어야 한다(탭하면 사라짐). */
       #loading {
         position: fixed; inset: 0; z-index: 1000;
         display: flex; align-items: center; justify-content: center;
-        padding: 24px; background: #05060a; color: #cfd6e4;
-        font: 14px/1.75 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        padding: 24px; background: #241a15; color: #ebe4d6;
         transition: opacity 0.42s ease;
       }
       #loading.done { opacity: 0; pointer-events: none; }       /* 탭 시 페이드아웃 */
-      #loading .term { width: min(540px, 90vw); }
+      #loading .house { width: min(420px, 86vw); text-align: center; }
+      /* 하우스 사인 — 마스킹 유닛의 로고타입·밑줄 스우시·태그라인 3단을 그대로 옮겼다 */
+      #boot-name { font: 700 clamp(26px, 7vw, 38px)/1 Georgia, 'Times New Roman', serif; letter-spacing: 0.02em; }
+      #boot-rule { display: block; margin: 7px auto 0; width: min(300px, 70vw); }
+      #boot-tag { margin-top: 7px; color: #e0a12b; font: 700 11px/1 Georgia, 'Times New Roman', serif; letter-spacing: 0.34em; }
+      /* 핀 랙 — 진행률이 곧 '핀이 세워지는 수'다. 실제 하우스의 개장 신호가 이것이다. */
+      #boot-rack { display: block; margin: 22px auto 0; width: min(230px, 58vw); }
+      #boot-rack use { transition: opacity 0.22s ease; }
+      #boot-count { margin-top: 15px; color: #e0a12b; font: 600 12px/1 ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: 0.2em; }
+      #boot-err { margin-top: 10px; display: none; color: #c8102e; font: 600 12px/1.5 system-ui, sans-serif; }
       #boot-tap {
-        margin-top: 16px; display: none;                         /* 준비 완료 + 타이핑 끝나면 노출 */
-        color: #ff2d78; text-shadow: 0 0 10px #ff2d78; letter-spacing: 0.12em; /* CTA = 마젠타 */
-        animation: boot-pulse 1.2s ease-in-out infinite;
+        margin-top: 16px; display: none;                         /* 준비 완료 + 랙 세팅 끝나면 노출 */
+        color: #c8102e; letter-spacing: 0.14em; font: 700 13px/1 system-ui, sans-serif;
+        animation: boot-pulse 1.4s ease-in-out infinite;
       }
-      .boot-cur {
-        display: inline-block; width: 9px; height: 15px; vertical-align: -2px;
-        background: #ff2d78; box-shadow: 0 0 8px #ff2d78;        /* 깜빡이는 블록 커서 = 마젠타 */
-        animation: boot-blink 1s steps(1) infinite;
+      @keyframes boot-pulse { 50% { opacity: 0.4; } }
+      @media (prefers-reduced-motion: reduce) {
+        #boot-tap { animation: none; }
+        #boot-rack use { transition: none; }
       }
-      .boot-ok { color: #4ade80; }                               /* OK = 초록 */
-      .boot-dim { opacity: 0.45; }                               /* 프롬프트 '> ' = 탈색 */
-      .boot-ac { color: #22d3ee; text-shadow: 0 0 9px rgba(34, 211, 238, 0.55); } /* 강조 = 네온 시안 */
-      .boot-err { color: #ff5a5a; text-shadow: 0 0 9px rgba(255, 90, 90, 0.5); }  /* 부팅 실패 = 빨강 */
-      @keyframes boot-blink { 50% { opacity: 0; } }
-      @keyframes boot-pulse { 50% { opacity: 0.35; } }
     </style>
   </head>
   <body>
     <div id="loading" role="status" aria-label="로딩 중">
-      <div class="term">
-        <div id="boot-log"></div>
+      <div class="house">
+        <div id="boot-name">NEON LANES</div>
+        <svg id="boot-rule" viewBox="0 0 300 12" aria-hidden="true">
+          <path d="M4 6 Q150 13 296 4" fill="none" stroke="#3aa8a0" stroke-width="4" stroke-linecap="round" />
+        </svg>
+        <div id="boot-tag">STRIKE IT UP</div>
+        <svg id="boot-rack" viewBox="0 0 200 140" aria-hidden="true">
+          <defs>
+            <symbol id="bp" viewBox="0 0 40 120">
+              <path d="M20 2c7 0 11 8 11 15 0 6-4 9-4 14 0 7 8 16 8 44 0 26-6 43-15 43S5 101 5 75c0-28 8-37 8-44 0-5-4-8-4-14C9 10 13 2 20 2z" fill="#ebe4d6" />
+              <rect x="7" y="44" width="26" height="7" rx="2" fill="#c8102e" />
+              <rect x="6" y="56" width="28" height="7" rx="2" fill="#c8102e" />
+            </symbol>
+          </defs>
+          <!-- 뒤→앞 순서로 그린다(앞 핀이 뒤 핀을 가려 깊이가 생긴다).
+               data-pin은 **실제 핀 번호** — 공개는 1→10(앞→뒤)이라 그리기 순서와 다르다. -->
+          <use data-pin="7" href="#bp" x="44" y="0" width="16" height="48" />
+          <use data-pin="8" href="#bp" x="76" y="0" width="16" height="48" />
+          <use data-pin="9" href="#bp" x="108" y="0" width="16" height="48" />
+          <use data-pin="10" href="#bp" x="140" y="0" width="16" height="48" />
+          <use data-pin="4" href="#bp" x="60" y="30" width="16" height="48" />
+          <use data-pin="5" href="#bp" x="92" y="30" width="16" height="48" />
+          <use data-pin="6" href="#bp" x="124" y="30" width="16" height="48" />
+          <use data-pin="2" href="#bp" x="76" y="60" width="16" height="48" />
+          <use data-pin="3" href="#bp" x="108" y="60" width="16" height="48" />
+          <use data-pin="1" href="#bp" x="92" y="90" width="16" height="48" />
+        </svg>
+        <div id="boot-count">0 / 10</div>
+        <div id="boot-err"></div>
         <div id="boot-tap">▶ TAP TO START</div>
       </div>
     </div>
 
     <!--
-      터미널 부팅 연출. 모듈(/src/main.ts)은 defer라 이 인라인 스크립트가 먼저 실행되어
+      부팅 연출 = **핀 랙 세팅**. 모듈(/src/main.ts)은 defer라 이 인라인 스크립트가 먼저 실행되어
       window.__loaderReady / __loaderError를 정의해 둔다.
-        · boot() 성공 → __loaderReady(onDismiss): 'ready' 표시 + 'TAP TO START', 탭하면 페이드아웃 후 제거.
-        · boot() 실패 → __loaderError(msg): 빨간 ERROR 줄 + 'TAP TO RETRY'(탭=새로고침), 타이핑 중단.
-      'ready'는 실제 엔진 준비 완료 후에만 찍는다(거짓 ready 방지) — 그 전엔 'initializing' 대기.
-      타이핑 도중 탭은 빨리감기(스킵). prefers-reduced-motion이면 타이핑 생략하고 바로 표시.
+        · boot() 성공 → __loaderReady(onDismiss): 'READY' + 'TAP TO START', 탭하면 페이드아웃 후 제거.
+        · boot() 실패 → __loaderError(msg): 브릭색 ERROR 줄 + 'TAP TO RETRY'(탭=새로고침), 세팅 중단.
+      'READY'는 실제 엔진 준비 완료 후에만 찍는다(거짓 ready 방지) — 그 전엔 '· · ·' 대기.
+      세팅 도중 탭은 빨리감기(스킵). prefers-reduced-motion이면 애니메이션 생략하고 바로 표시.
+
+      ⚠️ 여기 있던 것은 **가짜 터미널**이었다(`> booting strike.os` / `loading physics... OK` /
+         `racking pins [||||||||||] 10/10` / `oiling lane... OK`). 볼링 게임이 부팅 로그를 보여줄
+         이유가 없고, 터미널 부팅 연출 자체가 걷어내는 중인 표식이다. 실제 하우스의 개장 신호는
+         **핀 랙이 내려와 핀이 세워지는 것**이라 진행률을 그것으로 바꿨다 — 구 로그의 3번째 줄이
+         이미 `racking pins 10/10`이었으니, 글로 적던 것을 그림으로 바꾼 셈이다.
+         상태 기계(스킵·ready 대기·에러·부팅음·reduced-motion)는 **그대로 보존**했다.
     -->
     <script>
       (function () {
-        var log = document.getElementById('boot-log');
         var tapEl = document.getElementById('boot-tap');
+        var countEl = document.getElementById('boot-count');
+        var errEl = document.getElementById('boot-err');
         var L = document.getElementById('loading');
 
-        // [세그먼트 텍스트, CSS 클래스] — 볼링 테마 부팅 로그(앞 4줄). 'ready'는 준비 완료 후 별도로 찍는다.
-        var lines = [
-          [['> ', 'boot-dim'], ['booting strike.os', '']],
-          [['> ', 'boot-dim'], ['loading physics... ', ''], ['OK', 'boot-ok']],
-          [['> ', 'boot-dim'], ['racking pins ', ''], ['[||||||||||]', 'boot-ac'], [' 10/10', '']],
-          [['> ', 'boot-dim'], ['oiling lane... ', ''], ['OK', 'boot-ok']],
-        ];
+        // 핀 10개를 **번호순(1→10 = 앞→뒤)**으로 세운다. DOM은 뒤→앞(가림 순서)이라 정렬이 필요하다.
+        var pins = [].slice.call(document.querySelectorAll('#boot-rack use'));
+        pins.sort(function (a, b) { return +a.getAttribute('data-pin') - +b.getAttribute('data-pin'); });
+        for (var pi = 0; pi < pins.length; pi++) pins[pi].style.opacity = '0.12'; // 유령 랙 — 어디에 설지 미리 보인다
 
         var bootLinesDone = false, engineReady = false, dismissed = false, failed = false, fastForward = false;
-        var awaitingReady = false; // 4줄 다 찍었는데 엔진이 아직 준비 안 됨 → 'initializing' 대기 중
-        var finalLine = null;      // 마지막(ready/initializing) 줄 element
+        var awaitingReady = false; // 랙은 다 섰는데 엔진이 아직 준비 안 됨 → '· · ·' 대기 중
         var onDismiss = null;
         var reduce = false;
         try { reduce = matchMedia('(prefers-reduced-motion: reduce)').matches; } catch (e) {}
 
-        function makeCursor() {
-          var c = document.createElement('span');
-          c.className = 'boot-cur';
-          return c;
-        }
-        function appendLine(segs) {
-          var d = document.createElement('div');
-          for (var s = 0; s < segs.length; s++) {
-            var sp = document.createElement('span');
-            if (segs[s][1]) sp.className = segs[s][1];
-            sp.textContent = segs[s][0];
-            d.appendChild(sp);
-          }
-          log.appendChild(d);
-          return d;
-        }
-
-        // ── 글자 단위 타이핑(앞 4줄). li=줄, si=세그먼트, ci=글자 인덱스. 커서는 항상 줄의 마지막 자식. ──
-        var li = 0, si = 0, ci = 0, curLine = null, curSpan = null;
-        function step() {
+        // ── 핀 세우기(1→10). 175ms 간격 = 핀세터가 한 알씩 내려놓는 리듬. ──
+        var set = 0;
+        function setPin() {
           if (fastForward || dismissed || failed) return;
-          if (li >= lines.length) { bootLinesDone = true; proceedToFinal(); return; }
-          if (!curLine) {
-            curLine = document.createElement('div');
-            log.appendChild(curLine);
-            curLine.appendChild(makeCursor());
-          }
-          var seg = lines[li][si];
-          if (!curSpan) {
-            curSpan = document.createElement('span');
-            if (seg[1]) curSpan.className = seg[1];
-            curLine.insertBefore(curSpan, curLine.lastChild);
-          }
-          var txt = seg[0];
-          curSpan.textContent += txt.charAt(ci);
-          ci++;
-          if (ci >= txt.length) {
-            ci = 0; si++; curSpan = null;
-            if (si >= lines[li].length) {
-              si = 0; li++;
-              curLine.removeChild(curLine.lastChild); // 줄 끝 — 커서 제거(다음 줄에서 새로)
-              curLine = null;
-              setTimeout(step, 150);                  // 줄 사이 약간의 텀
-              return;
-            }
-          }
-          setTimeout(step, 14);
+          if (set >= pins.length) { bootLinesDone = true; proceedToFinal(); return; }
+          pins[set].style.opacity = '1';
+          set++;
+          countEl.textContent = set + ' / ' + pins.length;
+          setTimeout(setPin, 175);
         }
 
-        // ── 마지막 줄: 엔진이 준비됐으면 'ready', 아니면 'initializing'로 대기 ──
+        // ── 랙 완료 후: 엔진이 준비됐으면 'READY', 아니면 '· · ·'로 대기 ──
         function proceedToFinal() {
           if (failed) return;
           if (engineReady) showReady();
           else { awaitingReady = true; showWaiting(); }
         }
         function showWaiting() {
-          finalLine = appendLine([['> ', 'boot-dim'], ['initializing', 'boot-dim']]);
-          finalLine.appendChild(makeCursor());
+          countEl.textContent = '· · ·';
         }
         function showReady() {
           awaitingReady = false;
-          if (finalLine && finalLine.parentNode) finalLine.parentNode.removeChild(finalLine); // 'initializing' 줄 치우기
-          finalLine = appendLine([['> ', 'boot-dim'], ['ready', 'boot-ac']]);
-          finalLine.appendChild(makeCursor());
+          countEl.textContent = 'READY';
           if (!dismissed && !failed) tapEl.style.display = 'block';
         }
 
-        // ── 스킵(빨리감기): 앞 4줄 즉시 렌더 후 마지막 줄 단계로 ──
+        // ── 스킵(빨리감기): 핀 10개 즉시 세우고 마지막 단계로 ──
         function skip() {
           if (bootLinesDone || dismissed || failed) return;
           fastForward = true;
-          log.innerHTML = '';
-          for (var i = 0; i < lines.length; i++) appendLine(lines[i]);
+          for (var i = 0; i < pins.length; i++) pins[i].style.opacity = '1';
+          set = pins.length;
+          countEl.textContent = set + ' / ' + set;
           bootLinesDone = true;
           proceedToFinal();
         }
 
-        // ── 실패: 빨간 ERROR 줄 + 'TAP TO RETRY'(탭=새로고침). 타이핑은 failed 플래그로 중단됨. ──
+        // ── 실패: 브릭색 ERROR 줄 + 'TAP TO RETRY'(탭=새로고침). 핀 세우기는 failed 플래그로 중단됨. ──
         function showError(msg) {
           if (dismissed) return;
           failed = true;
-          var curs = log.querySelectorAll('.boot-cur'); // 진행 중 커서 제거
-          for (var i = 0; i < curs.length; i++) curs[i].parentNode.removeChild(curs[i]);
-          appendLine([['> ', 'boot-dim'], ['ERROR: ' + (msg || 'boot failed'), 'boot-err']]);
+          errEl.textContent = 'ERROR: ' + (msg || 'boot failed');
+          errEl.style.display = 'block';
+          countEl.textContent = '';
           tapEl.textContent = '▶ TAP TO RETRY';
           tapEl.style.display = 'block';
         }
@@ -240,7 +237,7 @@
         window.__loaderError = function (msg) { showError(msg); }; // 부팅 실패
 
         if (reduce) skip();
-        else setTimeout(step, 120);
+        else setTimeout(setPin, 120);
       })();
     </script>
     <script type="module" src="/src/main.ts"></script>

@@ -132,7 +132,7 @@ export async function boot() {
     }
   });
 
-  // 부팅 완료 → 터미널 로더에 신호. 타이핑이 끝나면 'TAP TO START'가 뜨고, 탭하면 로더가
+  // 부팅 완료 → 부팅 로더에 신호. 타이핑이 끝나면 'TAP TO START'가 뜨고, 탭하면 로더가
   // 페이드아웃되며 그 시점에 가로 권장 안내를 띄운다. 연출은 index.html의 인라인 스크립트가 담당.
   const w2 = window as Window & { __loaderReady?: (onDismiss: () => void) => void };
   if (w2.__loaderReady) {

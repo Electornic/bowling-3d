@@ -5,37 +5,10 @@
  *     theme.ts ensureNeonStyles()가 부팅 시 :root { --neon-* } CSS 변수를 방출하고, 여기서 var()로 소비한다(#5).
  *   · 런타임 계산 인라인 스타일(요소별 height 트랜지션 등)은 TS에 남긴다.
  * main.ts가 한 줄로 import → Vite가 <head>에 주입(설정 0, HMR·린팅·문법 하이라이트 회복).
- * ⚠️ index.html 부팅 로더 CSS는 여기 없음 — 모듈보다 먼저 로드돼야 "즉시 타이핑"이라 의도적으로 인라인 유지.
+ * ⚠️ index.html 부팅 로더 CSS는 여기 없음 — 모듈보다 먼저 로드돼야 "즉시 핀 세팅"이라 의도적으로 인라인 유지.
  *
  * 알파 합성은 relative color syntax(rgb(from var(--x) r g b / a))로 토큰 하나에서 파생 — 값 복제 0.
  */
-
-/* === 레인지 슬라이더 (인라인 불가한 의사요소) — theme.ts에서 이동 === */
-/* ⚠️ 트랙이 `linear-gradient(90deg, cyan, purple, pink)`였다 — 퍼플→시안 그라데는 "AI가 뽑은 UI"의
-   단일 최강 표식이다. 눈금 느낌은 그라데가 아니라 **평평한 인쇄 바 + 또렷한 노브**로 낸다.
-   글로우(0 0 10px)도 걷었다: 미드센추리 인쇄물에는 발광이 없고, 노브는 색과 테두리로 충분히 읽힌다. */
-.neon-range {
-  -webkit-appearance: none; appearance: none;
-  width: 100%; height: 6px; border-radius: 2px; outline: none; cursor: pointer; margin: 0;
-  background: rgb(from var(--neon-cream) r g b / 0.16);
-}
-.neon-range::-webkit-slider-thumb {
-  -webkit-appearance: none; appearance: none;
-  width: 18px; height: 18px; border-radius: 50%;
-  background: var(--neon-cream); border: 2px solid var(--neon-brick);
-  box-shadow: 0 1px 3px rgba(0,0,0,0.6);
-}
-.neon-range::-moz-range-thumb {
-  width: 18px; height: 18px; border: 2px solid var(--neon-brick); border-radius: 50%;
-  background: var(--neon-cream); box-shadow: 0 1px 3px rgba(0,0,0,0.6);
-}
-.neon-range::-moz-range-track { height: 6px; border-radius: 2px; background: transparent; }
-/* 터치(coarse): 슬라이더 썸 18→28px로 키워 손가락 타깃 확보 (MOBILE_SUPPORT.md §3.1) */
-@media (pointer: coarse) {
-  .neon-range { height: 10px; }
-  .neon-range::-webkit-slider-thumb { width: 28px; height: 28px; }
-  .neon-range::-moz-range-thumb { width: 28px; height: 28px; }
-}
 
 /* === 현재 프레임 강조(Hud 점수 시트) + HUD 점수 팝 — theme.ts에서 이동 === */
 /* 외곽 글로우(0 0 9px→16px)를 걷고 **인셋 규선의 굵기·농도만** 맥동시킨다.
