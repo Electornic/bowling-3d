@@ -84,10 +84,11 @@ export type GameEvent =
   | { type: 'strike'; streak: number }
   | { type: 'spare' }
   | { type: 'gutter' }
-  | { type: 'split'; label: string }
   | { type: 'splitConverted'; label: string }
-  | { type: 'turn'; playerIndex: number; playerName: string; ai: boolean }
   | { type: 'gameOver'; summary: GameSummary };
+// ⚠️ 'split'(발생)·'turn'(차례 교대)은 **일부러 없다.** 둘 다 emit만 하고 받는 쪽이 없었다 —
+// 스플릿 발생 배너는 핀을 보면 아는 정보를 2구 조준 정면에 띄우는 부정 피드백이라 걷었고,
+// 현재 차례는 점수판 골드 하이라이트가 이미 말한다. 되살릴 거면 소비처부터 만들 것.
 
 /** 스페어 챌린지 코스 (쉬움 → 어려움, 클래식 리브) */
 export const SPARE_LEAVES: number[][] = [
@@ -263,9 +264,12 @@ export class GameState {
   }
 
   /**
-   * 충돌 신호 (Boot에서 engine.onContact 배선). 굴러온 공이 핀 구역에 닿는
-   * 첫 임팩트면 투구당 1회 슬로모 발동 (거터볼 제외 — 레인 위 공만).
-   * 트리거 빈도를 줄이려면: PIN_CONTACT_Z 상향, ball===1 게이트 추가, 또는 magnitude 임계 추가.
+   * 임팩트 평가 — **매 물리 스텝 update()가 부른다.** (Boot의 engine.onContact가 아니다.
+   * 그쪽은 카메라 push-in만 맡는다.)
+   *
+   * 판정 기준은 z도 접촉 시간도 아니라 **핀이 실제로 움직였는가**다(|v| > 0.5 m/s).
+   * 고정 z 트리거는 핀이 이미 치워진 자리(2구)나 핀 옆을 스쳐 지나갈 때 헛발동했다.
+   * 발동하면 투구당 1회 슬로모 + 크래시 사운드. 거터·빗나감엔 둘 다 없다.
    */
   notifyImpact() {
     // ROLLING뿐 아니라 SETTLING도 허용 — 코너/사이드 핀(7·10, 스페어)은 공이 레인 끝(inGutter)이나
@@ -307,7 +311,7 @@ export class GameState {
 
     // 굴림 럼블 오디오 + 임팩트(사운드·슬로모) + 시간 배속 — 각각 헬퍼로 분리(#8).
     this.updateRollAudio();
-    this.notifyImpact(); // 접촉 시간 기반 임팩트 평가 (고정 z 트리거 폐기, 속도 무관 동기)
+    this.notifyImpact(); // 핀이 움직였는지로 임팩트 판정 (고정 z 트리거 폐기 — 그 주석 참고)
     this.setTimeScale?.(this.computeTimeScale(dt)); // AI 빨리감기(P1.5) vs 임팩트 슬로모(P2, 우선)
 
     const ai = this.currentPlayer?.ai;
@@ -426,13 +430,16 @@ export class GameState {
       return;
     }
 
-    // 스플릿 감지: 프레임 1구(풀랙) 후 (로드맵 P1)
-    if (p.ball === 1 && this.standingAtThrow === 10 && standing > 0) {
+    // 스플릿 감지: 풀랙에 던진 공이 핀을 남겼을 때 (로드맵 P1).
+    // 게이트가 standingAtThrow === 10 뿐인 이유: 10프레임은 1구 스트라이크 뒤 2·3구도 새 랙이라
+    // 사실상 '1구'다. p.ball === 1까지 요구하면 그 보너스 랙에서 난 스플릿을 메꿔도 splitConverted가
+    // 안 떠서, 볼링에서 제일 어려운 샷이 제일 극적인 자리에서 아무 반응 없이 지나간다.
+    // 일반 프레임 2구가 걸리는 경우(1구 거터 후 2구 스플릿)는 그 프레임이 곧 끝나며
+    // finishFrame이 pendingSplit을 지우므로 화면에 드러나지 않는다.
+    if (this.standingAtThrow === 10 && standing > 0) {
+      // 발생 자체는 연출하지 않는다(위 GameEvent 주석) — 메꿨을 때 splitConverted가 쓰려고 들고만 있는다.
       const info = detectSplit(this.pins.standingMask());
-      if (info.isSplit) {
-        this.pendingSplit = info.label;
-        this.emit({ type: 'split', label: info.label });
-      }
+      if (info.isSplit) this.pendingSplit = info.label;
     }
 
     if (p.frame < this.frames) {
@@ -441,6 +448,18 @@ export class GameState {
       this.scoreLastFrame(standing);
     }
     this.refreshHud();
+  }
+
+  /**
+   * 다음 투구 준비 — 핀세터를 돌리고 공을 되돌려 조준으로 되돌아간다.
+   * 프레임 안에서 다음 구로 넘어가는 자리(2구·10프레임 보너스)마다 같은 네 줄이라 묶었다.
+   * @param cycle 'respot' = 선 핀은 스폿에 되놓고 데드우드만 쓸어냄 · 'rack' = 새 10개
+   */
+  private nextBall(cycle: 'respot' | 'rack') {
+    this.pins.runCycle(cycle);
+    this.ballObj.reset();
+    this.state = 'AIMING';
+    this.aiWait = 0;
   }
 
   /** 일반 프레임: 스트라이크(1구 전멸) 또는 2구 완료 시 프레임 종료 */
@@ -462,11 +481,8 @@ export class GameState {
       }
       this.finishFrame();
     } else {
-      this.pins.runCycle('respot'); // 자동 핀세터 — 스윕이 데드우드를 밀고 선 핀을 스폿에 되놓는다
       p.ball = 2;
-      this.ballObj.reset();
-      this.state = 'AIMING';
-      this.aiWait = 0;
+      this.nextBall('respot');
     }
   }
 
@@ -490,22 +506,16 @@ export class GameState {
       p.strikeStreak = 0;
     }
 
+    // 다 치웠으면 새 랙, 남았으면 그 핀을 스폿에 되놓는다 — 10프레임 보너스 규칙 그대로.
+    const cycle = standing === 0 ? 'rack' : 'respot';
     if (p.ball === 1) {
-      if (standing === 0) this.pins.runCycle('rack');
-      else this.pins.runCycle('respot');
       p.ball = 2;
-      this.ballObj.reset();
-      this.state = 'AIMING';
-      this.aiWait = 0;
+      this.nextBall(cycle);
     } else if (p.ball === 2) {
       const earnedBonus = f[0] === 10 || f[0] + f[1] === 10; // 1구 스트라이크 또는 스페어
       if (earnedBonus) {
-        if (standing === 0) this.pins.runCycle('rack');
-        else this.pins.runCycle('respot');
         p.ball = 3;
-        this.ballObj.reset();
-        this.state = 'AIMING';
-        this.aiWait = 0;
+        this.nextBall(cycle);
       } else {
         this.finishFrame();
       }
@@ -530,7 +540,7 @@ export class GameState {
       this.pins.setLayout(SPARE_LEAVES[p.frame - 1]);
       this.ballObj.reset();
       this.state = 'AIMING';
-      this.aiWait = 0;
+      this.aiWait = 0; // 스페어 모드는 핀세터 사이클 없이 레이아웃을 갈아끼운다 — nextBall을 안 쓴다
     }
     this.refreshHud();
   }
@@ -552,17 +562,12 @@ export class GameState {
     for (let i = 1; i <= this.players.length; i++) {
       const next = (this.current + i) % this.players.length;
       if (!this.players[next].done) {
-        const switched = next !== this.current;
         this.current = next;
         this.pins.runCycle('rack');
         this.ballObj.reset();
         this.applyBallSpecForTurn();
         this.state = 'AIMING';
         this.aiWait = 0;
-        if (switched && this.players.length > 1) {
-          const np = this.players[next];
-          this.emit({ type: 'turn', playerIndex: next, playerName: np.name, ai: !!np.ai });
-        }
         return;
       }
     }
@@ -619,8 +624,10 @@ export class GameState {
       mode: this.mode,
       frames: this.frames,
       current: this.current,
-      standing: this.pins.standingCount(),
       resetting: this.pins.cycling, // 핀세터 가동 중 — 조준 대신 '핀 정리 중…'
+      // 남은 핀 인디케이터용. 이 호출 지점들(상태 전이 + 사이클 종료)이 곧 마스크가 확정되는
+      // 시점이라 그대로 넘긴다 — 사이클 중 값은 HUD가 resetting으로 걸러 안 그린다.
+      standing: this.pins.standingMask(),
       players: this.players.map((p) => ({
         name: p.name,
         ai: !!p.ai,

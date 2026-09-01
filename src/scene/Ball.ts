@@ -145,7 +145,7 @@ export class Ball {
     prev?.dispose(); // 무게 슬라이더를 돌리면 매번 새로 굽는다 — 이전 것 즉시 반납
   }
 
-  /** 코스메틱 스킨 적용 — 외형만(물리/AI 사다리 무영향, REWARDS.md §3). */
+  /** 코스메틱 스킨 적용 — 외형만(물리/AI 사다리 무영향, docs/legacy/REWARDS.md §3). */
   setSkin(skin: BallSkin) {
     this.skin = skin;
     this.applyMaterial();

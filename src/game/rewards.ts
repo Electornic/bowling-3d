@@ -2,7 +2,7 @@ import type { GameMode } from './GameState';
 import type { I18nKey } from '../i18n';
 
 /**
- * 보상 시스템 (로드맵 ③ 승리 보상) — 업적(뱃지) + 코스메틱 볼 스킨. 설계: docs/REWARDS.md.
+ * 보상 시스템 (로드맵 ③ 승리 보상) — 업적(뱃지) + 코스메틱 볼 스킨. 설계: docs/legacy/REWARDS.md.
  * 스킨 = 머티리얼 파라미터만(물리/AI 사다리 무영향, §3 불변식). 과금·가챠 없음, localStorage.
  * v1 = core 업적 6 + classic 포함 7스킨. stretch(perfect/spare_master/clean)·애니 스킨은 P5.
  */

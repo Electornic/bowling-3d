@@ -15,16 +15,55 @@ import {
 export const PIN_RADIUS = 0.06; // 콜라이더 반경 (도안 §4.4: ≥0.06, 터널링 방지)
 
 /**
- * 병 실루엣 + 목 빨간 띠 지오메트리 (base가 y=0). 진짜 핀과 옆 레인 장식 핀이 공유한다 —
- * 한쪽만 줄무늬가 있으면 같은 화면에서 바로 눈에 띈다.
+ * 손으로 찍은 프로파일을 **centripetal Catmull-Rom**으로 촘촘히 다시 뽑는다 (원본 점은 전부 지난다).
+ *
+ * PIN_PROFILE은 실루엣을 정의하는 최소한의 점이라 세로 방향 꺾임이 크다 — 특히 머리 꼭지가
+ * 9.6° → 22.3° → 31.0° → 26.1°로 꺾여, 가까이서 보면 **크라운이 각진 깎은 면**으로 보였다
+ * (radialSegments는 가로 해상도라 이걸 못 고친다. 32로 올려도 세로 각짐은 그대로다).
+ *
+ * 규칙 셋:
+ *  1. **원본 점을 반드시 지난다** — 띠 경계(PIN_STRIPES)가 프로파일 점에 박혀 있어서, 그 점이
+ *     사라지면 정점색 띠가 흐려진다. 세그먼트별로 t를 나눠 찍어 컨트롤 포인트를 보존한다.
+ *  2. **centripetal**(uniform 아님) — 목의 띠 간격 점들이 3mm 간격으로 촘촘한데 uniform CR은
+ *     거기서 오버슈트해 반지름이 출렁인다(실측: 목 구간 역전 1곳, ±12° 리플). centripetal은 0곳.
+ *  3. **바닥 모서리(y<0.02)는 손대지 않는다** — 밑동의 81.5° 코너는 실루엣이지 결함이 아니다.
+ *
+ * 결과(바닥 제외 최대 꺾임): 35.3° → 11.1°, 크라운 31.0° → 6.8°.
+ */
+function densifyProfile(): THREE.Vector2[] {
+  const ctrl = PIN_PROFILE.map(([r, y]) => new THREE.Vector3(r, y, 0));
+  const curve = new THREE.CatmullRomCurve3(ctrl, false, 'centripetal', 0.5);
+  const n = PIN_PROFILE.length - 1;
+  const out: THREE.Vector2[] = [];
+  for (let i = 0; i < n; i++) {
+    const [r, y] = PIN_PROFILE[i];
+    out.push(new THREE.Vector2(r, y));
+    const sub = y < 0.02 ? 1 : y < 0.24 ? 3 : 6; // 몸통 3분할 · 목/머리 6분할 · 밑동 원본
+    for (let s = 1; s < sub; s++) {
+      const v = curve.getPoint((i + s / sub) / n);
+      out.push(new THREE.Vector2(Math.max(0, v.x), v.y)); // r<0은 뒤집힌 면이 되므로 0으로 막는다
+    }
+  }
+  const [lr, ly] = PIN_PROFILE[n];
+  out.push(new THREE.Vector2(lr, ly));
+  return out;
+}
+
+/** radialSegments별 지오메트리 캐시 — 진짜 핀 10개가 같은 모양을 각자 만들 이유가 없다. */
+const geoCache = new Map<number, THREE.LatheGeometry>();
+
+/**
+ * 병 실루엣 + 목 빨간 띠 지오메트리 (**몸통 중심이 원점** — cylinder 콜라이더 원점과 맞다).
+ * 진짜 핀과 옆 레인 장식 핀이 공유한다 — 한쪽만 줄무늬가 있으면 같은 화면에서 바로 눈에 띈다.
  * 띠는 텍스처가 아니라 정점색이다: LatheGeometry의 v는 **프로파일 인덱스** 기반이라 높이와
  * 선형이 아니어서 UV로 띠 위치를 맞추기 까다롭다. PIN_PROFILE에 띠 경계점이 박혀 있어 또렷하다.
+ *
+ * ⚠️ 같은 인스턴스를 돌려주므로 **호출측에서 변형(translate 등)하지 말 것.**
  */
 export function makePinGeometry(radialSegments: number): THREE.LatheGeometry {
-  const geo = new THREE.LatheGeometry(
-    PIN_PROFILE.map(([r, y]) => new THREE.Vector2(r, y)),
-    radialSegments,
-  );
+  const cached = geoCache.get(radialSegments);
+  if (cached) return cached;
+  const geo = new THREE.LatheGeometry(densifyProfile(), radialSegments);
   const pos = geo.attributes.position;
   const col = new Float32Array(pos.count * 3);
   const white = new THREE.Color(0xf2f2f2);
@@ -37,6 +76,8 @@ export function makePinGeometry(radialSegments: number): THREE.LatheGeometry {
     col[i * 3 + 2] = c.b;
   }
   geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
+  geo.translate(0, -PIN_HEIGHT / 2, 0); // 색을 base 기준 y로 칠한 **뒤에** 중심 정렬
+  geoCache.set(radialSegments, geo);
   return geo;
 }
 
@@ -54,8 +95,7 @@ export class Pin {
     this.home = { x, z };
 
     // 병 실루엣 프로파일 (LatheGeometry, 도안 §5.3) — constants.PIN_PROFILE 단일소스 공유(#9). 콜라이더는 단순 cylinder 유지.
-    const pinGeo = makePinGeometry(32); // 20→32: 가까이서 각이 지던 것 해소
-    pinGeo.translate(0, -PIN_HEIGHT / 2, 0); // 중심 정렬 (body 중심과 맞춤)
+    const pinGeo = makePinGeometry(32); // 20→32: 가까이서 가로로 각이 지던 것 해소 (세로는 densifyProfile)
     this.mesh = new THREE.Mesh(
       pinGeo,
       new THREE.MeshStandardMaterial({

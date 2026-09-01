@@ -1,10 +1,11 @@
 import { frameScores } from '../game/Scoreboard';
-import { SPARE_LEAVES, type GameStateName, type GameMode } from '../game/GameState';
+import { SPARE_LEAVES, type GameStateName, type GameMode, type GameSummary } from '../game/GameState';
 import { t, type I18nKey } from '../i18n';
 import { css, NEON, FONT_UI, FONT_DIGITS, rgba, applyPanel, ensureNeonStyles } from './theme';
+import { PinDeck } from './PinDeck';
 
 // 점수판은 항상 한 줄(스크롤 0). 행 폭 = min(96vw, SHEET_MAX), 프레임·셀은 flex-basis:0 비례 분배 →
-// 칸이 비어도(초반 빈 칸) 안 찌그러지고 좁으면 균일 축소. (UI_REVAMP.md "A — 한 줄 꽉 채우기")
+// 칸이 비어도(초반 빈 칸) 안 찌그러지고 좁으면 균일 축소. (docs/legacy/UI_REVAMP.md "A — 한 줄 꽉 채우기")
 // 높이·폰트는 뷰포트 폭에 clamp로 자동 연동 — 폭만 줄던 고정 px 상수를 없애, 작은 폰(~320)에서 칸이
 // 홀쭉해지거나 3자리 점수가 넘치지 않게 비율째 축소하고, 큰 폰/데스크톱은 상한(과대 방지)에서 멈춘다.
 // 기준선: 320px(최소 지원 — 구형 iPhone SE)에서 floor, ~390px+에서 ceiling(현 데스크톱 크기).
@@ -12,7 +13,7 @@ import { css, NEON, FONT_UI, FONT_DIGITS, rgba, applyPanel, ensureNeonStyles } f
 // 근거: 주변시는 여러 자리 판독값을 못 읽는다 → 두 갈래 중 하나를 골라야 한다. 숨기거나(온디맨드),
 // **곁눈으로도 읽히게 크고 굵게** 만들거나. 후자를 택했고, 그러면 원문 처방("big and bold, stark
 // contrasts")대로 실제로 커져야 한다. 작게 두면 상시 노출의 비용만 지고 이득이 없다.
-const SHEET_MAX = 560; // 420 → 560 (데스크톱·대형폰 상한). 좁은 화면은 96vw가 이긴다.
+export const SHEET_MAX = 560; // 420 → 560 (데스크톱·대형폰 상한). 좁은 화면은 96vw가 이긴다. (결과 모달도 이 상한을 쓴다)
 const NAME_W = 102; // 멀티 이름 패널 폭(여유 포함) — 풀 시트 행 폭에 가산
 const CELL_H = 'clamp(17px, 5.2vw, 22px)'; // 마크 박스 높이
 const SCORE_H = 'clamp(20px, 6.2vw, 26px)'; // 누적 점수 줄 높이
@@ -57,11 +58,16 @@ function ensureSheetStyles(): void {
      상단 16%를 먹어 위·옆으로 다 답답하다(실측 320px: 307×74, 상단 UI 130px). */
   #hud-scoreboard{ display:none; }
   #hud-scoreboard.is-open:not(.is-hidden){
-    /* 펼침은 상단 띠가 아니라 **화면 중앙 패널** — 상단에 밀어 넣으면 열어도 답답하다.
-       열었을 땐 점수를 보려는 순간이라 레인을 가려도 된다. */
+    /* 펼침은 **상단 띠**(알약 바로 아래). 예전엔 화면 중앙 패널이었는데 두 가지가 걸렸다:
+       ① 점수를 보는 동안 레인 한가운데가 가려진다 — 세로 화면에선 상단 130px는 대부분 천장이라
+          같은 패널을 위에 두면 가리는 게 거의 없다.
+       ② **스틸컷이 점수판 아래에 붙는다**(StillCut.resolveTop). 중앙 패널이면 접힘 179px ↔ 펼침
+          485px로 스틸컷 위치가 300px 널뛰었다 — 투구와 무관한 UI 상태가 연출 위치를 바꾸는 셈.
+          상단 띠면 179 ↔ 200으로 붙어 사실상 고정된다. */
     display:flex;
-    top:50%; left:50%; right:auto;
-    transform:translate(-50%, -50%);
+    top:calc(56px + env(safe-area-inset-top)); /* 알약(높이 40 + 상단 8) 아래 8px */
+    left:50%; right:auto;
+    transform:translateX(-50%);
     align-items:center;
     max-width:96vw;
   }
@@ -90,8 +96,12 @@ export interface HudView {
   mode: GameMode;
   frames: number;
   current: number;
-  standing: number;
   resetting?: boolean; // 핀세터 가동 중 (조준 불가) — 상태 라벨이 이걸 우선한다
+  /**
+   * `PinSet.standingMask()` (인덱스별). 남은 핀 인디케이터({@link PinDeck})만 쓴다.
+   * ⚠️ 사이클 중엔 중간값이라 못 믿는다 — 그래서 PinDeck은 AIMING·사이클 정지에서만 그린다.
+   */
+  standing?: boolean[];
   players: HudPlayerView[];
 }
 
@@ -136,12 +146,6 @@ function marksLast(fr: number[]): string[] {
 const markColor = (m: string): string => (m === 'X' || m === '/' ? NEON.gold : '#dfe6f2');
 
 /**
- * 볼링 점수표 HUD (상단 중앙) — 플레이어별 시트 + 상태줄 + 이벤트 배너.
- * 누적은 보너스가 확정된 프레임까지만 표시 (실제 점수표 규칙).
- * 멀티(AI 라이벌) 대응: 시트 세로 스택, 현재 플레이어 골드 하이라이트 (로드맵 P1.5).
- * 비주얼은 씬과 통일된 네온 글래스 (theme.ts).
- */
-/**
  * 지금 왜 못 던지는지까지 담은 상태 텍스트. 핀세터가 도는 동안은 상태가 AIMING이어도 던질 수
  * 없으므로 그걸 우선한다(GameState.readyToThrow와 같은 조건).
  */
@@ -151,6 +155,12 @@ const stateText = (d: HudView): string => {
   return key ? t(key) : d.state; // 모르는 상태는 원문 노출(디버깅 단서를 지우지 않는다)
 };
 
+/**
+ * 볼링 점수표 HUD (상단) — 플레이어별 시트 + 상태줄 + 좁은 화면 알약.
+ * 누적은 보너스가 확정된 프레임까지만 표시 (실제 점수표 규칙).
+ * 멀티(AI 라이벌) 대응: 시트 세로 스택, 현재 플레이어 골드 하이라이트 (로드맵 P1.5).
+ * 비주얼은 씬과 통일된 네온 글래스 (theme.ts).
+ */
 export class Hud {
   private readonly wrap: HTMLDivElement;
   private readonly sheets: HTMLDivElement;
@@ -168,6 +178,11 @@ export class Hud {
   private readonly pill: HTMLButtonElement;
   private readonly pillLabel: HTMLSpanElement;
   private readonly pillCaret: HTMLSpanElement;
+  /**
+   * 남은 핀 인디케이터(좌상단 ☰ 아래) — 시트와 같은 뷰에서 갱신하려고 Hud가 소유한다.
+   * 좁은 화면에서 시트를 펼치면 같은 top(56px)을 다투므로 여기서 비켜준다(applyExpanded).
+   */
+  private readonly pinDeck = new PinDeck();
   /** 좁은 화면에서 전체 시트를 펼쳤는가. 넓은 화면에선 의미 없다(항상 보인다). */
   private expanded = false;
   /** 마지막 뷰 — 브레이크포인트가 넘어갈 때 재렌더하려고 들고 있는다(리사이즈는 상태 변화가 없다). */
@@ -249,6 +264,7 @@ export class Hud {
 
   private applyExpanded() {
     this.wrap.classList.toggle('is-open', this.expanded);
+    this.pinDeck.setCovered(this.expanded);
     this.pillCaret.style.transform = this.expanded ? 'rotate(180deg)' : '';
     this.pill.setAttribute('aria-expanded', String(this.expanded));
   }
@@ -258,6 +274,7 @@ export class Hud {
     if (d.state === 'MENU' || !d.players.length) {
       this.wrap.classList.add('is-hidden');
       this.pill.classList.add('is-hidden');
+      this.pinDeck.update(undefined, false);
       this.expanded = false; // 매치를 나가면 접힘으로 리셋
       this.applyExpanded();
       this.prevScores = []; // 새 게임 시작 시 팝 오발동 방지
@@ -272,14 +289,20 @@ export class Hud {
       this.sheets.appendChild(this.renderSheet(d, p, i === d.current, i));
     });
 
+    // 남은 핀 인디케이터 — **리브가 있을 때만.** 1구 풀랙은 정보량이 0이라(항상 10개) 상시
+    // 노출의 비용만 진다. 창을 AIMING·사이클 정지로 좁히는 이유는 그때만 마스크가 확정값이기
+    // 때문이다(PinDeck 헤더 주석·GameState.update의 wasCycling 갱신).
+    const leave = !!d.standing && d.standing.some((s) => !s);
+    this.pinDeck.update(d.standing, leave && d.state === 'AIMING' && !d.resetting);
+
     const cur = d.players[d.current];
     if (d.state === 'GAME_OVER') {
       this.stateLine.textContent = t('hud.stateLine.gameover');
     } else if (d.mode === 'spare') {
       this.stateLine.textContent = t('hud.stateLine.spare', { frame: cur.frame, frames: d.frames, made: cur.conversions });
     } else {
-      // 중앙 업적 아일랜드와 공존하도록 컴팩트하게. 누구 차례인지는 점수판 골드 하이라이트 + 차례 배너로,
-      // 선 핀 수는 3D 장면으로 보이므로 상태바에서는 생략(프레임·구·상태만).
+      // 컴팩트하게 — 누구 차례인지는 점수판 골드 하이라이트가, 선 핀 수는 3D 장면이 이미 말한다.
+      // 그래서 여기는 프레임·구·상태만 담는다.
       // 핀세터가 도는 동안은 상태가 AIMING이어도 던질 수 없다 — 라벨이 그걸 말해야
       // 플레이어가 '왜 안 던져지지'로 읽지 않는다 (GameState.readyToThrow와 같은 조건).
       this.stateLine.textContent = t('hud.stateLine.frame', { frame: cur.frame, ball: cur.ball, label: stateText(d) });
@@ -310,160 +333,237 @@ export class Hud {
   }
 
   private renderSheet(d: HudView, p: HudPlayerView, active: boolean, index: number): HTMLDivElement {
-    const accent = active ? NEON.gold : NEON.cyan;
-    const multi = d.players.length > 1;
-
-    const row = document.createElement('div');
-    // 풀 시트는 정해진 폭(min(96vw, 자연폭))을 줘야 flex-basis:0 셀이 빈 칸도 안 찌그러뜨림.
-    // 스페어는 내용이 비지 않으니 내용폭(fit-content)으로 충분.
-    // 멀티는 두 플레이어 모두 풀 시트로 쌓아 직관적 비교(active 행이 이미 폭을 정하므로 풀로 깔아도 폭 추가 0).
-    const rowWidth =
-      d.mode === 'spare'
-        ? 'fit-content'
-        : `min(96vw, ${SHEET_MAX + (multi ? NAME_W : 0)}px)`;
-    css(row, { display: 'flex', alignItems: 'center', gap: '6px', width: rowWidth, maxWidth: '96vw' });
-
-    if (multi) {
-      const name = document.createElement('div');
-      name.textContent = (p.ai ? '🤖 ' : '') + p.name;
-      applyPanel(name, accent);
-      css(name, {
-        font: FONT_UI,
-        color: active ? NEON.gold : NEON.dim,
-        padding: '7px 9px',
-        minWidth: '74px',
-        textAlign: 'right',
-        whiteSpace: 'nowrap',
-      });
-      row.appendChild(name);
-    }
-
-    const sheet = document.createElement('div');
-    applyPanel(sheet, accent);
-    css(sheet, {
-      display: 'flex',
-      flex: '1 1 0', // 행 폭(정해진 값)을 채움 — 멀티는 이름 패널 제외분
-      minWidth: '0',
-      gap: '3px',
-      padding: '6px',
-      font: FONT_DIGITS,
-    });
-
-    if (d.mode === 'spare') {
-      // 스페어 챌린지: 라운드별 ✓/✗ + 성공 수
-      for (let f = 0; f < d.frames; f++) {
-        const fr = p.rolls[f];
-        const done = fr !== undefined && fr.length > 0;
-        const cleared = done && fr[0] === SPARE_LEAVE_SIZES[f];
-        const isCurrent = f === p.frame - 1 && d.state !== 'GAME_OVER';
-        const box = document.createElement('div');
-        css(box, {
-          width: 'clamp(20px, 6vw, 24px)',
-          height: 'clamp(22px, 6.7vw, 26px)',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          borderRadius: '6px',
-          border: isCurrent ? '0' : `1.5px solid ${rgba(NEON.ice, 0.16)}`,
-          animation: isCurrent ? 'neonPulse 1.4s ease-in-out infinite' : '',
-          color: done ? (cleared ? NEON.green : NEON.red) : '#dfe6f2',
-          fontSize: DIGIT_FS,
-        });
-        box.textContent = done ? (cleared ? '✓' : '✗') : '';
-        sheet.appendChild(box);
-      }
-      const total = document.createElement('div');
-      css(total, {
-        display: 'flex',
-        alignItems: 'center',
-        padding: '0 8px',
-        color: '#fff',
-        fontSize: 'clamp(13px, 4vw, 15px)',
-      });
-      total.textContent = `${p.conversions}`;
-      sheet.appendChild(total);
-      row.appendChild(sheet);
-      return row;
-    }
-
-    // --- 좁은 화면: 5칸씩 두 줄 ---
-    // 한 줄 10칸은 375px에서 마크 셀이 15.3px밖에 안 된다(실측). 5칸씩 쪼개면 31~34px — 2.1배.
-    // 세로는 ~65px 늘지만 모바일 시트는 이제 **화면 중앙 패널**이라(상단 띠가 아니라) 그 여유가 있다.
-    // 원래 "항상 한 줄(스크롤 0)" 전제는 상단 띠 시절의 제약이었다.
-    //
-    // ⚠️ CSS 그리드(repeat(5,1fr))로 하면 안 된다 — 10프레임은 마크 칸이 3개라 남들 2칸 폭에
-    //    쑤셔넣게 된다. 아래처럼 DOM을 행으로 쪼개면 각 행이 자기 안에서 flex 비례 배분을 해서
-    //    (1행 10유닛 / 2행 11유닛) 행 간 마크 셀 차이가 ~9%로 그친다.
-    const narrow = isNarrowSheet();
-    const perLine = 5;
-    const lines: HTMLDivElement[] = [];
-    if (narrow && d.frames > perLine) {
-      css(sheet, { flexDirection: 'column' });
-      for (let i = 0; i < Math.ceil(d.frames / perLine); i++) {
-        const ln = document.createElement('div');
-        css(ln, { display: 'flex', gap: '3px' });
-        lines.push(ln);
-        sheet.appendChild(ln);
-      }
-    }
-    const lineFor = (f: number) => (lines.length ? lines[Math.floor(f / perLine)] : sheet);
-
-    const cum = frameScores(p.rolls.flat(), d.frames);
-    const prev = this.prevScores[index]; // 직전 렌더 값 (첫 렌더면 undefined → 팝 안 함)
-    for (let f = 0; f < d.frames; f++) {
-      const fr = p.rolls[f] ?? [];
-      const isCurrent = active && f === p.frame - 1 && d.state !== 'GAME_OVER';
-
-      const box = document.createElement('div');
-      css(box, {
-        flex: `${f === d.frames - 1 ? 3 : 2} 1 0`, // 칸 수(일반2/마지막3) 비례 분배 → 모든 셀 폭 균일
-        minWidth: '0',
-        borderRadius: '7px',
-        overflow: 'hidden',
-        background: isCurrent ? rgba(NEON.gold, 0.1) : 'rgba(255,255,255,0.04)',
-        border: isCurrent ? '0' : `1.5px solid ${rgba(NEON.ice, 0.14)}`,
-        animation: isCurrent ? 'neonPulse 1.4s ease-in-out infinite' : '',
-      });
-
-      const marks = document.createElement('div');
-      css(marks, { display: 'flex' });
-      for (const m of f === d.frames - 1 ? marksLast(fr) : marksNormal(fr)) {
-        const cell = document.createElement('div');
-        css(cell, {
-          flex: '1 1 0', // basis:0 비례 분배 — 빈 칸도 내용과 무관하게 폭 유지(찌그러짐 방지)
-          minWidth: '0',
-          height: CELL_H,
-          fontSize: DIGIT_FS, // FONT_DIGITS의 14px를 뷰포트 연동으로 덮어씀(좁은 폰 축소)
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          borderLeft: `1px solid ${rgba(NEON.ice, 0.14)}`,
-          color: markColor(m),
-        });
-        cell.textContent = m;
-        marks.appendChild(cell);
-      }
-
-      const score = document.createElement('div');
-      css(score, {
-        height: SCORE_H,
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        fontSize: DIGIT_FS,
-        color: '#fff',
-      });
-      score.textContent = cum[f] !== undefined ? String(cum[f]) : '';
-      // 점수가 새로 뜨거나(이전 undefined) 값이 바뀌면 팝 — 첫 렌더는 조용히.
-      if (prev && cum[f] !== undefined && cum[f] !== prev[f]) score.classList.add('juice-score-pop');
-
-      box.appendChild(marks);
-      box.appendChild(score);
-      lineFor(f).appendChild(box);
-    }
+    const { row, cum } = buildSheet(d, p, active, { prev: this.prevScores[index] });
     this.prevScores[index] = cum; // 다음 렌더 비교용 저장
-    row.appendChild(sheet);
     return row;
   }
 
+}
+
+/** {@link buildSheet} 옵션 — HUD와 결과 모달이 갈리는 지점만 모았다. */
+interface SheetOpts {
+  /**
+   * 직전 렌더의 누적 점수 — 값이 바뀐 셀만 팝시킨다. 생략하면 팝 없음.
+   * 결과 모달은 **한 번 그리고 끝**이라 비교 대상이 없다(넘기면 전 칸이 동시에 튄다).
+   */
+  prev?: (number | undefined)[];
+  /**
+   * 이름 패널을 그리지 않는다(멀티 전용 요소).
+   *
+   * 결과 모달은 시트 **바로 위에 이름·점수 줄**을 이미 갖고 있어 옆에 이름을 또 붙이면 중복인데,
+   * 그 패널이 `NAME_W`(102px)를 먹는 게 실제로 **점수를 잘랐다**: 320px 멀티에서 시트가
+   * 148px로 눌려 세 자리 누적(109·129·159…)이 셀 밖으로 1~2px 넘쳤다. HUD는 행 폭을 96vw로
+   * 잡아 이름 패널 몫을 따로 벌지만, 모달은 패널 콘텐츠 박스가 상한이라 벌 곳이 없다.
+   */
+  nameless?: boolean;
+  /**
+   * 행 폭 override. 기본값은 HUD 배치(뷰포트 기준 `min(96vw, …)`)다.
+   * ⚠️ **정해진 폭이어야 한다.** flex-basis:0 셀은 부모 폭이 안 정해지면 내용폭으로 무너져
+   * 빈 칸이 찌그러진다 — 패널 안에 넣는 호출부(모달)는 자기 콘텐츠 박스 폭을 직접 계산해 넘긴다.
+   */
+  width?: string;
+}
+
+/**
+ * 점수 시트 한 행(이름 패널 + 격자)을 만든다 — **HUD와 결과 모달의 공용 렌더러**.
+ *
+ * 두 벌로 갈라두면 마크 규칙(10프레임 3칸·스트라이크 표기)과 좁은 화면 5칸 2줄 접기가 서로
+ * 어긋난다. 차이는 {@link SheetOpts} 두 개뿐이라 분기가 아니라 인자로 흡수한다.
+ */
+function buildSheet(
+  d: HudView,
+  p: HudPlayerView,
+  active: boolean,
+  opts: SheetOpts = {},
+): { row: HTMLDivElement; cum: (number | undefined)[] } {
+  const accent = active ? NEON.gold : NEON.cyan;
+  const multi = d.players.length > 1 && !opts.nameless;
+
+  const row = document.createElement('div');
+  // 풀 시트는 정해진 폭(min(96vw, 자연폭))을 줘야 flex-basis:0 셀이 빈 칸도 안 찌그러뜨림.
+  // 스페어는 내용이 비지 않으니 내용폭(fit-content)으로 충분.
+  // 멀티는 두 플레이어 모두 풀 시트로 쌓아 직관적 비교(active 행이 이미 폭을 정하므로 풀로 깔아도 폭 추가 0).
+  const rowWidth =
+    opts.width ??
+    (d.mode === 'spare'
+      ? 'fit-content'
+      : `min(96vw, ${SHEET_MAX + (multi ? NAME_W : 0)}px)`);
+  css(row, { display: 'flex', alignItems: 'center', gap: '6px', width: rowWidth, maxWidth: opts.width ?? '96vw' });
+
+  if (multi) {
+    const name = document.createElement('div');
+    name.textContent = (p.ai ? '🤖 ' : '') + p.name;
+    applyPanel(name, accent);
+    css(name, {
+      font: FONT_UI,
+      color: active ? NEON.gold : NEON.dim,
+      padding: '7px 9px',
+      minWidth: '74px',
+      textAlign: 'right',
+      whiteSpace: 'nowrap',
+    });
+    row.appendChild(name);
+  }
+
+  const sheet = document.createElement('div');
+  applyPanel(sheet, accent);
+  css(sheet, {
+    display: 'flex',
+    flex: '1 1 0', // 행 폭(정해진 값)을 채움 — 멀티는 이름 패널 제외분
+    minWidth: '0',
+    gap: '3px',
+    padding: '6px',
+    font: FONT_DIGITS,
+  });
+
+  if (d.mode === 'spare') {
+    // 스페어 챌린지: 라운드별 ✓/✗ + 성공 수
+    for (let f = 0; f < d.frames; f++) {
+      const fr = p.rolls[f];
+      const done = fr !== undefined && fr.length > 0;
+      const cleared = done && fr[0] === SPARE_LEAVE_SIZES[f];
+      const isCurrent = f === p.frame - 1 && d.state !== 'GAME_OVER';
+      const box = document.createElement('div');
+      css(box, {
+        width: 'clamp(20px, 6vw, 24px)',
+        height: 'clamp(22px, 6.7vw, 26px)',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        borderRadius: '6px',
+        border: isCurrent ? '0' : `1.5px solid ${rgba(NEON.ice, 0.16)}`,
+        animation: isCurrent ? 'neonPulse 1.4s ease-in-out infinite' : '',
+        color: done ? (cleared ? NEON.green : NEON.red) : '#dfe6f2',
+        fontSize: DIGIT_FS,
+      });
+      box.textContent = done ? (cleared ? '✓' : '✗') : '';
+      sheet.appendChild(box);
+    }
+    const total = document.createElement('div');
+    css(total, {
+      display: 'flex',
+      alignItems: 'center',
+      padding: '0 8px',
+      color: '#fff',
+      fontSize: 'clamp(13px, 4vw, 15px)',
+    });
+    total.textContent = `${p.conversions}`;
+    sheet.appendChild(total);
+    row.appendChild(sheet);
+    return { row, cum: [] }; // 스페어는 누적 점수가 없다 — 팝 비교 대상도 없다
+  }
+
+  // --- 좁은 화면: 5칸씩 두 줄 ---
+  // 한 줄 10칸은 375px에서 마크 셀이 15.3px밖에 안 된다(실측). 5칸씩 쪼개면 31~34px — 2.1배.
+  // 세로는 ~65px 늘지만 모바일 시트는 이제 **화면 중앙 패널**이라(상단 띠가 아니라) 그 여유가 있다.
+  // 원래 "항상 한 줄(스크롤 0)" 전제는 상단 띠 시절의 제약이었다.
+  //
+  // ⚠️ CSS 그리드(repeat(5,1fr))로 하면 안 된다 — 10프레임은 마크 칸이 3개라 남들 2칸 폭에
+  //    쑤셔넣게 된다. 아래처럼 DOM을 행으로 쪼개면 각 행이 자기 안에서 flex 비례 배분을 해서
+  //    (1행 10유닛 / 2행 11유닛) 행 간 마크 셀 차이가 ~9%로 그친다.
+  const narrow = isNarrowSheet();
+  const perLine = 5;
+  const lines: HTMLDivElement[] = [];
+  if (narrow && d.frames > perLine) {
+    css(sheet, { flexDirection: 'column' });
+    for (let i = 0; i < Math.ceil(d.frames / perLine); i++) {
+      const ln = document.createElement('div');
+      css(ln, { display: 'flex', gap: '3px' });
+      lines.push(ln);
+      sheet.appendChild(ln);
+    }
+  }
+  const lineFor = (f: number) => (lines.length ? lines[Math.floor(f / perLine)] : sheet);
+
+  const cum = frameScores(p.rolls.flat(), d.frames);
+  const prev = opts.prev; // 직전 렌더 값 (첫 렌더·결과 모달이면 undefined → 팝 안 함)
+  for (let f = 0; f < d.frames; f++) {
+    const fr = p.rolls[f] ?? [];
+    const isCurrent = active && f === p.frame - 1 && d.state !== 'GAME_OVER';
+
+    const box = document.createElement('div');
+    css(box, {
+      flex: `${f === d.frames - 1 ? 3 : 2} 1 0`, // 칸 수(일반2/마지막3) 비례 분배 → 모든 셀 폭 균일
+      minWidth: '0',
+      borderRadius: '7px',
+      overflow: 'hidden',
+      background: isCurrent ? rgba(NEON.gold, 0.1) : 'rgba(255,255,255,0.04)',
+      border: isCurrent ? '0' : `1.5px solid ${rgba(NEON.ice, 0.14)}`,
+      animation: isCurrent ? 'neonPulse 1.4s ease-in-out infinite' : '',
+    });
+
+    const marks = document.createElement('div');
+    css(marks, { display: 'flex' });
+    for (const m of f === d.frames - 1 ? marksLast(fr) : marksNormal(fr)) {
+      const cell = document.createElement('div');
+      css(cell, {
+        flex: '1 1 0', // basis:0 비례 분배 — 빈 칸도 내용과 무관하게 폭 유지(찌그러짐 방지)
+        minWidth: '0',
+        height: CELL_H,
+        fontSize: DIGIT_FS, // FONT_DIGITS의 14px를 뷰포트 연동으로 덮어씀(좁은 폰 축소)
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        borderLeft: `1px solid ${rgba(NEON.ice, 0.14)}`,
+        color: markColor(m),
+      });
+      cell.textContent = m;
+      marks.appendChild(cell);
+    }
+
+    const score = document.createElement('div');
+    css(score, {
+      height: SCORE_H,
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      fontSize: DIGIT_FS,
+      color: '#fff',
+    });
+    score.textContent = cum[f] !== undefined ? String(cum[f]) : '';
+    // 점수가 새로 뜨거나(이전 undefined) 값이 바뀌면 팝 — 첫 렌더는 조용히.
+    if (prev && cum[f] !== undefined && cum[f] !== prev[f]) score.classList.add('juice-score-pop');
+
+    box.appendChild(marks);
+    box.appendChild(score);
+    lineFor(f).appendChild(box);
+  }
+  row.appendChild(sheet);
+  return { row, cum };
+}
+
+/**
+ * 결과 모달용 점수 시트 — 플레이어당 한 행.
+ *
+ * 예전엔 모달이 「프레임별 점수는 상단 점수표에서 확인」이라는 안내 한 줄로 때웠는데, 그 점수표를
+ * **모달이 직접 가리고 있었다**: `#hud-scoreboard`는 z-index 20이고 모달 백드롭은 z-index 40에
+ * blur(4px)+스크림이라 뒤에서 뭉개진다. 게다가 좁은 화면에선 점수판이 접혀 있으면 `display:none`이라
+ * (Hud.ts 미디어쿼리) 아예 없는 걸 가리키는 안내였다. 끝난 판의 점수는 시선이 있는 곳에 둔다.
+ *
+ * HUD와 **같은 렌더러**를 쓴다 — 좁은 화면 5칸 2줄 접기까지 그대로 따라오므로 모달 안에서도
+ * 칸이 슬리버가 되지 않는다.
+ *
+ * 이름 패널은 그리지 않는다 — 호출부가 각 시트를 **그 플레이어의 점수 줄 바로 아래**에 끼워
+ * 넣으므로 소속이 위치로 드러나고, 패널이 먹던 폭을 격자가 되찾는다({@link SheetOpts.nameless}).
+ *
+ * @param width 행 폭. 패널 콘텐츠 박스 폭을 호출부가 계산해 넘긴다({@link SheetOpts.width} 참고).
+ */
+export function buildResultSheets(summary: GameSummary, width: string): HTMLDivElement[] {
+  // 끝난 판이라 '현재 프레임'이 없다 — state를 GAME_OVER로 넘기면 renderSheet의 isCurrent가 전부
+  // 꺼져 펄스 하이라이트가 안 뜬다. accent는 대신 **승자**가 가져간다(위 점수 목록의 골드와 같은 규칙).
+  const d: HudView = {
+    state: 'GAME_OVER',
+    mode: summary.mode,
+    frames: summary.frames,
+    current: Math.max(summary.winner, 0),
+    players: summary.players.map((p) => ({
+      name: p.name,
+      ai: p.ai,
+      frame: summary.frames,
+      ball: 1,
+      rolls: p.rolls,
+      conversions: p.score, // 스페어 모드의 점수 = 성공 수 (GameState.score)
+    })),
+  };
+  return summary.players.map((_, i) => buildSheet(d, d.players[i], i === summary.winner, { width, nameless: true }).row);
 }

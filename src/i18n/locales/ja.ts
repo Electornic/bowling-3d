@@ -17,10 +17,9 @@ export const ja: Record<I18nKey, string> = {
   'hud.pill.gameover': '🎳 {total}',
   'hud.pill.spare': '{frame}/{frames}・成功 {made}',
   'hud.pill.frame': '{frame}F {ball}投・{total}{suffix}',
+  'hud.pindeck': '残りピン: {pins}',
 
   'controls.spin': 'スピン',
-  'controls.spin.hintDrag': 'ドラッグで左右スピン',
-  'controls.spin.hintWheel': 'ホイール ◀ ▶',
 
   'boot.rotatePortrait': '↻ 縦向きにしてください',
   'boot.menu': '☰ メニュー',
@@ -28,9 +27,7 @@ export const ja: Record<I18nKey, string> = {
   'boot.strike': 'ストライク',
   'boot.spareCleared': 'スペア成功',
   'boot.zeroPins': '0ピン',
-  'boot.split': '{label} スプリット！',
-  'boot.splitConverted': '{label} 変換成功！',
-  'boot.turn': '{name}のターン',
+  'boot.splitConverted': '{label} スプリット成功',
 
   'menu.me': 'あなた',
   'menu.start': 'ゲーム開始',
@@ -58,7 +55,6 @@ export const ja: Record<I18nKey, string> = {
   'menu.result.newUnlock': '{icon} NEW・{badge} → {skin}',
   'menu.result.equip': '{label}を装備する',
   'menu.result.equipped': '✓ {label} 装備中',
-  'menu.result.frameHint': 'フレームごとのスコアは上のスコア表で確認',
   'menu.result.retry': 'もう一度',
 
   'menu.pause.title': '⏸ 一時停止',
@@ -101,6 +97,8 @@ export const ja: Record<I18nKey, string> = {
 
   'menu.section.lang': '言語',
   'lang.auto': '自動・端末の設定',
+  'lang.auto.short': '自動',
+  'menu.more': 'その他',
 
   'mode.full': 'フルゲーム',
   'mode.full.desc': '10フレームの公式ルール',

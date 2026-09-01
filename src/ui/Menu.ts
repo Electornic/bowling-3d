@@ -9,6 +9,7 @@ import type { BallSkin, SkinFinish } from '../game/rewards';
 import type { Settings, Quality } from '../game/settings';
 import { t, getLocale, detectLocale, LOCALES, LOCALE_LABEL, type I18nKey, type LocaleSetting } from '../i18n';
 import { css, NEON, rgba } from '../ui/theme'; // 디자인 시스템 단일소스(#6) — 로컬 css 복제 제거, NEON 팔레트 토큰 공유
+import { buildResultSheets, SHEET_MAX } from './Hud'; // 결과 모달 점수 시트 — HUD와 같은 렌더러(마크 규칙·5칸 접기 공유)
 
 // === UI juice: 마이크로 모션 — 정적 CSS(.menu-panel button 트랜지션 + juicePanelIn/juiceFadeIn 키프레임 +
 // 모션최소화 + View Transitions 커브)는 ui.css로 이동(#4). main.ts가 전역 import하므로 별도 주입 불필요.
@@ -30,13 +31,29 @@ export interface PauseConfig {
   onForfeit: () => void;
 }
 
-const COARSE = isCoarsePointer(); // 터치 환경: 버튼/칩 히트영역 ≥44px (MOBILE_SUPPORT.md §3.1)
+const COARSE = isCoarsePointer();
+/**
+ * 결과 모달 점수 시트의 행 폭. **정해진 값이어야 한다** — flex-basis:0 셀은 부모 폭이 안 정해지면
+ * 내용폭으로 무너져 빈 칸이 찌그러진다(HUD가 같은 이유로 뷰포트 기준 폭을 쓴다).
+ *
+ * 두 갈래인 건 **패널의 폭이 정해지는 방식이 반대**라서다:
+ * · COARSE — 패널이 `min(360px,92vw)` 고정(border-box)이다. 폭이 이미 정해져 있으니 `100%`가 곧
+ *   정해진 값이고, 패딩·테두리를 호출부가 다시 세지 않아도 된다. (뷰포트 식을 여기 복제했다가
+ *   테두리 1px×2를 빠뜨려 2px 넘쳤고, 92vw>360이 되는 큰 폰에선 패널이 360에 걸려 35px까지
+ *   벌어졌다 — 패널 폭 공식을 두 곳에 두면 반드시 갈린다.)
+ * · 데스크톱 — 패널이 내용에 맞춰 자란다(content-box). `100%`는 잡을 기준이 없어 무너지므로
+ *   시트가 폭을 **정해줘야** 한다. SHEET_MAX에서 멈추고, 좁은 창에서는 패널 바깥 폭(+패딩 64
+ *   +테두리 2)이 92vw를 넘지 않게 그만큼 뺀다.
+ */
+const RESULT_SHEET_W = COARSE ? '100%' : `min(calc(92vw - 66px), ${SHEET_MAX}px)`;
+/** 일시정지 언어 칩을 몇 개까지 펼칠지(자동 포함). 그 이상은 '더보기 ▸'로 접는다 — langChips 주석. */
+const LANG_CHIP_MAX = 5; // 터치 환경: 버튼/칩 히트영역 ≥44px (MOBILE_SUPPORT.md §3.1)
 
 const hex6 = (n: number) => `#${n.toString(16).padStart(6, '0')}`;
 
 /**
  * 스킨 마감을 CSS 그라데이션 스와치로 근사 — 시트는 3D 미사용·DOM 전용이라 실제 머티리얼을 흉내만 낸다.
- * 글로우는 인게임 bloom 도입 전이라(REWARDS.md §11) 시트에서는 헤일로를 살짝 더 줘 마감 구분을 돕는다.
+ * 글로우는 인게임 bloom 도입 전이라(docs/legacy/REWARDS.md §11) 시트에서는 헤일로를 살짝 더 줘 마감 구분을 돕는다.
  */
 function skinPreviewStyle(skin: BallSkin): { background: string; shadow: string } {
   if (skin.finish === 'chrome') {
@@ -107,7 +124,7 @@ export class MenuUI {
   private readonly panel: HTMLDivElement;
   private mode: GameMode = 'full';
   private rivalKey: string | null = null; // null=혼자 · 그 외=AI 라이벌 key
-  private weight = 10; // 볼 무게(lb) — 시작 메뉴에서 선택 (인게임 BallPicker 대체)
+  private weight: number; // 볼 무게(lb) — 시작 메뉴·일시정지 모달에서 선택. 초기값은 저장된 설정.
   private aimAid: AimAid = 'easy'; // 조준 보조 (P3, UI 전용) — 기본 easy(§2.7 스마트 기본값)
   private selectedSkin: string = loadRewards().selectedSkin; // 장착 볼 스킨 (보상)
   private skinTab: 'skins' | 'achievements' | 'screen' = 'skins'; // 컬렉션 시트 활성 탭 (A안 탭형)
@@ -122,6 +139,7 @@ export class MenuUI {
     private readonly onSound: (v: boolean) => void, // 토글 시 적용+저장 (Boot 주입)
     private readonly onLang: (v: LocaleSetting) => void, // 언어 변경 시 적용+저장 (Boot 주입)
   ) {
+    this.weight = settings.ballLb; // 지난 판에서 고른 무게로 시작 (설정에 영속)
     this.backdrop = document.createElement('div');
     css(this.backdrop, {
       position: 'fixed',
@@ -288,7 +306,7 @@ export class MenuUI {
    * 오일은 난이도가 아니라 **최적 전략이 이동하는** 축이라 단조 사다리에 안 맞는다 — sim-carry
    * 스트라이크 윈도우가 하우스 직구4/훅7 vs 숏 직구6/훅3이라, '어려움=숏'이 직구 플레이어에겐
    * 오히려 넓어졌다(AI 매치 sim도 프리셋 간 ±10점). 축이 하나가 되면서 프리셋 3종이 조준 보조
-   * 3단과 1:1이 돼 커스텀 구분 자체가 사라졌다. (docs/OIL_META_AND_AUTO.md §1.2·§1.5·§2.8)
+   * 3단과 1:1이 돼 커스텀 구분 자체가 사라졌다. (docs/legacy/OIL_META_AND_AUTO.md §1.2·§1.5·§2.8)
    *
    * ⚠️ 오일 *시스템*은 그대로 살아 있다 — 하우스 고정 + 풀게임 레인 마름(advanceOilDrying)이
    * 계속 돌고, AI hookDriftFor(endZ)도 그걸 따라간다. 여기서 뺀 건 선택 UI뿐이다.
@@ -311,10 +329,21 @@ export class MenuUI {
     this.refreshChips(aimBtns, this.aimAid);
   }
 
-  /** 볼 무게 슬라이더(6~16lb) — 입력 즉시 onWeight로 라이브 반영. */
+  /** 볼 무게 섹션(라벨 + 슬라이더) — 시작 메뉴용. 일시정지 모달도 같은 슬라이더를 쓴다. */
   private buildWeightSection(): void {
-    // 볼 무게 (인게임 HUD 대신 여기서 — 한 번 정하면 끝인 설정이라 매 투구 컨트롤과 분리)
+    // 볼 무게 (인게임 HUD 대신 여기서 — 매 투구 컨트롤과 분리)
     this.panel.appendChild(this.sectionLabel(t('menu.section.weight')));
+    this.panel.appendChild(this.weightRow());
+  }
+
+  /**
+   * 볼 무게 슬라이더(6~16lb) — 입력 즉시 onWeight로 반영.
+   *
+   * 시작 메뉴와 일시정지 모달이 공유한다. 매치 중에 바꿔도 안전한 이유는 반영 시점이
+   * `GameState.setHumanBallSpec`에 이미 갈려 있기 때문이다: AIMING(사람 차례)이면 즉시,
+   * 굴러가는 중이면 저장만 하고 `applyBallSpecForTurn`이 **다음 투구**에 적용한다.
+   */
+  private weightRow(): HTMLElement {
     const wRow = document.createElement('div');
     css(wRow, { display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '16px' });
     const wInput = document.createElement('input');
@@ -334,12 +363,12 @@ export class MenuUI {
     });
     wRow.appendChild(wInput);
     wRow.appendChild(wVal);
-    this.panel.appendChild(wRow);
+    return wRow;
   }
 
   /** 컬렉션(볼 스킨) 진입 — 현재 장착 스킨 라벨을 표시하는 서브틀 버튼. */
   private buildSkinEntry(): void {
-    // 볼 스킨 진입 (외형 전용 — 시작 버튼 안 밀게 무게 슬라이더 아래 한 줄, REWARDS.md §10.1)
+    // 볼 스킨 진입 (외형 전용 — 시작 버튼 안 밀게 무게 슬라이더 아래 한 줄, docs/legacy/REWARDS.md §10.1)
     const skinBtn = document.createElement('button');
     skinBtn.textContent = t('menu.skinEntry', { label: t(resolveSkin(this.selectedSkin).labelKey) });
     css(skinBtn, {
@@ -429,8 +458,8 @@ export class MenuUI {
         padding: COARSE ? '12px 14px' : '10px 13px',
         minHeight: COARSE ? '44px' : '',
         borderRadius: '10px',
-        border: `1px solid ${on ? 'rgba(255,213,74,0.5)' : 'rgba(255,255,255,0.18)'}`,
-        background: on ? 'rgba(255,213,74,0.14)' : 'rgba(255,255,255,0.05)',
+        border: `1px solid ${on ? rgba(NEON.gold, 0.5) : 'rgba(255,255,255,0.18)'}`,
+        background: on ? rgba(NEON.gold, 0.14) : 'rgba(255,255,255,0.05)',
         color: on ? NEON.gold : NEON.text,
         font: `${on ? 800 : 600} 13px/1 system-ui, sans-serif`,
         cursor: 'pointer',
@@ -483,6 +512,15 @@ export class MenuUI {
     else headline = t('menu.result.lose', { name: summary.players[summary.winner].name });
     this.panel.appendChild(this.title(headline));
 
+    // 프레임별 점수 — 예전엔 「상단 점수표에서 확인」 안내 한 줄이었는데, **그 점수표를 이 모달이
+    // 가리고 있었다**: 점수판은 z-index 20이고 백드롭이 40 + blur(4px)라 뒤에서 뭉개진다. 좁은
+    // 화면에선 접혀 있으면 아예 display:none이라(Hud 미디어쿼리) 없는 걸 가리키기까지 했다.
+    // HUD와 같은 렌더러라 좁은 화면 5칸 2줄 접기가 그대로 따라온다.
+    //
+    // 시트는 **각자 점수 줄 바로 아래**에 끼운다. 이름 패널을 옆에 붙이는 HUD 배치를 그대로
+    // 가져오면 그 패널이 102px를 먹어 320px 멀티에서 세 자리 누적이 잘렸다 — 여기선 이름이
+    // 바로 위 줄에 이미 있으니 위치로 소속을 말하고 폭은 격자에 준다.
+    const sheets = buildResultSheets(summary, RESULT_SHEET_W);
     const list = document.createElement('div');
     css(list, { marginBottom: '14px', font: '600 15px/2 system-ui, sans-serif' });
     summary.players.forEach((p, i) => {
@@ -496,6 +534,8 @@ export class MenuUI {
       const unit = summary.mode === 'spare' ? '/10' : t('menu.result.unit');
       row.innerHTML = `<span>${p.ai ? '🤖 ' : ''}${p.name}</span><span>${p.score}${unit}</span>`;
       list.appendChild(row);
+      css(sheets[i], { marginBottom: '10px' });
+      list.appendChild(sheets[i]);
     });
     this.panel.appendChild(list);
 
@@ -510,13 +550,13 @@ export class MenuUI {
       this.panel.appendChild(badge);
     }
 
-    // 업적 해금 토스트 (보상, REWARDS.md §10.3) — 결과 화면 일괄 + 즉시 장착 버튼
+    // 업적 해금 토스트 (보상, docs/legacy/REWARDS.md §10.3) — 결과 화면 일괄 + 즉시 장착 버튼
     if (fresh.length) {
       const box = document.createElement('div');
       css(box, {
         borderRadius: '10px',
-        border: '1px solid rgba(255,213,74,0.4)',
-        background: 'rgba(255,213,74,0.08)',
+        border: `1px solid ${rgba(NEON.gold, 0.4)}`,
+        background: rgba(NEON.gold, 0.08),
         padding: '10px 12px',
         marginBottom: '14px',
       });
@@ -544,11 +584,6 @@ export class MenuUI {
       this.panel.appendChild(box);
     }
 
-    const note = document.createElement('div');
-    css(note, { font: '500 12px/1.5 system-ui, sans-serif', color: NEON.dim, marginBottom: '16px' });
-    note.textContent = t('menu.result.frameHint');
-    this.panel.appendChild(note);
-
     const btnRow = document.createElement('div');
     css(btnRow, { display: 'flex', gap: '8px' });
     const again = this.primaryButton(t('menu.result.retry'), 'fire', { size: 14, padding: '11px', radius: 10, weight: 700, flex1: true });
@@ -573,7 +608,9 @@ export class MenuUI {
     this.panel.replaceChildren();
     this.panel.appendChild(this.title(t('menu.pause.title')));
 
-    // 설정 (게임 중 변경해도 안전 — 물리·점수·기록 무영향. 토글 → 즉시 적용·저장 후 재렌더로 상태 반영)
+    // 설정 — 토글 → 즉시 적용·저장 후 재렌더로 상태 반영.
+    // 이 목록(사운드·햅틱·그래픽·언어)은 물리·점수·기록에 무영향이다. 아래 볼 무게만 예외 —
+    // 왜 허용하는지는 그 섹션 주석 참고.
     const list = document.createElement('div');
     css(list, { display: 'flex', flexDirection: 'column', gap: '7px', marginBottom: '14px' });
     list.appendChild(
@@ -594,13 +631,22 @@ export class MenuUI {
         this.showPause(cfg);
       }),
     );
-    list.appendChild(
-      // 값은 **실제로 쓰이는 언어**를 보여준다('자동'이면 감지 결과가 곧 답이다).
-      this.settingRow(t('menu.section.lang'), LOCALE_LABEL[getLocale()], true, () =>
-        this.showLangs(() => this.showPause(cfg), t('menu.back.pause')),
-      ),
-    );
     this.panel.appendChild(list);
+
+    // 언어 — **행이 아니라 칩을 펼친다.** 이 모달에서 '행 + 오른쪽 칩'은 토글의 문법이라(사운드 켜짐 ·
+    // 그래픽 고품질), 언어만 칩이 목록 입구인데 생김새가 같아 `한국어`가 상태로 읽혔다. 게다가 클릭이
+    // 칩에만 걸려 있어 "언어" 글자를 눌러도 반응이 없었다 — 아무도 못 찾는 게 당연했다(사용자 제보).
+    this.panel.appendChild(this.sectionLabel(t('menu.section.lang')));
+    this.panel.appendChild(this.langChips(cfg));
+
+    // 볼 무게 — **매치 중 변경 허용**(2026-09-01 결정). 무게는 속도·질량을 바꿔 캐리에 영향을 주는,
+    // 이 모달에서 유일하게 물리에 닿는 항목이다. 그래도 여는 이유:
+    //  · 실제 볼링장에서도 게임 도중 공을 바꾼다 — 막을 실물 근거가 없다.
+    //  · 하이스코어는 이미 무게 자유 선택 위에 쌓인다(시작 메뉴에서 아무 무게나 고른다).
+    //    '도중 변경'만 막는 건 기록 일관성을 실제로 지켜주지 못하면서 불편만 준다.
+    // 반영은 다음 투구부터다(위 weightRow 주석 — 굴러가는 공에는 손대지 않는다).
+    this.panel.appendChild(this.sectionLabel(t('menu.section.weight')));
+    this.panel.appendChild(this.weightRow());
 
     // 업적·스킨 진입 — 상단 '업적 아일랜드'를 없앴으므로 **인게임에서 여기가 유일한 경로**다.
     // 진행도를 라벨에 얹어, 아일랜드가 상시로 말해주던 정보를 이 한 줄이 대신한다.
@@ -659,6 +705,77 @@ export class MenuUI {
   }
 
   // 일시정지 설정 행 — 라벨 + 현재값 알약 토글 버튼. active면 초록 강조.
+  /**
+   * 일시정지 모달의 언어 선택 — 선택지를 그대로 펼친 칩 줄.
+   *
+   * 서브패널로 들어갔다 나오는 왕복이 없어지고(일시정지 중엔 그 한 단계가 유난히 번거롭다), 각 언어가
+   * **그 언어로** 적혀 있어 못 읽는 사람도 자기 걸 찾는다(i18n 규칙). 시작 메뉴 푸터는 그대로 둔다 —
+   * 거긴 급할 게 없는 화면이고 세로 여유도 있다.
+   *
+   * ⚠️ **언어가 늘어도 레이아웃이 안 깨지게** LANG_CHIP_MAX개까지만 칩으로 깔고, 넘치면 마지막을
+   * `더보기 ▸`로 접어 기존 목록(showLangs)으로 보낸다. 실측 칩 폭이 49~73px이고 패널 안쪽이 약
+   * 320px이라 5개가 두 줄이다 — 그 이상은 칩 벽이 되므로 목록이 맞다. 접을 땐 **자동과 현재 선택은
+   * 반드시 남긴다**(지금 뭘 쓰는지가 안 보이면 안 된다).
+   */
+  private langChips(cfg: PauseConfig): HTMLDivElement {
+    const row = document.createElement('div');
+    css(row, { display: 'flex', flexWrap: 'wrap', gap: '6px', marginBottom: '16px' });
+    const all: { value: LocaleSetting; label: string }[] = [
+      // 자동 칩은 **해석 결과를 안 붙인다.** 예전엔 `자동 · 한국어`로 뭐로 풀리는지 함께 적었는데,
+      // 이 칩이 앉아 있는 화면의 모든 라벨(언어·볼 무게·계속하기·사운드)이 이미 그 언어로 렌더된다 —
+      // 화면 전체가 가장 직접적으로 말하는 걸 한 번 더 적는 꼴이었다. 자세한 형태
+      // (`자동 · 기기 설정 · 한국어`)는 여유 있는 시작 메뉴 목록(showLangs)이 갖는다.
+      //
+      // 폭도 같이 줄지만 **줄바꿈이 없어지는 건 아니다**(실측 375px: 칩 90.3→48.8px, 필요 폭
+      // 375.4→333.9px. 행 가용폭이 279px이라 어느 쪽이든 두 줄이고, 나뉘는 모양만 3+2 → 4+1).
+      // 데스크톱은 패널이 내용에 맞춰 자라 전후 모두 한 줄이고, 패널이 ~45px 좁아진다.
+      { value: 'auto', label: t('lang.auto.short') },
+      ...LOCALES.map((c) => ({ value: c as LocaleSetting, label: LOCALE_LABEL[c] })),
+    ];
+    let shown = all;
+    let overflow = false;
+    if (all.length > LANG_CHIP_MAX) {
+      const keep = new Set<LocaleSetting>(['auto', this.settings.lang]);
+      shown = all.filter((o) => keep.has(o.value));
+      for (const o of all) {
+        if (shown.length >= LANG_CHIP_MAX - 1) break; // 마지막 한 자리는 '더보기'
+        if (!keep.has(o.value)) shown.push(o);
+      }
+      shown.sort((a, b) => all.indexOf(a) - all.indexOf(b)); // 원래 순서 유지
+      overflow = true;
+    }
+    const chip = (label: string, on: boolean, onClick: () => void) => {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.textContent = label;
+      css(b, {
+        padding: COARSE ? '10px 13px' : '7px 13px',
+        minHeight: COARSE ? '40px' : '',
+        borderRadius: '999px',
+        border: `1px solid ${on ? rgba(NEON.gold, 0.5) : 'rgba(255,255,255,0.18)'}`,
+        background: on ? rgba(NEON.gold, 0.14) : 'rgba(255,255,255,0.05)',
+        color: on ? NEON.gold : NEON.text,
+        font: `${on ? 800 : 600} 12px/1 system-ui, sans-serif`,
+        cursor: 'pointer',
+        whiteSpace: 'nowrap',
+      });
+      b.onclick = onClick;
+      return b;
+    };
+    for (const o of shown) {
+      row.appendChild(
+        chip(o.label, this.settings.lang === o.value, () => {
+          this.onLang(o.value); // 적용+저장은 Boot 핸들러가 (setLocale 포함)
+          this.showPause(cfg); // 새 언어로 모달을 다시 그린다 — 바뀐 걸 그 자리에서 보여준다
+        }),
+      );
+    }
+    if (overflow) {
+      row.appendChild(chip(`${t('menu.more')} ▸`, false, () => this.showLangs(() => this.showPause(cfg), t('menu.back.pause'))));
+    }
+    return row;
+  }
+
   private settingRow(label: string, valueText: string, active: boolean, onClick: () => void): HTMLDivElement {
     const row = document.createElement('div');
     css(row, {
@@ -825,7 +942,7 @@ export class MenuUI {
       const on = k === active;
       // 팝(바운스) 없이 색만 부드럽게 전환 (.menu-panel button transition이 담당). 여러 칩 동시 전환도 조용.
       b.style.borderColor = on ? NEON.gold : 'rgba(255,255,255,0.18)';
-      b.style.background = on ? 'rgba(255,213,74,0.14)' : 'rgba(255,255,255,0.05)';
+      b.style.background = on ? rgba(NEON.gold, 0.14) : 'rgba(255,255,255,0.05)';
       b.style.color = on ? NEON.gold : NEON.text;
     }
   }
@@ -835,7 +952,7 @@ export class MenuUI {
     for (const [k, b] of map) {
       const active = k === this.rivalKey;
       b.style.borderColor = active ? NEON.gold : 'rgba(255,255,255,0.18)';
-      b.style.background = active ? 'rgba(255,213,74,0.14)' : 'rgba(255,255,255,0.05)';
+      b.style.background = active ? rgba(NEON.gold, 0.14) : 'rgba(255,255,255,0.05)';
       b.style.color = active ? NEON.gold : NEON.text;
       if (k !== null) {
         b.style.opacity = spareMode ? '0.35' : '1';
@@ -844,12 +961,8 @@ export class MenuUI {
     }
   }
 
-  // --- 컬렉션 시트 (REWARDS.md §10.2 — 같은 패널 세 번째 뷰. 스킨 미리보기 + 업적 진행 겸용) ---
-  // 인게임 상단 '업적 아일랜드' 탭으로 열 때: 닫으면 메뉴가 아니라 게임으로 복귀.
-  showCollection(onBack: () => void) {
-    this.showSkins(onBack, t('menu.back.game'));
-  }
-
+  // --- 컬렉션 시트 (docs/legacy/REWARDS.md §10.2 — 같은 패널 세 번째 뷰. 스킨 미리보기 + 업적 진행 겸용) ---
+  // 인게임 진입은 일시정지 모달이 showSkins를 직접 부른다(닫으면 메뉴가 아니라 일시정지로 복귀).
   private showSkins(onBack: () => void = () => this.showMenu(), backLabel = t('menu.back.menu')) {
     this.panel.replaceChildren();
     this.panel.appendChild(this.title(t('menu.collection.title')));
@@ -981,8 +1094,8 @@ export class MenuUI {
           padding: '11px 11px 9px',
           minHeight: COARSE ? '52px' : '',
           borderRadius: '11px',
-          border: isEquipped ? '1px solid #ffd54a' : isUnlocked ? '1px solid rgba(255,255,255,0.16)' : '1px solid rgba(255,255,255,0.1)',
-          background: isEquipped ? 'rgba(255,213,74,0.14)' : isUnlocked ? 'rgba(255,255,255,0.04)' : 'rgba(255,255,255,0.02)',
+          border: isEquipped ? `1px solid ${NEON.gold}` : isUnlocked ? '1px solid rgba(255,255,255,0.16)' : '1px solid rgba(255,255,255,0.1)',
+          background: isEquipped ? rgba(NEON.gold, 0.14) : isUnlocked ? 'rgba(255,255,255,0.04)' : 'rgba(255,255,255,0.02)',
           cursor: isUnlocked ? 'pointer' : 'not-allowed',
         });
         cell.appendChild(ball);
@@ -1015,8 +1128,8 @@ export class MenuUI {
           gap: '11px',
           padding: '9px 11px',
           borderRadius: '9px',
-          background: got ? 'rgba(255,213,74,0.08)' : 'rgba(255,255,255,0.02)',
-          border: got ? '1px solid rgba(255,213,74,0.22)' : '1px solid rgba(255,255,255,0.08)',
+          background: got ? rgba(NEON.gold, 0.08) : 'rgba(255,255,255,0.02)',
+          border: got ? `1px solid ${rgba(NEON.gold, 0.22)}` : '1px solid rgba(255,255,255,0.08)',
           opacity: got ? '1' : '0.75',
         });
         const icon = document.createElement('span');

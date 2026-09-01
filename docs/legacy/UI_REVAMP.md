@@ -2,7 +2,7 @@
 
 > 작성: 2026-06-16 (9차 커밋 `9fcc1de` UI 전면 개편 *이후* 실기기 재검토)
 > 베이스: iPhone 17 Pro 실기 스크린샷 3장(스핀 0 / L1.0 / R1.0) + 레퍼런스 조사 + 현 코드 정독
-> 관련 코드: [Controls.ts](../src/input/Controls.ts) · [Hud.ts](../src/ui/Hud.ts) · [theme.ts](../src/ui/theme.ts)
+> 관련 코드: [Controls.ts](../../src/input/Controls.ts) · [Hud.ts](../../src/ui/Hud.ts) · [theme.ts](../../src/ui/theme.ts)
 
 ---
 
@@ -144,5 +144,5 @@ tsc 클린 + vitest 22/22 + **프리뷰 격리 측정**(인게임 HUD는 메뉴 
 ## 참고
 
 - 직전 UI 개편 내역: 커밋 `9fcc1de` "UI 전면 개편 + 거터 벽 점멸 수정" (조준선 Line2화, 볼무게 메뉴 이동+BallPicker 삭제, 나무 텍스처 39판자).
-- 모바일 제약·터치 입력: [MOBILE_SUPPORT.md](./MOBILE_SUPPORT.md).
+- 모바일 제약·터치 입력: [MOBILE_SUPPORT.md](../MOBILE_SUPPORT.md).
 - 게임성(난이도 깊이)과의 상호작용: [SPIN_FEEL_AND_AI_LADDER.md](./SPIN_FEEL_AND_AI_LADDER.md), [GAMEPLAY_ROADMAP.md](./GAMEPLAY_ROADMAP.md).

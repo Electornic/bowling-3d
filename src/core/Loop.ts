@@ -1,6 +1,6 @@
 import type { Engine } from './Engine';
 
-const FIXED_DT = 1 / 60; // 고정 물리 스텝 (도안 §4.4 TIMESTEP)
+const FIXED_DT = 1 / 60; // 고정 물리 스텝 (도안 §4.4 TIMESTEP) — 이 값의 단일 소스다
 const MAX_FRAME = 0.25; // 탭 전환 등으로 프레임이 크게 벌어질 때 클램프
 
 /**

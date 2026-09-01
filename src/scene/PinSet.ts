@@ -11,10 +11,12 @@ import {
   PIN_ROWS,
   PIN_DECK_END,
   GUTTER_WIDTH,
+  PIN_FALL_ANGLE,
 } from '../game/constants';
 import { PIN_NUMBERS } from '../game/splits';
+import { NEON } from '../ui/theme';
 
-const UP_COS_45 = Math.cos(Math.PI / 4); // ≈0.707
+const UP_COS_FALL = Math.cos(PIN_FALL_ANGLE); // ≈0.707 — 상수는 constants.ts가 갖는다(여기서 재구현 금지)
 
 // ── 핀세터 사이클 타임라인(초) ────────────────────────────────────────────────
 // 실제 기계(AMF 82-30 계열) 순서를 그대로 따른다. 이전 버전은 스윕과 리프트를 동시에 시작하고
@@ -24,10 +26,9 @@ const UP_COS_45 = Math.cos(Math.PI / 4); // ≈0.707
 //   ② 테이블이 내려와 선 핀의 목을 문다   ③ 테이블이 핀을 들고 올라간다
 //   ④ 스윕 전진 — 데드우드를 피트로   ⑤ 스윕 가드 복귀
 //   ⑥ 테이블 하강 — 핀을 스폿에 놓음   ⑦ 테이블·스윕 상승
-// 총 2.45초. 조준·점수집계와 겹쳐 돌므로 체감 대기는 여전히 0이다.
-// 총 4.05초. 첫 판정은 2.45초였는데 "너무 빠르다" — 실기계는 5~8초고 그중 눈에 보이는
-// 테이블·스윕 구간만도 4초 안팎이다. 조준과 병렬로 도니 길어져도 체감 대기는 그대로 0이지만,
-// 플레이어가 다 끝나기 전에 던지면 finishCycle()이 스냅한다(결과는 동일, 연출만 잘림).
+// **총 4.05초** (rack 모드는 ②③을 건너뛰어 3.05초). 첫 판정은 2.45초였는데 "너무 빠르다" —
+// 실기계는 5~8초고 그중 눈에 보이는 테이블·스윕 구간만도 4초 안팎이다. 조준과 병렬로 도니
+// 길어져도 체감 대기는 0이고, 다 끝나기 전에 던지면 finishCycle()이 스냅한다(결과 동일, 연출만 잘림).
 const CY_GUARD = 0.55;
 const CY_GRIP = 1.15;
 const CY_LIFT = 1.55;
@@ -36,31 +37,78 @@ const CY_RETURN = 3.0;
 const CY_SET = 3.6;
 const CY_END = 4.05;
 const BAR_Y_UP = 1.2; // 스윕 바 대기 높이(마스킹 뒤)
-// 쓸기 높이. 바 높이 0.52라 아래 끝이 -0.17 — 거터 바닥(-0.13)보다 낮아야 거터의 핀까지 민다.
-// 예전 0.15(아래 끝 0.0)는 레인 위만 훑고 거터를 그냥 지나쳤다.
-// 거터를 규격(47.6mm)으로 얕게 바꾼 뒤에도 바 높이는 옛 거터(130mm) 기준 0.52m로 남아 있었다.
-// 필요 이상으로 큰 벽이라 '회색 판때기'로 보였다. 아래 끝 -0.07(거터 바닥 -0.0476 아래),
-// 위 끝 0.33(핀 0.38보다 살짝 낮게 — 실제 스윕 블레이드도 핀 높이 언저리다).
-// 높이 0.40m는 핀(0.38m)과 거의 같아 핀을 통째로 가리는 '벽'이 됐다. 0.24m로 낮추면 아래
-// 끝은 그대로 -0.07(거터 바닥 -0.0476 아래)이면서 위 끝이 0.17 — 핀 상단 55%가 바 위로
-// 드러나 '벽이 지나간다'가 아니라 '레이크가 훑는다'로 읽힌다.
-// 물리적으로도 충분하다: 접촉점 0.17이 핀 무게중심(≈0.14)보다 위라 넘어뜨린다.
-// 높이는 0.24 유지하되 위치를 **핀 중간**으로 올린다(0.05 → 0.18). 실제 볼링장에서 눈에 남는
-// 레이크의 모습이 이 '가드 자세'다 — 데크에 딱 붙어 있는 게 아니라 핀 몸통 중간에 걸쳐 있다.
-// 아래 끝 0.06으로 데크와 살짝 뜨는데, 실기계도 데크 위 클리어런스가 있고 기능상으로도 문제없다:
-// 데드우드 밀어내기는 바의 **z**로만 판정하므로 높이는 순수하게 보이는 문제다.
-// 블레이드는 얕은 판이다. 실제 레이크는 레인에서 63⅜in(1.61m) 높이의 축에서 팔로 매달려
-// 내려오고, 판 자체는 그 끝에 달린 얕은 슬랫이다. 0.24m(핀 높이의 63%)는 너무 두꺼워서
-// 핀 위쪽 21%만 보였다. 0.14m로 줄이고 핀 중간에 걸치면 0.09~0.23 —
-// 아래 24% + 위 39% = **핀의 63%가 드러난다**(가드 자세는 유지).
+// 레이크 블레이드의 내림 높이(중심 y)와 두께. 지금 값은 바가 y 0.09~0.23을 차지한다.
+//
+// **높이는 순수하게 보이는 문제다** — 데드우드 밀어내기는 바의 z로만 판정한다(update ④).
+// 그래서 기준은 물리가 아니라 실루엣이다: 실제 레이크는 레인 1.61m 위 축에 팔로 매달린 얕은
+// 슬랫이고, 눈에 남는 건 데크에 딱 붙지 않고 **핀 몸통 중간에 걸친 '가드 자세'**다.
+// 0.14 × 중심 0.16이면 핀(0.38)의 아래 24% + 위 39% = **63%가 바 위아래로 드러난다.**
+//
+// ⚠️ 두껍게 만들지 말 것. 히스토리가 전부 그 실패다 — 0.52(옛 거터 130mm 기준 잔재)는
+// '회색 판때기', 0.40은 핀 높이와 거의 같아 통째로 가리는 벽, 0.24도 핀 위쪽 21%만 남겼다.
+// 반대로 0.15(아래 끝 0.0)는 레인 위만 훑어 거터의 핀을 지나쳤는데, 그건 지금 z 판정이라 무관하다.
 const BAR_Y_DOWN = 0.16;
-const BAR_H = 0.14;
+export const SWEEP_BAR_H = 0.14;
 // 판 두께. 5cm는 핀 지름(121mm)의 절반이라 판금이 아니라 슬래브였다. 실제 스윕 시트는 2~3mm인데
 // 그대로 쓰면 이 거리에서 사라지거나 깜빡이므로 14mm로 절충.
-const BAR_T = 0.014;
+const SWEEP_BAR_T = 0.014;
+
+/**
+ * 레이크(스윕 바) 메시 — **플레이 레인과 옆 레인이 공유한다.**
+ *
+ * 같은 볼링장의 같은 기계라 눈높이가 다르면 오히려 이상해진다. 예전엔 Environment가 이
+ * 30줄(시트 + 보강 테두리 + 네온 액센트 + 지지 팔 2개)을 통째로 복붙하고 있었고, 주석에도
+ * "플레이 레인과 같게 맞춘다"라고만 적혀 있어 한쪽만 손대면 조용히 갈릴 자리였다.
+ *
+ * 형상은 통짜 판이 맞다 — 실제 스윕은 사이클 중 잘못 던져진 공을 막는 금속 보호벽이라
+ * 뚫으면 고증에 어긋난다. 문제는 형상이 아니라 **명도**였다: 알베도가 거의 검정이면
+ * 어두운 핀덱 배경에서 빛 받는 물체가 아니라 '화면에 뚫린 구멍'으로 렌더된다.
+ *
+ * 위치는 호출부가 정한다(그룹 원점 = 블레이드 중심).
+ */
+export function makeSweepBar(): THREE.Group {
+  const g = new THREE.Group();
+  g.add(
+    new THREE.Mesh(
+      new THREE.BoxGeometry(SWEEP_BAR_W, SWEEP_BAR_H, SWEEP_BAR_T),
+      new THREE.MeshStandardMaterial({ color: 0x8f98a6, metalness: 0.85, roughness: 0.35 }),
+    ),
+  );
+  // 상단 보강 테두리 — 실제 판금은 위쪽을 접어 보강한다. 살짝 밝고 두꺼운 띠 하나로
+  // '평면'이 '만들어진 부품'이 된다(멀리서 읽히는 건 이 명암 단차뿐이다).
+  const lip = new THREE.Mesh(
+    new THREE.BoxGeometry(SWEEP_BAR_W, 0.026, 0.03),
+    new THREE.MeshStandardMaterial({ color: 0xb3bbc7, metalness: 0.9, roughness: 0.28 }),
+  );
+  lip.position.y = SWEEP_BAR_H / 2 - 0.013;
+  g.add(lip);
+  // 네온 액센트 — 씬이 네온 온 다크라 기계만 무채색이면 이질적이다. 상단 모서리의 발광선은
+  // 멀어도 '바가 지나간다'를 읽히게 하는 신호가 된다.
+  const accent = new THREE.Mesh(
+    new THREE.BoxGeometry(SWEEP_BAR_W * 0.985, 0.014, 0.014),
+    new THREE.MeshStandardMaterial({
+      color: 0x0a1a20,
+      emissive: NEON.cyan, // 레인 네온과 같은 톤
+      emissiveIntensity: 2.4,
+      metalness: 0,
+      roughness: 1,
+    }),
+  );
+  accent.position.set(0, SWEEP_BAR_H / 2 - 0.036, -SWEEP_BAR_T / 2 - 0.007); // 볼러 쪽 면, 테두리 바로 아래
+  g.add(accent);
+  // 양 끝 지지 팔 — 실제 레이크는 레인에서 1.61m 높이의 축에 매달려 내려온다. 팔이 없으면
+  // 판이 허공에 떠서 미끄러지는 것처럼 보인다.
+  const carriageMat = new THREE.MeshStandardMaterial({ color: 0x4d5560, metalness: 0.8, roughness: 0.38 });
+  for (const side of [-1, 1]) {
+    const post = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.6, 0.06), carriageMat);
+    post.position.set(side * (SWEEP_BAR_W / 2 - 0.03), SWEEP_BAR_H / 2 + 0.3, 0);
+    g.add(post);
+  }
+  return g;
+}
 // 폭: 레인 + 양쪽 거터 전체. 실제 스윕도 "핀 스탠드 구간 및 인접 거터"를 함께 치운다
 // (AMF 특허 US2250503). 예전 LANE_WIDTH+0.1은 거터에 닿지도 않았다.
-const BAR_W = LANE_WIDTH + 2 * GUTTER_WIDTH + 0.06;
+export const SWEEP_BAR_W = LANE_WIDTH + 2 * GUTTER_WIDTH + 0.06;
 const BAR_Z0 = HEADPIN_Z - 0.45; // 볼러 쪽 — 가드 위치이자 쓸기 시작점
 const BAR_Z1 = PIN_DECK_END + 0.35; // 피트 쪽 끝 — 데드우드를 넘겨버리는 지점
 const TABLE_Y_UP = 1.5; // 테이블 대기(마스킹 뒤)
@@ -134,51 +182,8 @@ export class PinSet {
 
     // 스윕 바(레이크) — 물리 바디가 아니라 순수 비주얼이다. 데드우드를 실제로 밀어내면 핀이 튀거나
     // 끼는 사고가 나므로, 바가 지나가는 z를 넘긴 핀을 stash()로 치우는 방식이 훨씬 싸고 안정적이다.
-    // 형상은 통짜 판이 맞다 — 실제 스윕은 사이클 중 잘못 던져진 공을 막는 '금속 보호벽'이라
-    // 뚫으면 오히려 고증에 어긋난다. 문제는 형상이 아니라 **명도**였다: 알베도가 0x161c28(거의
-    // 검정)이라 어두운 핀덱 배경에서 빛 받는 물체가 아니라 '화면에 뚫린 구멍'으로 렌더됐다.
-    this.sweepBar = new THREE.Group();
-    this.sweepBar.add(
-      new THREE.Mesh(
-        new THREE.BoxGeometry(BAR_W, BAR_H, BAR_T),
-        new THREE.MeshStandardMaterial({ color: 0x8f98a6, metalness: 0.85, roughness: 0.35 }),
-      ),
-    );
-    // 상단 보강 테두리 — 실제 판금은 위쪽을 접어 보강한다. 살짝 밝고 두꺼운 띠 하나로
-    // '평면'이 '만들어진 부품'이 된다(멀리서 읽히는 건 이 명암 단차뿐이다).
-    const lip = new THREE.Mesh(
-      new THREE.BoxGeometry(BAR_W, 0.026, 0.03), // 접힌 보강 테두리 — 시트보다 두껍게 튀어나온다
-      new THREE.MeshStandardMaterial({ color: 0xb3bbc7, metalness: 0.9, roughness: 0.28 }),
-    );
-    lip.position.y = BAR_H / 2 - 0.013;
-    this.sweepBar.add(lip);
-    // 네온 액센트 — 씬이 네온 온 다크라 기계만 무채색이면 이질적이다. 상단 모서리의 발광선은
-    // 멀어도 '바가 지나간다'를 읽히게 하는 신호가 된다.
-    const accent = new THREE.Mesh(
-      new THREE.BoxGeometry(BAR_W * 0.985, 0.014, 0.014),
-      new THREE.MeshStandardMaterial({
-        color: 0x0a1a20,
-        emissive: 0x22d3ee, // NEON.cyan — 레인 네온과 같은 톤
-        emissiveIntensity: 2.4,
-        metalness: 0,
-        roughness: 1,
-      }),
-    );
-    accent.position.set(0, BAR_H / 2 - 0.036, -BAR_T / 2 - 0.007); // 볼러 쪽 면, 테두리 바로 아래
-    this.sweepBar.add(accent);
-    // 양 끝 지지 팔 — 실제 레이크는 레인에서 1.61m 높이의 축에 매달려 내려온다. 팔이 없으면
-    // 판이 허공에 떠서 미끄러지는 것처럼 보인다(테이블은 요크가 있어 '매달린 기계'로 읽히는데
-    // 바만 붙잡는 게 없었다). 위로 길게 뻗어 매달린 구조를 만든다.
-    const carriageMat = new THREE.MeshStandardMaterial({
-      color: 0x4d5560,
-      metalness: 0.8,
-      roughness: 0.38,
-    });
-    for (const side of [-1, 1]) {
-      const post = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.6, 0.06), carriageMat);
-      post.position.set(side * (BAR_W / 2 - 0.03), BAR_H / 2 + 0.3, 0);
-      this.sweepBar.add(post);
-    }
+    // (옆 레인 레이크는 반대로 키네마틱 콜라이더로 민다 — 형상만 makeSweepBar로 공유한다.)
+    this.sweepBar = makeSweepBar();
     this.sweepBar.position.set(0, BAR_Y_UP, BAR_Z0);
     this.sweepBar.visible = false;
     engine.scene.add(this.sweepBar);
@@ -450,17 +455,12 @@ export class PinSet {
     const q = pin.body.rotation();
     // 회전된 (0,1,0)의 y성분 = cos(tilt)
     const upY = 1 - 2 * (q.x * q.x + q.z * q.z);
-    return upY > UP_COS_45 && t.y > PIN_HEIGHT * 0.25;
+    return upY > UP_COS_FALL && t.y > PIN_HEIGHT * 0.25;
   }
 
   /** 현재 서 있는 핀 수 */
   standingCount(): number {
     return this.pins.reduce((n, p) => n + (this.isStanding(p) ? 1 : 0), 0);
-  }
-
-  /** 쓰러진 핀 수 (= 이번 투구 점수 후보) */
-  fallenCount(): number {
-    return this.pins.length - this.standingCount();
   }
 
   /** 서 있는지 여부 마스크 (인덱스별) */
@@ -475,18 +475,6 @@ export class PinSet {
       const v = p.body.linvel();
       return Math.hypot(v.x, v.y, v.z) < SETTLE_VEL_EPS;
     });
-  }
-
-  /**
-   * 자동 핀세터 리스팟 (1·2구 사이): 선 핀은 제 스폿(home)에 똑바로 다시 세우고,
-   * 데드우드(쓰러진 핀)는 치운다. 실제 핀세터도 잔존 핀을 집어 올려 스폿에 재배치하므로,
-   * 밀리거나 기운 핀이 그대로 남지 않는다 (도안 §6).
-   */
-  respot() {
-    for (const p of this.pins) {
-      if (this.isStanding(p)) p.reset();
-      else p.stash();
-    }
   }
 
   /** 핀 전체를 똑바로 다시 세움 (BETWEEN_FRAMES) */

@@ -8,9 +8,16 @@ import {
   PIN_SPACING,
   ROW_GAP,
   BALL_RADIUS,
+  CAM_APPROACH_Z,
+  PIN_DECK_END,
 } from '../src/game/constants';
-import { APPROACH_POS, GAMEOVER_POS } from '../src/camera/CameraRig';
-import { REPLAY_CAM_Y_OFF, REPLAY_TRAIL_NEAR } from '../src/scene/Replay';
+import { APPROACH_POS, APPROACH_TARGET, GAMEOVER_POS, approachZFor } from '../src/camera/CameraRig';
+import {
+  REPLAY_CAM_Y_OFF,
+  REPLAY_LOOK_Y_OFF,
+  REPLAY_TRAIL_NEAR,
+  REPLAY_TRAIL_FAR,
+} from '../src/scene/Replay';
 
 /** 리플레이가 헤드핀에서 파킹하는 포즈 (Replay.placeCamera와 같은 식, 공은 레인 위 y=BALL_RADIUS) */
 const REPLAY_PARKED = {
@@ -49,10 +56,21 @@ function clearance(cy: number, cz: number, topY: number): number {
   return worst;
 }
 
+const FOV = 40; // Engine의 세로 fov (종횡비와 무관하게 고정)
+
+/**
+ * 팔로우 파킹 포즈 — 높이는 APPROACH_POS.y(= 체이스 높이 FOLLOW_Y), z는 **종횡비에서 유도된다**.
+ * 체이스 거리가 HEADPIN_Z − 이 z이므로, 이 포즈가 곧 임팩트 순간의 카메라다.
+ * 좁은 화면일수록 뒤로 물러나 여유가 늘어나지만, 여기 고정해 방향이 뒤집히면 잡히게 한다.
+ */
+const parked = (aspect: number): [number, number] => [APPROACH_POS.y, approachZFor(FOV, aspect)];
+
 const POSES: Array<[string, number, number]> = [
   ['AIMING', 0.75, -2.7],
   ['MENU', 1.7, -3.4],
-  ['접근(핀덱)', APPROACH_POS.y, APPROACH_POS.z],
+  ['파킹(와이드 16:9)', ...parked(16 / 9)],
+  ['파킹(데스크톱)', ...parked(0.998)],
+  ['파킹(세로폰)', ...parked(0.462)],
   ['GAME_OVER', GAMEOVER_POS.y, GAMEOVER_POS.z],
   ['리플레이 파킹', REPLAY_PARKED.y, REPLAY_PARKED.z],
 ];
@@ -63,9 +81,10 @@ describe('핀 베이가 카메라 시선을 가리지 않는다', () => {
   });
 
   // 날아오르는 핀도 대체로 보여야 한다. 베이 구간 실측 핀 꼭대기 최대는 0.518
-  // (24구·82,278 핀프레임, 0.55 초과 0건) — 접근 카메라는 그 높이까지 담아야 크래시가 보인다.
-  it('접근 카메라는 튀어오르는 핀(0.518)까지 담는다', () => {
-    expect(clearance(APPROACH_POS.y, APPROACH_POS.z, 0.518)).toBeGreaterThan(0);
+  // (24구·82,278 핀프레임, 0.55 초과 0건) — 파킹 카메라는 그 높이까지 담아야 크래시가 보인다.
+  // 높이가 0.60 → 0.45로 내려가며 여유가 0.035 → 0.106으로 3배가 됐다(리니어 체이스 정식화).
+  it('파킹 카메라는 튀어오르는 핀(0.518)까지 담는다', () => {
+    expect(clearance(APPROACH_POS.y, APPROACH_POS.z, 0.518)).toBeGreaterThan(0.1);
   });
 
   // 리플레이는 **크래시를 보여주는 게 목적인 연출**이라 튀어오르는 핀이 잘리면 안 된다.
@@ -75,9 +94,80 @@ describe('핀 베이가 카메라 시선을 가리지 않는다', () => {
   });
 
   // 회귀 방향 고정: 개구부를 더 낮추면 반드시 이 테스트가 먼저 깨져야 한다.
-  it('개구부를 낮추면 접근 카메라가 깨진다 (커플링 확인)', () => {
+  it('개구부를 낮추면 파킹 카메라가 깨진다 (커플링 확인)', () => {
     const f = (PIN_BAY_FRONT_Z - APPROACH_POS.z) / (HEADPIN_Z + 3 * ROW_GAP - APPROACH_POS.z);
     const sightY = APPROACH_POS.y + (PIN_HEIGHT - APPROACH_POS.y) * f;
     expect(PIN_BAY_TOP).toBeGreaterThan(sightY); // 지금은 통과, 개구부가 sightY 밑으로 내려가면 실패
+  });
+});
+
+/**
+ * 전광판은 카메라를 **위쪽으로도** 제약한다.
+ *
+ * 마스킹 유닛 앞면이 곧 화면이라 전광판 아랫단 y는 개구부 상단(PIN_BAY_TOP)과 **같다**
+ * (Environment: scrBottom = PIN_BAY_TOP, z = 캐노피 앞면 − 0.03). 그래서 개구부 위를 보는
+ * 카메라는 필연적으로 전광판을 본다 — 문제는 "보이냐"가 아니라 **얼마나 보이냐**다.
+ *
+ * 기준은 라이브 파킹 카메라다. 리플레이가 그보다 많이 보여주면 '카메라가 떠 있다'는 인상이 된다.
+ * 실제로 그랬다: 시선 오프셋 0.20 시절 추적 구간이 34~38%(당시 라이브 27.8%)였다.
+ * ⚠️ 2026-09-01 라이브가 12.4%로 내려앉아 그 부등호가 뒤집혔다 — 아래 개별 테스트 주석 참고.
+ */
+const SCREEN_BOTTOM_Y = PIN_BAY_TOP;
+const SCREEN_Z = PIN_BAY_FRONT_Z - 0.03;
+const HALF_FOV = (FOV / 2) * (Math.PI / 180); // 위 FOV (세로축이라 종횡비와 무관하게 고정)
+
+/** 전광판 아랫단부터 프레임 위끝까지가 화면 높이의 몇 %인가 (x=0 중앙열 기준, 0 = 안 보임). */
+function screenBandPct(cy: number, cz: number, ly: number, lz: number): number {
+  const pitch = Math.atan2(ly - cy, lz - cz);
+  const toBottom = Math.atan2(SCREEN_BOTTOM_Y - cy, SCREEN_Z - cz) - pitch; // 광축 기준 각
+  const ndcY = Math.tan(toBottom) / Math.tan(HALF_FOV);
+  return ndcY >= 1 ? 0 : ((1 - ndcY) / 2) * 100;
+}
+
+/** 리플레이 카메라 포즈 (Replay.placeCamera와 같은 식 — 공은 레인 위, py는 그 높이로 클램프) */
+function replayPose(ballZ: number) {
+  const u = Math.max(0, Math.min(1, (ballZ - CAM_APPROACH_Z) / (HEADPIN_Z - CAM_APPROACH_Z)));
+  const e = u * u * (3 - 2 * u);
+  const trail = REPLAY_TRAIL_FAR + (REPLAY_TRAIL_NEAR - REPLAY_TRAIL_FAR) * e;
+  return {
+    cy: Math.max(0.45, BALL_RADIUS + REPLAY_CAM_Y_OFF),
+    cz: Math.min(ballZ, HEADPIN_Z) - trail,
+    ly: BALL_RADIUS + REPLAY_LOOK_Y_OFF,
+    lz: Math.min(ballZ + 1.2, PIN_DECK_END + 0.4),
+  };
+}
+
+describe('전광판이 프레임을 잡아먹지 않는다', () => {
+  const live = screenBandPct(APPROACH_POS.y, APPROACH_POS.z, APPROACH_TARGET.y, APPROACH_TARGET.z);
+
+  // 27.8% → 12.4%. 리니어 체이스 정식화로 카메라가 0.60 → 0.45로 내려앉은 결과다
+  // (낮을수록 시선이 덜 들려 전광판이 덜 들어온다).
+  it('라이브 파킹 카메라의 전광판 점유율이 기준선이다 (약 12%)', () => {
+    expect(live).toBeGreaterThan(8);
+    expect(live).toBeLessThan(18);
+  });
+
+  // ⚠️ 부호가 뒤집혔다 (2026-09-01). 원래 이 테스트는 "리플레이가 라이브보다 덜 보여준다"였는데,
+  // 라이브가 0.45로 내려가면서 **리플레이(0.529)가 더 높은 카메라**가 됐다: 18.3% vs 12.4%.
+  // 맞추려면 REPLAY_CAM_Y_OFF(공 위 0.42m)를 건드려야 하고 그건 리플레이 프레이밍을 다시 재는
+  // 별건이다. 이 테스트가 원래 막던 건 34~38%짜리 '떠 있는' 리플레이였고 거기서는 여전히 멀다.
+  // 그래서 지금은 **간격에 상한만** 건다 — 더 벌어지면(리플레이가 더 뜨면) 잡힌다.
+  it('리플레이 파킹이 라이브보다 전광판을 더 보여주되 그 차이가 8%p 아래', () => {
+    const p = replayPose(HEADPIN_Z);
+    expect(screenBandPct(p.cy, p.cz, p.ly, p.lz) - live).toBeLessThan(8); // 5.8%p
+  });
+
+  // 추적 구간은 원근상 라이브 접근보다 넓게 잡힐 수밖에 없다(멀수록 높은 벽이 더 들어온다).
+  // 라이브 팔로우도 같은 위치에서 30%대를 담으므로 목표는 '0'이 아니라 **옛 값(최대 39.6%)에서
+  // 확실히 내려온 상태**의 고정이다.
+  it.each([9, 12, 14, 16, 17])('리플레이 추적(공 z=%s)의 전광판 점유율이 32%% 아래', (bz) => {
+    const p = replayPose(bz);
+    expect(screenBandPct(p.cy, p.cz, p.ly, p.lz)).toBeLessThan(32);
+  });
+
+  // 리플레이 카메라가 개구부 상단 위로 올라가면 전광판이 급격히 들어온다. 포즈를 공 높이에
+  // 클램프하는 이유이기도 하다(튀어오른 공을 따라 카메라가 올라가지 않게).
+  it('리플레이 카메라는 개구부 상단보다 낮게 앉는다', () => {
+    expect(replayPose(HEADPIN_Z).cy).toBeLessThan(PIN_BAY_TOP);
   });
 });

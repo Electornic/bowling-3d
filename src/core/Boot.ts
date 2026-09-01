@@ -17,7 +17,8 @@ import { makeBallSpec } from '../game/BallSpec';
 import { PIN_CONTACT_Z } from '../game/constants';
 import { ACHIEVEMENTS, evaluateAchievements, loadRewards, recordRewards, resetRewards, resolveSkin, VIDEO_MARKER } from '../game/rewards';
 import { loadScreenVideo, clearScreenVideo } from '../game/screenStore';
-import { loadSettings, saveSettings } from '../game/settings';
+import { loadSettings, saveSettings, type Settings } from '../game/settings';
+import { css, NEON, rgba } from '../ui/theme';
 import { setLocale, resolveLocale, t, onLocaleChange } from '../i18n';
 import { isCoarsePointer } from './device';
 
@@ -70,7 +71,7 @@ export async function boot() {
         return;
       }
       controls.update(dt); // 렌더 프레임마다 UI(조준선·게이지) — dt 기반 파워 차징(프레임레이트 독립)
-      cameraRig.update(dt); // 상태별 카메라 연출
+      cameraRig.update(dt, loop.timeScale); // 상태별 카메라 연출 (팔로우 스무딩은 월드 시간)
       // 전광판 애니메이션 + 옆 레인 앰비언트. 두 번째 인자 = lane courtesy 홀드:
       // 내가 **던지는 동안**만 인접 레인이 새 투구를 미룬다. 실제 리그 표준이 "one lane courtesy
       // in both directions"이고, 실측으로 옆 레인 핀덱이 화면 중앙 150px(k=1)·297px(k=2)에 있어
@@ -91,7 +92,7 @@ export async function boot() {
         engine.renderer.shadowMap.autoUpdate = moving;
         if (!moving) engine.renderer.shadowMap.needsUpdate = true; // 정지 직전 1회 갱신
       }
-      // 인게임 '메뉴로' 버튼 + 상단 업적 아일랜드: 매치 중(MENU/GAME_OVER 외)에만 노출.
+      // 인게임 '메뉴로' 버튼: 매치 중(MENU/GAME_OVER 외)에만 노출.
       const inMatch = game.state !== 'MENU' && game.state !== 'GAME_OVER';
       if (inMatch !== matchVisible) { // 변경 시에만 DOM 쓰기(#12, 위 섀도우 토글과 통일). null 센티넬로 초기 1회 강제.
         matchVisible = inMatch;
@@ -168,21 +169,21 @@ function maybeShowOrientationHint() {
 
   const el = document.createElement('div');
   el.textContent = t('boot.rotatePortrait');
-  el.style.cssText = [
-    'position:fixed',
-    'left:50%',
-    'bottom:calc(16px + env(safe-area-inset-bottom))',
-    'transform:translateX(-50%)',
-    'padding:8px 16px',
-    'border-radius:999px',
-    'background:rgba(14,17,27,0.92)',
-    'border:1px solid rgba(34,211,238,0.4)',
-    'color:#e8edf5',
-    "font:600 12px/1.4 system-ui, sans-serif",
-    'z-index:50',
-    'pointer-events:none',
-    'box-shadow:0 6px 26px rgba(0,0,0,0.5)',
-  ].join(';');
+  css(el, {
+    position: 'fixed',
+    left: '50%',
+    bottom: 'calc(16px + env(safe-area-inset-bottom))',
+    transform: 'translateX(-50%)',
+    padding: '8px 16px',
+    borderRadius: '999px',
+    background: 'rgba(14,17,27,0.92)',
+    border: `1px solid ${rgba(NEON.cyan, 0.4)}`,
+    color: NEON.text,
+    font: '600 12px/1.4 system-ui, sans-serif', // 안내 문구라 FONT_UI(13px)보다 한 단계 작다
+    zIndex: '50',
+    pointerEvents: 'none',
+    boxShadow: '0 6px 26px rgba(0,0,0,0.5)',
+  });
 
   // 가로인 동안만 붙어 있는다 — 시간제한 해제(구 3.5초)가 아니라 **방향에 종속**이다.
   // 세로로 돌리면 사라지고, 다시 가로로 돌리면 다시 뜬다.
@@ -195,6 +196,162 @@ function maybeShowOrientationHint() {
   };
   apply();
   landscape.addEventListener('change', apply);
+}
+
+/**
+ * 인게임 '메뉴로' 버튼 — 좌상단 safe-area, 점수판(상단)과 안 겹치게 작게.
+ * Esc(데스크톱)도 같은 동작. **가시성은 Loop onFrame이 매치 상태로 토글한다**(여기선 숨김으로 시작).
+ */
+function createExitButton(onForfeit: () => void): HTMLButtonElement {
+  const btn = document.createElement('button');
+  btn.textContent = t('boot.menu');
+  css(btn, {
+    position: 'fixed',
+    top: 'calc(8px + env(safe-area-inset-top))',
+    left: 'calc(var(--col-edge, 0px) + 8px + env(safe-area-inset-left))',
+    zIndex: '30',
+    display: 'none',
+    padding: '8px 12px',
+    minHeight: '40px', // 터치 타깃 하한
+    borderRadius: '10px',
+    border: '1px solid rgba(255,255,255,0.2)',
+    background: 'rgba(14,17,27,0.82)',
+    color: NEON.text,
+    font: '700 13px/1 system-ui, sans-serif', // 버튼이라 FONT_UI(600/1.4)보다 굵고 타이트하게
+    cursor: 'pointer',
+    backdropFilter: 'blur(4px)',
+  });
+  // 텍스트를 여기서 **한 번만** 받으므로(가시성만 onFrame이 토글) 언어 변경을 직접 구독한다.
+  onLocaleChange(() => {
+    btn.textContent = t('boot.menu');
+  });
+  btn.onclick = onForfeit;
+  document.body.appendChild(btn);
+  window.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') onForfeit();
+  });
+  return btn;
+}
+
+/**
+ * 저장된 외형·무게를 초기 적용. 영상 전광판만 IndexedDB라 비동기 —
+ * 부팅을 막지 않고 늦게 붙인다(로더가 걷히기 전에 끝나는 게 보통).
+ */
+function applySavedCosmetics(game: GameState, environment: Environment, settings: Settings) {
+  game.setHumanBallSpec(makeBallSpec(settings.ballLb)); // 메뉴 프리뷰 공에도 반영된다
+  game.setBallSkin(resolveSkin(loadRewards().selectedSkin));
+  const savedScreen = loadRewards().customScreen;
+  if (savedScreen === VIDEO_MARKER) {
+    void loadScreenVideo().then((v) => {
+      if (v) environment.setCustomVideo(v.blob);
+    });
+  } else {
+    environment.setCustomScreen(savedScreen);
+  }
+}
+
+/**
+ * 게임 이벤트 → 연출 배선.
+ * 텍스트 연출은 **스틸컷 밴드 하나로 통일**한다(전광판 캔버스 글자·HUD 중앙 배너 없음).
+ */
+function wireGameEvents(d: {
+  game: GameState;
+  replay: Replay;
+  stillCut: StillCut;
+  menu: MenuUI;
+  sound: SoundManager;
+}) {
+  const { game, replay, stillCut, menu, sound } = d;
+  game.onEvent = (e) => {
+    switch (e.type) {
+      case 'strike': {
+        const label =
+          e.streak >= 4 ? `${e.streak} BAGGER!!` : e.streak === 3 ? 'TURKEY!!' : e.streak === 2 ? 'DOUBLE!' : 'STRIKE!';
+        const sub = e.streak >= 2 ? t('boot.onFire', { streak: e.streak }) : t('boot.strike');
+        // 스트라이크 = 풀연출: 짧은 리플레이 → 프리즈에 스틸컷 슬램. 녹화 부족 시 즉시 스틸컷.
+        if (!replay.start(() => stillCut.show('strike', label, sub))) stillCut.show('strike', label, sub);
+        break;
+      }
+      case 'spare':
+        stillCut.show('spare', 'SPARE!', t('boot.spareCleared')); // 스페어 = 스틸컷만 (리플레이 X)
+        break;
+      case 'gutter':
+        stillCut.show('gutter', 'GUTTER', t('boot.zeroPins')); // 거터 = 디플레이팅 스틸컷 (축하 X)
+        break;
+      case 'splitConverted':
+        // 스플릿은 **성공만** 연출한다. '발생' 배너는 핀을 보면 아는 정보를 2구 조준 정면에 2.2초
+        // 띄우는 부정 피드백이었고, 라벨도 볼링 용어가 아니라 남은 핀 번호 나열이었다.
+        // AI 턴 배너도 걷었다 — 점수판이 현재 차례를 골드 액센트로 이미 표시한다(Hud.renderSheet).
+        stillCut.show('split', 'SPLIT CONVERTED!', t('boot.splitConverted', { label: e.label }));
+        break;
+      case 'gameOver': {
+        replay.cancel(); // 마지막 결정타 리플레이가 결과화면과 겹치지 않게 즉시 접음
+        stillCut.hide();
+        const sm = e.summary;
+        const fresh = evaluateAchievements(
+          {
+            mode: sm.mode,
+            humanScore: sm.players[0].score,
+            winner: sm.winner,
+            rivalKeys: sm.players.slice(1).map((p) => p.aiKey).filter((k): k is string => !!k),
+            rolls: sm.players[0].rolls,
+            frames: sm.frames,
+          },
+          loadRewards().earned,
+        );
+        if (fresh.length) {
+          recordRewards(fresh);
+          sound.playUnlock();
+        }
+        menu.showResult(sm, fresh);
+        break;
+      }
+    }
+  };
+}
+
+/** 검증/디버그용 전역 (헤드리스 검증이 이걸로 게임을 직접 몬다 — CLAUDE.md '프리뷰에서 검증할 때'). */
+function exposeDebugGlobals(o: {
+  ball: Ball;
+  pins: PinSet;
+  engine: Engine;
+  environment: Environment;
+  game: GameState;
+  cameraRig: CameraRig;
+  sound: SoundManager;
+  controls: Controls;
+}) {
+  const w = window as Window & {
+    __ball?: Ball;
+    __pins?: PinSet;
+    __engine?: Engine;
+    __environment?: Environment;
+    __game?: GameState;
+    __cameraRig?: CameraRig;
+    __sound?: SoundManager;
+    __controls?: Controls;
+    __unlockAllRewards?: () => void;
+    __resetRewards?: () => void;
+  };
+  w.__ball = o.ball;
+  w.__pins = o.pins;
+  w.__engine = o.engine;
+  w.__environment = o.environment; // 옆 레인 앰비언트 상태 확인용
+  w.__game = o.game;
+  w.__cameraRig = o.cameraRig;
+  w.__sound = o.sound;
+  w.__controls = o.controls;
+  // [DEV] 보상 디버그 — 콘솔에서 호출 후 새로고침
+  w.__unlockAllRewards = () => {
+    recordRewards(ACHIEVEMENTS.map((a) => a.id));
+    console.log('[rewards] 전체 해금 완료 — 새로고침하세요');
+  };
+  w.__resetRewards = () => {
+    resetRewards(); // 키를 통째로 지우므로 customScreen 마커도 같이 날아간다
+    void clearScreenVideo(); // 영상 실물은 IndexedDB에 따로 있다 — 같이 지워야 용량이 회수된다
+    o.environment.setCustomScreen(null); // 화면은 즉시 기본으로 (새로고침 없이도 확인 가능)
+    console.log('[rewards] 초기화 완료 — 새로고침하세요');
+  };
 }
 
 /**
@@ -229,12 +386,23 @@ function buildScene(engine: Engine): {
   const game = new GameState(ball, pins, hud, lane);
   const controls = new Controls(engine, game, ball);
   const cameraRig = new CameraRig(engine, game, ball);
+  // ⚠️ **MenuUI보다 먼저 만든다.** 아래 메뉴 콜백들이 `sound`를 캡처하는데, 예전엔 선언이
+  // 100줄 아래에 있어서 MenuUI가 생성자에서 그 콜백을 부르는 순간 TDZ ReferenceError가 될
+  // 자리였다(지금은 안 부르지만 그건 우연이다).
+  const sound = new SoundManager();
+  sound.enabled = settings.sound; // 저장된 사운드 on/off 적용
 
   // 메뉴/결과 화면 (로드맵 P1) — 시작 시 메뉴부터
   const menu = new MenuUI(
     (cfg) => game.startMatch(cfg),
     () => game.toMenu(),
-    (lb) => game.setHumanBallSpec(makeBallSpec(lb)), // 볼 무게 (인게임 HUD 대신 메뉴에서 선택)
+    (lb) => {
+      // 볼 무게 — 시작 메뉴와 일시정지 모달이 같은 콜백을 쓴다. 적용 시점(즉시/다음 투구)은
+      // setHumanBallSpec이 가르고, 여기선 다음 실행에서도 같은 공으로 시작하게 저장만 더한다.
+      settings.ballLb = lb;
+      saveSettings(settings);
+      game.setHumanBallSpec(makeBallSpec(lb));
+    },
     (id) => game.setBallSkin(resolveSkin(id)), // 볼 스킨 (보상, 외형 전용)
     (media) => {
       // 전광판 커스텀 (히든 보상). 이미지/GIF와 영상은 배타 — Environment가 서로를 정리한다.
@@ -256,88 +424,29 @@ function buildScene(engine: Engine): {
       setLocale(resolveLocale(lang));
     },
   );
-  game.setBallSkin(resolveSkin(loadRewards().selectedSkin)); // 저장된 장착 스킨 초기 적용
-  // 저장된 커스텀 전광판 초기 적용. 영상은 IndexedDB라 비동기 — 부팅을 막지 않고 늦게 붙인다.
-  const savedScreen = loadRewards().customScreen;
-  if (savedScreen === VIDEO_MARKER) {
-    void loadScreenVideo().then((v) => {
-      if (v) environment.setCustomVideo(v.blob);
-    });
-  } else {
-    environment.setCustomScreen(savedScreen);
-  }
+  applySavedCosmetics(game, environment, settings);
   menu.showMenu();
 
   // item 2 — 스틸컷 오버레이 + 특별샷 리플레이(스냅샷). onStep 녹화, onEvent 발화.
-  // 리플레이 종료 후 cameraRig.resync로 라이브 카메라가 현재 위치부터 부드럽게 인계 + 스틸컷 정리.
+  // 리플레이 종료 후 cameraRig.resync로 라이브 카메라가 현재 위치부터 부드럽게 인계.
+  //
+  // ⚠️ 여기서 스틸컷을 **끄지 않는다.** 예전엔 종료 콜백이 `stillCut.hide()`를 불렀는데, 스트라이크
+  // 스틸컷은 리플레이 *프리즈* 때 뜨고 종료는 그 END_HOLD(0.65 재생초 ÷ PLAYBACK_SPEED 0.9 =
+  // 실시간 0.72초) 뒤라, 제일 큰 연출이 1.6초가 아니라 **0.72초 만에 잘려 나갔다** — 인트로
+  // 애니메이션(0.55초)을 빼면 착지하자마자 사라지는 셈. 밴드는 자기 타이머로 살게 두고, 정리는
+  // gameOver에서만 명시적으로 한다(결과 화면과 겹치지 않게).
   const stillCut = new StillCut();
-  const replay = new Replay(engine, ball, pins, () => {
-    cameraRig.resync();
-    stillCut.hide();
-  });
+  const replay = new Replay(engine, ball, pins, () => cameraRig.resync());
 
-  // 게임 이벤트 → 연출. 모든 이벤트 텍스트는 전광판(diegetic)에만 표시 — HUD 중앙 배너 중복 제거.
-  game.onEvent = (e) => {
-    switch (e.type) {
-      case 'strike': {
-        const label =
-          e.streak >= 4 ? `${e.streak} BAGGER!!` : e.streak === 3 ? 'TURKEY!!' : e.streak === 2 ? 'DOUBLE!' : 'STRIKE!';
-        const sub = e.streak >= 2 ? t('boot.onFire', { streak: e.streak }) : t('boot.strike');
-        // 스트라이크 = 풀연출: 짧은 리플레이 → 프리즈에 스틸컷 슬램. 녹화 부족 시 즉시 스틸컷.
-        if (!replay.start(() => stillCut.show('strike', label, sub))) stillCut.show('strike', label, sub);
-        break;
-      }
-      case 'spare':
-        stillCut.show('spare', 'SPARE!', t('boot.spareCleared')); // 스페어 = 스틸컷만 (리플레이 X)
-        break;
-      case 'gutter':
-        stillCut.show('gutter', 'GUTTER', t('boot.zeroPins')); // 거터 = 디플레이팅 스틸컷 (축하 X)
-        break;
-      case 'split':
-        environment.announce(t('boot.split', { label: e.label }), '#ef6a6a');
-        break;
-      case 'splitConverted':
-        environment.announce(t('boot.splitConverted', { label: e.label }), '#4ade80');
-        break;
-      case 'turn':
-        // AI 차례만 전광판 배너. 사람은 늘 같은 한 명이라 턴 전환 안내가 필요 없다.
-        if (e.ai) environment.announce(t('boot.turn', { name: e.playerName }), '#aab3c2');
-        break;
-      case 'gameOver': {
-        replay.cancel(); // 마지막 결정타 리플레이가 결과화면과 겹치지 않게 즉시 접음
-        stillCut.hide();
-        const sm = e.summary;
-        const fresh = evaluateAchievements(
-              {
-                mode: sm.mode,
-                humanScore: sm.players[0].score,
-                winner: sm.winner,
-                rivalKeys: sm.players.slice(1).map((p) => p.aiKey).filter((k): k is string => !!k),
-                rolls: sm.players[0].rolls,
-                frames: sm.frames,
-              },
-              loadRewards().earned,
-            );
-        if (fresh.length) {
-          recordRewards(fresh);
-          sound.playUnlock();
-        }
-        menu.showResult(sm, fresh);
-        break;
-      }
-    }
-  };
+  wireGameEvents({ game, replay, stillCut, menu, sound });
 
   // 충돌 신호 → 사운드 + 타격감 (P2). 공이 핀 구역(PIN_CONTACT_Z)에 들어선 접촉만
   // '임팩트'로 취급: 크래시 사운드 구분 + 카메라 셰이크 + 슬로모. 그 전 굴림 접촉은
   // 기존 굴림 접촉 그대로 (별도 사운드 없음, 굴림 거동 불변).
-  const sound = new SoundManager();
-  sound.enabled = settings.sound; // 저장된 사운드 on/off 적용
-  engine.onContact = (mag) => {
+  engine.onContact = () => {
     if (ball.body.translation().z > PIN_CONTACT_Z) {
       // 핀 구역 접촉 = 카메라 연출만. 임팩트 사운드·슬로모는 GameState.notifyImpact가
-      // 접촉 시간(ttc) 기반으로 매 스텝 구동(속도 무관 동기) — 여기서 호출하지 않는다.
-      cameraRig.addShake(mag); // 셰이크 토글 OFF(SHAKE_ENABLED) — 현재 no-op
+      // **핀이 실제로 움직였는지**로 매 스텝 판정한다 — 여기서 호출하지 않는다.
       cameraRig.pushIn(); // 임팩트 push-in (PUSHIN_ENABLED, DIST 0.6)
     }
     // (굴림 접촉음은 제거 — 실제 roll.wav 지속음이 굴림 사운드를 담당. 접촉마다 합성 '틱'을
@@ -352,29 +461,9 @@ function buildScene(engine: Engine): {
   // 공 굴림 럼블 — 매 스텝 공 속도로 지속 저역음 (임팩트 직전 긴장감)
   game.onRoll = (v, inGutter) => sound.setRoll(v, inGutter);
 
-  // 인게임 '메뉴로' 버튼 — 게임 중 포기하고 메뉴 복귀 (가시성은 Loop onFrame에서 상태별 토글).
-  // 좌상단 safe-area, 점수판(상단)과 안 겹치게 작게. Esc(데스크톱)도 동일 동작.
   // boot()이 실제 구현을 꽂는다 — 일시정지 모달 개폐를 Loop.paused로 전달한다.
   const pauseHook = { set: (_paused: boolean) => {} };
 
-  const exitBtn = document.createElement('button');
-  exitBtn.textContent = t('boot.menu');
-  exitBtn.style.cssText = [
-    'position:fixed',
-    'top:calc(8px + env(safe-area-inset-top))',
-    'left:calc(var(--col-edge, 0px) + 8px + env(safe-area-inset-left))',
-    'z-index:30',
-    'display:none',
-    'padding:8px 12px',
-    'min-height:40px',
-    'border-radius:10px',
-    'border:1px solid rgba(255,255,255,0.2)',
-    'background:rgba(14,17,27,0.82)',
-    'color:#e8edf5',
-    'font:700 13px/1 system-ui, sans-serif',
-    'cursor:pointer',
-    'backdrop-filter:blur(4px)',
-  ].join(';');
   const forfeit = () => {
     if (game.state === 'MENU' || game.state === 'GAME_OVER') return;
     // ⚠️ 모달을 띄우는 것만으로는 아무것도 멈추지 않는다(오버레이가 입력만 가린다). 실제로
@@ -411,56 +500,13 @@ function buildScene(engine: Engine): {
       },
     });
   };
-  // 이 버튼은 여기서 한 번만 텍스트를 받는다(가시성만 onFrame이 토글한다) → 언어 변경을 구독한다.
-  onLocaleChange(() => {
-    exitBtn.textContent = t('boot.menu');
-  });
-  exitBtn.onclick = forfeit;
-  document.body.appendChild(exitBtn);
-  window.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape') forfeit();
-  });
-
-  // 업적 진행도는 **일시정지 모달의 컬렉션 진입**이 담당한다(Menu.showPause).
-  // 상단 중앙에 있던 '업적 아일랜드' pill을 없앤 이유: 투구 중에 쓰지 않는 정보인데 상단을
-  // 2줄로 만들고, 주변시가 읽지 못하는 텍스트("🏆 3/6")를 화면 끝에 상시로 띄우고 있었다.
+  const exitBtn = createExitButton(forfeit);
 
   // 초기 카메라 (이후 CameraRig가 상태별로 보간) — AIMING 뷰와 동일
   engine.camera.position.set(0, 1.12, -2.7);
   engine.camera.lookAt(0, -0.05, 7.5);
 
-  // 검증/디버그용 전역 노출
-  const w = window as Window & {
-    __ball?: Ball;
-    __pins?: PinSet;
-    __engine?: Engine;
-    __environment?: Environment;
-    __game?: GameState;
-    __cameraRig?: CameraRig;
-    __sound?: SoundManager;
-    __controls?: Controls;
-    __unlockAllRewards?: () => void;
-    __resetRewards?: () => void;
-  };
-  w.__ball = ball;
-  w.__pins = pins;
-  w.__engine = engine;
-  w.__environment = environment; // 옆 레인 앰비언트 상태 확인용
-  w.__game = game;
-  w.__cameraRig = cameraRig;
-  w.__sound = sound;
-  w.__controls = controls;
-  // [DEV] 보상 디버그 — 콘솔에서 호출 후 새로고침
-  w.__unlockAllRewards = () => {
-    recordRewards(ACHIEVEMENTS.map((a) => a.id));
-    console.log('[rewards] 전체 해금 완료 — 새로고침하세요');
-  };
-  w.__resetRewards = () => {
-    resetRewards(); // 키를 통째로 지우므로 customScreen 마커도 같이 날아간다
-    void clearScreenVideo(); // 영상 실물은 IndexedDB에 따로 있다 — 같이 지워야 용량이 회수된다
-    environment.setCustomScreen(null); // 화면은 즉시 기본으로 (새로고침 없이도 확인 가능)
-    console.log('[rewards] 초기화 완료 — 새로고침하세요');
-  };
+  exposeDebugGlobals({ ball, pins, engine, environment, game, cameraRig, sound, controls });
 
   return { game, controls, cameraRig, environment, sound, exitBtn, pauseHook, replay };
 }

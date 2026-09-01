@@ -1,5 +1,5 @@
 /**
- * ② AI 난이도 사다리 — 헤드리스 매치 sim (SPIN_FEEL_AND_AI_LADDER.md §3).
+ * ② AI 난이도 사다리 — 헤드리스 매치 sim (docs/legacy/SPIN_FEEL_AND_AI_LADDER.md §3).
  *
  * 왜 vitest `.ts`인가: `.mjs`(sim-carry)는 `.ts`를 import 못 한다. 이 스크립트는
  * `computeAiThrow`(ai.ts)·`totalScore`(Scoreboard.ts)·물리 상수(constants.ts)를

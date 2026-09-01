@@ -19,10 +19,9 @@ export const en: Record<I18nKey, string> = {
   'hud.pill.gameover': '🎳 {total}',
   'hud.pill.spare': '{frame}/{frames} · {made} made',
   'hud.pill.frame': 'F{frame} B{ball} · {total}{suffix}',
+  'hud.pindeck': 'Pins standing: {pins}',
 
   'controls.spin': 'SPIN',
-  'controls.spin.hintDrag': 'Drag for left/right spin',
-  'controls.spin.hintWheel': 'Wheel ◀ ▶',
 
   'boot.rotatePortrait': '↻ Please rotate to portrait',
   'boot.menu': '☰ Menu',
@@ -30,9 +29,7 @@ export const en: Record<I18nKey, string> = {
   'boot.strike': 'STRIKE',
   'boot.spareCleared': 'SPARE',
   'boot.zeroPins': '0 PINS',
-  'boot.split': '{label} SPLIT!',
-  'boot.splitConverted': '{label} CONVERTED!',
-  'boot.turn': "{name}'s turn",
+  'boot.splitConverted': '{label} SPLIT PICKED UP',
 
   'menu.me': 'You',
   'menu.start': 'Start game',
@@ -60,7 +57,6 @@ export const en: Record<I18nKey, string> = {
   'menu.result.newUnlock': '{icon} NEW · {badge} → {skin}',
   'menu.result.equip': 'Equip {label}',
   'menu.result.equipped': '✓ {label} equipped',
-  'menu.result.frameHint': 'Frame-by-frame scores are on the scoreboard above',
   'menu.result.retry': 'Play again',
 
   'menu.pause.title': '⏸ Paused',
@@ -103,6 +99,8 @@ export const en: Record<I18nKey, string> = {
 
   'menu.section.lang': 'Language',
   'lang.auto': 'Auto · device setting',
+  'lang.auto.short': 'Auto',
+  'menu.more': 'More',
 
   'mode.full': 'Full game',
   'mode.full.desc': 'Official 10-frame rules',

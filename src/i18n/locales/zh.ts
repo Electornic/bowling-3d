@@ -18,10 +18,9 @@ export const zh: Record<I18nKey, string> = {
   'hud.pill.gameover': '🎳 {total}',
   'hud.pill.spare': '{frame}/{frames} · 成功 {made}',
   'hud.pill.frame': '{frame}格 {ball}球 · {total}{suffix}',
+  'hud.pindeck': '剩余球瓶：{pins}',
 
   'controls.spin': '旋转',
-  'controls.spin.hintDrag': '拖动控制左右旋转',
-  'controls.spin.hintWheel': '滚轮 ◀ ▶',
 
   'boot.rotatePortrait': '↻ 请竖屏使用',
   'boot.menu': '☰ 菜单',
@@ -29,9 +28,7 @@ export const zh: Record<I18nKey, string> = {
   'boot.strike': '全中',
   'boot.spareCleared': '补中成功',
   'boot.zeroPins': '0 瓶',
-  'boot.split': '{label} 分瓶！',
-  'boot.splitConverted': '{label} 转换成功！',
-  'boot.turn': '{name} 的回合',
+  'boot.splitConverted': '{label} 分瓶转换成功',
 
   'menu.me': '我',
   'menu.start': '开始游戏',
@@ -59,7 +56,6 @@ export const zh: Record<I18nKey, string> = {
   'menu.result.newUnlock': '{icon} NEW · {badge} → {skin}',
   'menu.result.equip': '装备{label}',
   'menu.result.equipped': '✓ 已装备{label}',
-  'menu.result.frameHint': '每格得分请看上方计分表',
   'menu.result.retry': '再来一局',
 
   'menu.pause.title': '⏸ 已暂停',
@@ -102,6 +98,8 @@ export const zh: Record<I18nKey, string> = {
 
   'menu.section.lang': '语言',
   'lang.auto': '自动 · 跟随系统',
+  'lang.auto.short': '自动',
+  'menu.more': '更多',
 
   'mode.full': '完整比赛',
   'mode.full.desc': '10 格正式规则',

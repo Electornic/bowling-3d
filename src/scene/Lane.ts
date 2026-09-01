@@ -7,6 +7,7 @@ import {
   GUTTER_WIDTH,
   GUTTER_DEPTH,
   PIN_DECK_END,
+  LANE_START_Z,
   KICKBACK_START_Z,
   PIN_BAY_TOP,
   LANE_FRICTION_OIL,
@@ -28,7 +29,7 @@ export class Lane {
   constructor(engine: Engine) {
     const RAPIER = getRapier();
 
-    const startZ = -2; // 공 시작(z=-1) 뒤 여유
+    const startZ = LANE_START_Z;
     const deckEnd = PIN_DECK_END + 0.4; // 플레이 바닥 끝 = 핀덱 뒤 짧은 여유. 이 뒤는 피트로 낙하.
     const len = deckEnd - startZ;
     const midZ = (startZ + deckEnd) / 2;
@@ -227,7 +228,7 @@ export class Lane {
 
   /** 오일 광택 시트를 프리셋 endZ에 맞춤 — "어디서 꺾이는지"의 시각 단서 (P3). startMatch에서 호출. */
   applyOilVisual(pattern: OilPattern) {
-    const startZ = -2; // 생성자와 동일 (공 시작 뒤 여유)
+    const startZ = LANE_START_Z;
     const ez = OIL_PRESETS[pattern].endZ;
     this.oilMesh.geometry.dispose();
     this.oilMesh.geometry = new THREE.PlaneGeometry(LANE_WIDTH, ez - startZ);

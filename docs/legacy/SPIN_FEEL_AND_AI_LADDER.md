@@ -2,7 +2,7 @@
 
 > 작성: 2026-06-15 (7차 세션). 사용자 개선 아이디어 6건 검토 → 우선순위 확정 → ① 스핀 ② AI 실행 계획.
 > ※ 세션 번호: 5차=6/12(P0.5/P1/P1.5), 6차=6/14(P2 본편·모바일·Tauri), **7차=6/15(이 배치 — 스핀/AI, 구현 대기)**.
-> 선행 문서: [GAMEPLAY_ROADMAP.md](./GAMEPLAY_ROADMAP.md) (P0 손맛 / P1.5 AI), [GAME_DESIGN.md](./GAME_DESIGN.md) §4.1 (스핀 물리). 튜닝 상수는 [constants.ts](../src/game/constants.ts)에 집결(단, 예측선 상수 `PREVIEW_*`만 [Controls.ts](../src/input/Controls.ts):26~31).
+> 선행 문서: [GAMEPLAY_ROADMAP.md](./GAMEPLAY_ROADMAP.md) (P0 손맛 / P1.5 AI), [GAME_DESIGN.md](../GAME_DESIGN.md) §4.1 (스핀 물리). 튜닝 상수는 [constants.ts](../../src/game/constants.ts)에 집결(단, 예측선 상수 `PREVIEW_*`만 [Controls.ts](../../src/input/Controls.ts):26~31).
 
 ---
 
@@ -21,7 +21,7 @@
 
 ## 1. 우선순위 & 순서 — ① 스핀 먼저, ② AI 나중
 
-**순서가 중요하다.** AI 훅형(도박사 윤)의 조준 캘리브레이션 `HOOK_DRIFT_HOUSE=0.33`([ai.ts](../src/game/ai.ts):80, 현 `hookDriftFor()`의 하우스 앵커 — 12차 오일 파라미터화로 `HOOK_DRIFT_FULL`에서 리네임)이 스핀 물리에서 유도된 값이다. 스핀 레버(`SPIN_RATE`/`FRICTION_K`/`ROLL_RATIO`)를 바꾸면 이 드리프트가 달라져 AI 조준이 어긋난다.
+**순서가 중요하다.** AI 훅형(도박사 윤)의 조준 캘리브레이션 `HOOK_DRIFT_HOUSE=0.33`([ai.ts](../../src/game/ai.ts):80, 현 `hookDriftFor()`의 하우스 앵커 — 12차 오일 파라미터화로 `HOOK_DRIFT_FULL`에서 리네임)이 스핀 물리에서 유도된 값이다. 스핀 레버(`SPIN_RATE`/`FRICTION_K`/`ROLL_RATIO`)를 바꾸면 이 드리프트가 달라져 AI 조준이 어긋난다.
 
 → **① 물리 확정 → ② 확정된 물리 위에서 AI 점수대 재측정·사다리 배치.** 순서를 지키면 AI 캘리브레이션을 두 번 안 한다.
 
@@ -35,7 +35,7 @@
 = **손맛 구간이 입력 공간의 한쪽 끝(풀스핀×풀파워)에만 몰려 있다.**
 
 ### 코드 근거 (왜 밋밋한가)
-[Ball.applySpinForce](../src/scene/Ball.ts:127):
+[Ball.applySpinForce](../../src/scene/Ball.ts:127):
 ```ts
 const fMag = FRICTION_K * REF_MASS * 9.81 * hook;   // ← 스핀 양과 무관한 상수
 ```
@@ -44,7 +44,7 @@ const fMag = FRICTION_K * REF_MASS * 9.81 * hook;   // ← 스핀 양과 무관�
 - **풀파워**: 빠르니 슬립이 드라이 존까지 살아 들어옴 → 막판 강한 스냅 = "확 휜다".
 - **미드파워·약스핀**: 드라이 존 도달 전 슬립이 닫히거나 횡성분이 작음 → 밋밋.
 
-**+ UI 쪽 원인** ([Controls.ts:83](../src/input/Controls.ts)): 예측 조준선이 전체 곡선(`PREVIEW_N=32`)을 계산하고도 `setDrawRange(0, 8)`로 **앞 8점(짧은 직선)만 그린다** — "훅 결과 숨김"(조준 스킬 대체 방지) 설계. 그래서 던지기 전 "어디로 휠지"가 안 보여 밋밋함을 키운다. → 물리와 별개의 **가독성 레버**.
+**+ UI 쪽 원인** ([Controls.ts:83](../../src/input/Controls.ts)): 예측 조준선이 전체 곡선(`PREVIEW_N=32`)을 계산하고도 `setDrawRange(0, 8)`로 **앞 8점(짧은 직선)만 그린다** — "훅 결과 숨김"(조준 스킬 대체 방지) 설계. 그래서 던지기 전 "어디로 휠지"가 안 보여 밋밋함을 키운다. → 물리와 별개의 **가독성 레버**.
 
 > ⚠️ 주의: 총 변위와 체감 스냅은 다르다. sim상 풀스핀 **미드파워 −61cm > 풀파워 −33cm**(PROGRESS.md)인데도 미드가 밋밋하게 느껴지는 건, **막판 곡률(스냅)·가독성**이 부족해 "휨"이 아니라 "흘러간 misaim"처럼 읽히기 때문. → **목표는 총 변위 증가가 아니라 "의도된 늦은 스냅"의 가독성 확대.**
 
@@ -52,35 +52,35 @@ const fMag = FRICTION_K * REF_MASS * 9.81 * hook;   // ← 스핀 양과 무관�
 - 풀스핀×풀파워 손맛은 **유지**(−33cm 근방 가드).
 - 그 아래(미드 스핀/미드 파워)에서도 **막판에 또렷이 꺾이는 훅**이 보이게 dead zone 제거.
 
-### 레버 후보 (우선순위 순, [constants.ts](../src/game/constants.ts))
+### 레버 후보 (우선순위 순, [constants.ts](../../src/game/constants.ts))
 > ⚠️ **레버는 한 번에 하나씩.** `ROLL_RATIO`↓와 `SLIP_EPS`↓는 둘 다 스키드/슬립 수명을 늘려 **같은 방향으로 합쳐진다** — 동시에 내리면 풀스핀풀파워 가드(−33cm)를 쉽게 넘긴다. 그리드 스캔은 베이스라인 대비 **레버 1개씩 격리**해 단독 효과를 먼저 측정하고, 조합은 그 다음.
 >
-> ⚠️ **물리 정합성 — 현재 "상수 측면력"은 버그가 아니라 표준 모델이다.** 슬립 반대 방향의 *일정 크기* 동마찰(Coulomb)이 볼링 훅의 교과서 모델이고(실측 시뮬 문헌 동일), 스핀은 **마찰 크기가 아니라 슬립 방향**(`slipX = vx + ωz·R`, [Ball.ts:134](../src/scene/Ball.ts):134) **+ 슬립 수명**으로 훅에 들어온다(line 42와 일치). → 밋밋함은 측면력 *크기* 문제가 아니라 **미드스핀 슬립이 드라이 존에 닿기 전 닫히는 임계(threshold) 문제**다. 그래서 슬립 수명을 늘려 미드스핀을 드라이 존까지 끌고 가는 **레버 1·2가 물리적으로도 가장 정확한 직격**이다. (단 1·2는 풀스핀 훅도 같이 키우니 −33cm·65cm 가드와 **동시 확인** — 갭이 좁아질지 넓어질지는 풀스핀 슬립 포화 여부에 달려 그리드로 측정.)
+> ⚠️ **물리 정합성 — 현재 "상수 측면력"은 버그가 아니라 표준 모델이다.** 슬립 반대 방향의 *일정 크기* 동마찰(Coulomb)이 볼링 훅의 교과서 모델이고(실측 시뮬 문헌 동일), 스핀은 **마찰 크기가 아니라 슬립 방향**(`slipX = vx + ωz·R`, [Ball.ts:134](../../src/scene/Ball.ts):134) **+ 슬립 수명**으로 훅에 들어온다(line 42와 일치). → 밋밋함은 측면력 *크기* 문제가 아니라 **미드스핀 슬립이 드라이 존에 닿기 전 닫히는 임계(threshold) 문제**다. 그래서 슬립 수명을 늘려 미드스핀을 드라이 존까지 끌고 가는 **레버 1·2가 물리적으로도 가장 정확한 직격**이다. (단 1·2는 풀스핀 훅도 같이 키우니 −33cm·65cm 가드와 **동시 확인** — 갭이 좁아질지 넓어질지는 풀스핀 슬립 포화 여부에 달려 그리드로 측정.)
 
 1. **`ROLL_RATIO` 0.75 → ~0.6** — 발사 시 스키드↑ = 훅 연료를 전 구간에 공급. 중간 구간에 가장 직접적.
 2. **`SLIP_EPS` 0.05 → ~0.03** — 슬립이 더 오래 살아 미드파워도 드라이 존까지 물고 감.
 3. **`hookFactor` 후반 집중** — `OIL_END_Z`↑ / `HOOK_RAMP`↓. 총휨 비슷해도 "스냅"이 또렷(가독성 핵심 레버).
 4. **✅ 채택 후보 — 스핀 입력 저역 부스트 곡선 `spin^0.7` (arcade, 물리 보정 아님)** — **6/15 그리드로 레버 1~3·FRICTION_K·OIL_END_Z·HOOK_RAMP 전부 저/미드스핀 dead zone을 못 살림(저스핀 스냅 −2~−3cm 불변, 가드만 깨짐) 확정 → 4 승격.** 핵심: 측면력 *크기*(스핀은 이미 슬립 방향으로 반영 → 크기 비례는 hook∝스핀²로 약스핀이 *더* 죽음)가 아니라, **스핀 입력을 `spin^p`로 리매핑**한다 — 저역(약스핀)을 끌어올리되 `1.0^p = 1.0`이 고정점이라 **풀스핀·모든 가드(−30cm·4/31·7/31·65cm) 자동 불변**. sim 검증(`--spinPow 0.7`): 저스핀 스냅 −2.8→**−4.1cm(+40%)**, 미드 −5.2→−6.6, 풀스핀·윈도우·총휨 전부 베이스라인과 동일. (0.5는 +100%지만 저스핀 총휨 과대 → 0.7 권장.) **구현 = Controls/Ball 발사 각속도 + 예측선에 한 줄 + `constants.ts`에 `SPIN_POW`.**
-5. **예측선 가독성** ([Controls.ts](../src/input/Controls.ts) `PREVIEW_DRAW_N`) — 그리는 점 수를 늘려 훅 경로를 더 보여줌. 물리 무변경·UI만. ⚠️ **단순 튜닝이 아니라 설계 결정 반전이다.** 6차(`801bd34`)가 "조준선 앞부분만 — 훅 결과 숨김"을 의도적으로 채택했고, 로드맵 P3 "예측선 난이도 티어(이지=풀라인)"와도 겹친다. → 전역 노출 전 **명시적 사인오프 + 난이도 정책 결정** 필요.
+5. **예측선 가독성** ([Controls.ts](../../src/input/Controls.ts) `PREVIEW_DRAW_N`) — 그리는 점 수를 늘려 훅 경로를 더 보여줌. 물리 무변경·UI만. ⚠️ **단순 튜닝이 아니라 설계 결정 반전이다.** 6차(`801bd34`)가 "조준선 앞부분만 — 훅 결과 숨김"을 의도적으로 채택했고, 로드맵 P3 "예측선 난이도 티어(이지=풀라인)"와도 겹친다. → 전역 노출 전 **명시적 사인오프 + 난이도 정책 결정** 필요.
 
 ### 측정·검증
-> ⚠️ **선행: sim-carry 확장.** 현재 [sim-carry.mjs](../sim-carry.mjs)는 **핀 파라미터만 CLI**(`--pinMass/--pinRest/--pinFric/--ballRest/--pinComY/--pinDamp`)이고, 스핀 레버(SPIN_RATE/ROLL_RATIO/SLIP_EPS/FRICTION_K/OIL_END_Z/HOOK_RAMP)는 **하드코딩 상수**(L28~37). 측정도 **4개 고정 케이스의 스트라이크 진입 윈도우**만 출력. → 먼저 ⓐ 스핀 레버 CLI화 + ⓑ (파워 × 스핀) 그리드 + ⓒ 총휨·구간별 곡률(막판 스냅) 출력을 추가해야 한다.
+> ⚠️ **선행: sim-carry 확장.** 현재 [sim-carry.mjs](../../sim-carry.mjs)는 **핀 파라미터만 CLI**(`--pinMass/--pinRest/--pinFric/--ballRest/--pinComY/--pinDamp`)이고, 스핀 레버(SPIN_RATE/ROLL_RATIO/SLIP_EPS/FRICTION_K/OIL_END_Z/HOOK_RAMP)는 **하드코딩 상수**(L28~37). 측정도 **4개 고정 케이스의 스트라이크 진입 윈도우**만 출력. → 먼저 ⓐ 스핀 레버 CLI화 + ⓑ (파워 × 스핀) 그리드 + ⓒ 총휨·구간별 곡률(막판 스냅) 출력을 추가해야 한다.
 
 - 확장된 sim으로 (파워 × 스핀) 그리드 스캔 → "밋밋한" 평탄 구간 식별.
-- 레버 조정 → 재측정 → **가드 통과 확인**. 가드 = ⓐ 풀스핀풀파워 진입 x **−33±3cm 유지** AND ⓑ 직구 풀파워 윈도우 4/31·훅 7/31 **불변**([constants.ts](../src/game/constants.ts):29 기준) AND ⓒ **풀스핀미드파워 총휨 65cm 이내**(현재 61cm·부호로는 −61cm이 통과, 65cm 초과 시 실패): 이미 레인 반폭(52.5cm)을 넘어([PROGRESS.md:55](./PROGRESS.md)) 조준 보정으로 굴리는 구간인데, 레버 2(`SLIP_EPS`↓)가 *미드파워* 훅을 더 키워 65cm를 넘기면 **보정으로도 못 굴리는 구간**이 된다. 이번에 살리려는 dead zone이 바로 미드파워라 가드 ⓐ(풀파워)만으론 못 막는다.
+- 레버 조정 → 재측정 → **가드 통과 확인**. 가드 = ⓐ 풀스핀풀파워 진입 x **−33±3cm 유지** AND ⓑ 직구 풀파워 윈도우 4/31·훅 7/31 **불변**([constants.ts](../../src/game/constants.ts):29 기준) AND ⓒ **풀스핀미드파워 총휨 65cm 이내**(현재 61cm·부호로는 −61cm이 통과, 65cm 초과 시 실패): 이미 레인 반폭(52.5cm)을 넘어([PROGRESS.md:55](./PROGRESS.md)) 조준 보정으로 굴리는 구간인데, 레버 2(`SLIP_EPS`↓)가 *미드파워* 훅을 더 키워 65cm를 넘기면 **보정으로도 못 굴리는 구간**이 된다. 이번에 살리려는 dead zone이 바로 미드파워라 가드 ⓐ(풀파워)만으론 못 막는다.
 - **막판 스냅 합격 기준(정량)**: 마지막 ~1m(z 17.0~18.1, **핀 접촉 `PIN_CONTACT_Z≈18.11` 직전까지** — 자유 굴림 곡률만 보려고 접촉 후는 제외) 구간 횡변위가 베이스라인 대비 유의미 증가.
   - ✅ **1차 그리드 측정됨(6/15, 기본 상수)**: 막판 스냅이 **거의 전적으로 스핀축에 의존** — 저스핀(0.25)은 **파워 무관 −2.6~−3.2cm로 평탄**(=체감 dead zone의 정체), 미드스핀(0.5) −4.5~−5.6, 풀스핀(1.0) −7.8~−12.4. → 살릴 대상은 "미드파워"가 아니라 **저~미드 스핀 행**이다.
   - **게이트**: 저스핀(0.25)·미드스핀(0.5) 행 스냅을 유의미 증가(예: 저스핀 −3 → −5cm대)시키되 ⓐ풀스핀풀파워 −30cm·ⓑ윈도우 4/31·7/31·ⓒ풀스핀미드파워 총휨 ≤65cm 가드 통과. 이 숫자가 "꺾인다"의 게이트, 사용자 손맛 체크는 보조.
 - 브라우저 실확인(`npm run dev`): 미드파워 훅이 "꺾인다"로 읽히는지 사용자 손맛 체크.
 - 예측 조준선(`PREVIEW_HOOK_GAIN` + 가독성 레버)도 동일 물리 반영 — 어긋나면 조준이 거짓말.
-- ✅ **정합 확인됨**: [Lane.ts](../src/scene/Lane.ts)(단일 콜라이더+Min 결합+updateFriction)·[PinSet.ts](../src/scene/PinSet.ts)(isStanding)가 sim-carry와 물리·판정 일치 — sim 결과를 게임에 그대로 옮길 수 있다.
+- ✅ **정합 확인됨**: [Lane.ts](../../src/scene/Lane.ts)(단일 콜라이더+Min 결합+updateFriction)·[PinSet.ts](../../src/scene/PinSet.ts)(isStanding)가 sim-carry와 물리·판정 일치 — sim 결과를 게임에 그대로 옮길 수 있다.
 
 ---
 
 ## 3. ② AI 난이도 — 3인 난이도 사다리
 
 ### 현재 문제
-[ai.ts](../src/game/ai.ts) 3인이 **스타일만 다르고 실력은 동급**(`aimJitterCm` 4.5~7). 누굴 골라도 체감 난이도가 같아 "상대 선택 = 난이도 선택"이 안 된다.
+[ai.ts](../../src/game/ai.ts) 3인이 **스타일만 다르고 실력은 동급**(`aimJitterCm` 4.5~7). 누굴 골라도 체감 난이도가 같아 "상대 선택 = 난이도 선택"이 안 된다.
 
 ### 설계 — 난이도 = 분산 축 / 개성 = 스타일 축
 - **난이도(분산)**: `aimJitterCm`, `powerJitter`, `spareAimJitterCm`. 작을수록 강함.
@@ -100,13 +100,13 @@ const fMag = FRICTION_K * REF_MASS * 9.81 * hook;   // ← 스핀 양과 무관�
 
 ### 측정·검증 — 난이도 M~L (sim-carry ①보다 무겁다)
 > ⚠️ **구현 제약 (코드 대조 확인됨).**
-> ⓐ **`.mjs`는 `.ts`를 import 못 한다**(`tsx`/`ts-node` 미설치) → 매치 sim은 sim-carry 같은 `.mjs`가 아니라 **vitest 기반 `.ts` 스크립트**로 짜야 `Scoreboard.totalScore`/`computeAiThrow`를 그대로 쓴다(둘 다 순수 함수라 import 가능, [gameplay.test.ts](../tests/gameplay.test.ts) 선례).
+> ⓐ **`.mjs`는 `.ts`를 import 못 한다**(`tsx`/`ts-node` 미설치) → 매치 sim은 sim-carry 같은 `.mjs`가 아니라 **vitest 기반 `.ts` 스크립트**로 짜야 `Scoreboard.totalScore`/`computeAiThrow`를 그대로 쓴다(둘 다 순수 함수라 import 가능, [gameplay.test.ts](../../tests/gameplay.test.ts) 선례).
 > ⓑ **`GameState`의 10프레임 흐름은 재사용 불가** — Three/Rapier/DOM(Hud·PinSet·Stats→localStorage)과 얽혀 헤드리스 import가 안 된다. 투구 생성·프레임 진행·10프레임 보너스 흐름을 **~80-150줄 신규 작성**해야 한다(스코어링 *식* 자체는 `Scoreboard` 재사용이라 안전).
 > ⓒ **스페어 분기는 투구별 Rapier 핀 시뮬 필수** — `computeAiThrow` 스페어 경로가 *남은 핀의 실제 x*를 먹으므로, ①의 `throwOnce` 하네스를 재사용해 투구마다 핀을 실제로 굴려야 `spareAimJitterCm` 차별이 산다. 통계적 핀-폴 근사로 단순화하면 스페어·10프레임에서 계통오차 → ②는 ① 위에 얹히는 무거운 배치.
 
 - ✅ **포켓 재측정 (완료)** — `HOOK_DRIFT_HOUSE=0.33`은 `effectiveSpin(1)=1`(고정점)이라 ① 스핀곡선과 **무관하게 그대로 유효**(윤 재측정 불필요). 단 **선행 가정이 틀렸다**: "직구는 무관"이 아니라 `POCKET_X_STRAIGHT`(직구)·`POCKET_X_HOOK`(훅) **둘 다 미세스윕으로 재측정 필요**했다 → 직구 0→−0.07, 훅 0.067→0.05. 캘리브레이션이 어긋나면 AI가 노즈/엣지를 노려 점수가 무의미 — 매치 sim이 이걸 잡아냈다.
-- **신규 매치 sim 스크립트** — sim-carry는 단일 투구만(풀게임 점수 없음). 10프레임 매치를 프로필별 N회 돌려 **기대 점수·표준편차** 측정 → 사다리 확정. 점수는 [Scoreboard.ts](../src/game/Scoreboard.ts) `totalScore` 재사용. (흐름 재작성·스페어 분기·10프레임 보너스 제약은 ↑ 콜아웃 ⓐ-ⓒ 참조 — 스페어/10프레임 단순화 금지가 핵심.)
-- `tagline`에 난이도 신호 반영, 메뉴 칩([Menu.ts](../src/ui/Menu.ts))에 난이도 표시.
+- **신규 매치 sim 스크립트** — sim-carry는 단일 투구만(풀게임 점수 없음). 10프레임 매치를 프로필별 N회 돌려 **기대 점수·표준편차** 측정 → 사다리 확정. 점수는 [Scoreboard.ts](../../src/game/Scoreboard.ts) `totalScore` 재사용. (흐름 재작성·스페어 분기·10프레임 보너스 제약은 ↑ 콜아웃 ⓐ-ⓒ 참조 — 스페어/10프레임 단순화 금지가 핵심.)
+- `tagline`에 난이도 신호 반영, 메뉴 칩([Menu.ts](../../src/ui/Menu.ts))에 난이도 표시.
 - 브라우저에서 각 라이벌과 1매치씩 — 체감 난이도 차가 나는지 확인.
 
 ---
@@ -126,7 +126,7 @@ const fMag = FRICTION_K * REF_MASS * 9.81 * hook;   // ← 스핀 양과 무관�
 - [x] ① 튜닝값 `constants.ts` 역포팅 — `SPIN_POW=0.7` + `effectiveSpin()` 추가, Ball 발사·Controls 예측선 공용. `tsc` 클린 + `vitest` 22/22. ⚠️ 잔여: sim-carry `--spinPow` 기본값은 1(베이스라인 스캔용) — 게임 0.7과 의도적 불일치(스캔 시 명시)
 - [x] ① **사용자 손맛 확인**: 미드스핀 훅 개선 체감 OK (6/15) — ① 스핀 배치 완료
 - [x] ② **선행 1**: 포켓 재측정 — `HOOK_DRIFT_HOUSE` 유효(`effectiveSpin(1)=1`), `POCKET_X_STRAIGHT` 0→−0.07·`POCKET_X_HOOK` 0.067→0.05 미세스윕 보정 (6/15)
-- [x] ② **선행 2**: 매치 sim 스크립트 — [ai-match-sim.test.ts](../tests/ai-match-sim.test.ts) (vitest `.ts`, `runIf(AI_SIM)` 가드, constants/computeAiThrow/totalScore import, 투구별 Rapier 핀). 실행 `AI_SIM=1 npx vitest run tests/ai-match-sim.test.ts`
+- [x] ② **선행 2**: 매치 sim 스크립트 — [ai-match-sim.test.ts](../../tests/ai-match-sim.test.ts) (vitest `.ts`, `runIf(AI_SIM)` 가드, constants/computeAiThrow/totalScore import, 투구별 Rapier 핀). 실행 `AI_SIM=1 npx vitest run tests/ai-match-sim.test.ts`
 - [x] ② AI 3인 점수대 측정 → 사다리 확정 (N=200: 130/228/169, 김↔한 98점차, 윤 sd 28.4 최대) → 메뉴 칩 `난이도` 표시 (6/15)
 - [x] `tsc` 클린 + `vitest` 그린(22/22 통과 + 매치 sim 1 skipped) — 회귀 없음 (6/15)
 - [ ] PROGRESS.md 7차 세션 핸드오프 업데이트 (이 배치 구현 완료 시)

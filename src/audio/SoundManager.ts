@@ -1,13 +1,16 @@
 /**
- * 합성 충돌음 (Web Audio, 에셋 0). 도안 §10.
- * contact force 임펄스 크기 → 볼륨·피치. user gesture(클릭/키)로 AudioContext 활성.
- * 다중 충돌 폭주 방지(최소 간격).
+ * 사운드 (Web Audio). 도안 §10.
+ *
+ * ⚠️ **에셋 0이 아니다** — `strike.wav`·`roll.wav`(각 ~390KB)를 첫 user gesture 뒤에 디코드해
+ * 쓴다. 합성으로 남아 있는 건 굴림 폴백 노이즈·해금 차임·메뉴 BGM 세 가지뿐이다.
+ * (README 첫 문단의 "외부 에셋 0개"는 이 두 파일 때문에 거짓이다 — CLAUDE.md 참고.)
+ *
+ * 소리 4종: 핀 크래시(투구 1회, strike.wav) · 굴림 럼블(지속, roll.wav 루프) ·
+ * 해금 차임(합성) · 메뉴 BGM(합성 칩튠). AudioContext는 클릭/키 제스처로 활성된다.
  */
-/** 1~2핀(스페어 정리)은 가벼운 '톡', 그 이상은 풀 크래시로 분기 (playRackCrash). */
-const LIGHT_HIT_MAX = 2;
-// strike.wav 앞 리드인(공백~0.1s, 크랙 피크 @0.113s) 건너뛰고 크랙부터 재생 → 영상 충돌과 동기.
-// strike.wav는 0.105s에 날카로운 크랙(피크 0.113s) — 그 직전(0.10)부터 재생해 어택 보존 + 충돌 동기.
-// (strike2.wav였으면 0.60. 더 빠르게=값↑, 늦게=값↓.)
+// strike.wav 앞 리드인(공백~0.1s) 건너뛰고 크랙부터 재생 → 영상 충돌과 동기.
+// 0.105s에 날카로운 크랙(피크 0.113s)이 있어 그 직전(0.10)부터 재생 — 어택 보존 + 충돌 동기.
+// 더 빠르게 = 값↑, 늦게 = 값↓.
 const STRIKE_LEADIN = 0.10;
 
 export class SoundManager {
@@ -36,19 +39,13 @@ export class SoundManager {
   constructor() {
     const resume = () => {
       if (!this.ctx) this.ctx = new AudioContext();
-      if (this.ctx.state === 'suspended') void this.ctx.resume();
+      if (this.ctx.state === 'suspended') this.transition('resume');
       void this.loadSamples();
     };
     window.addEventListener('pointerdown', resume);
     window.addEventListener('keydown', resume);
   }
 
-  /**
-   * 리버브 버스 (드라이 + 합성 IR 컨볼루션 웨트). 실제 볼링장은 천장 높고 단단한 면뿐인
-   * 거대 공간이라 잔향이 길다(실측 RT≈2.5s) — 드라이 합성음이 "합성 같다"의 1순위 원인이라
-   * 한 '공간'에 앉혀 현실감을 얹는다. IR은 코드 합성(노이즈×지수감쇠)이라 에셋 0 유지.
-   * 충돌·굴림음이 같은 버스를 거쳐 같은 방에 있게. ctx는 첫 user gesture에 생기므로 지연 생성.
-   */
   // 실제 녹음 샘플 (strike=충돌, roll=굴림). ctx 생성 후 지연 디코드, 그 전엔 합성 폴백.
   private strikeBuf: AudioBuffer | null = null;
   private rollBuf: AudioBuffer | null = null;
@@ -73,25 +70,6 @@ export class SoundManager {
       /* 디코드 실패 — 합성 폴백 유지 */
     }
     this.samplesLoading = false;
-  }
-
-  private busIn: GainNode | null = null;
-  private out(): AudioNode {
-    const ctx = this.ctx!;
-    if (this.busIn) return this.busIn;
-    const busIn = ctx.createGain();
-    busIn.connect(ctx.destination); // 드라이 경로
-    // 웨트 경로: 저역은 빼고(잔향 머드 방지 — sub/thud는 드라이로만) 컨볼루션 잔향만 얹는다.
-    const hp = ctx.createBiquadFilter();
-    hp.type = 'highpass';
-    hp.frequency.value = 250;
-    const conv = ctx.createConvolver();
-    conv.buffer = this.makeIR(1.1, 2.4); // 꼬리 ~1.1s — '큰 방'이되 동굴처럼 번지지 않게
-    const wet = ctx.createGain();
-    wet.gain.value = 0.3; // 잔향 양 — 공간감, 과하면 스피치 불명료(실제 볼링장 문제)
-    busIn.connect(hp).connect(conv).connect(wet).connect(ctx.destination);
-    this.busIn = busIn;
-    return busIn;
   }
 
   // --- 공 굴림 럼블 (지속음) ---
@@ -177,28 +155,23 @@ export class SoundManager {
     return out;
   }
 
-  /** 합성 임펄스 응답: 스테레오 노이즈 × 지수감쇠. seconds=꼬리 길이, decay=감쇠 가파름. */
-  private makeIR(seconds: number, decay: number): AudioBuffer {
-    const ctx = this.ctx!;
-    const len = Math.max(1, Math.ceil(ctx.sampleRate * seconds));
-    const buf = ctx.createBuffer(2, len, ctx.sampleRate);
-    for (let ch = 0; ch < 2; ch++) {
-      const d = buf.getChannelData(ch);
-      for (let i = 0; i < len; i++) {
-        d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, decay);
-      }
-    }
-    return buf;
+  /**
+   * suspend/resume은 **경합한다.** 탭 가시성이 빠르게 뒤집히면 앞 전이가 끝나기 전에 다음 전이가
+   * 들어와 `InvalidStateError: Transition was aborted`가 unhandled rejection으로 콘솔에 쌓인다
+   * (헤드리스 검증 중 15건 관측). 실패해도 다음 visibilitychange가 다시 맞춰주므로 삼킨다.
+   */
+  private transition(kind: 'suspend' | 'resume') {
+    this.ctx?.[kind]().catch(() => {});
   }
 
   /** 백그라운드 진입 시 오디오 스레드 정지 (배터리/발열). visibilitychange에서 호출 (MOBILE_SUPPORT.md §6). */
   suspend() {
-    if (this.ctx && this.ctx.state === 'running') void this.ctx.suspend();
+    if (this.ctx?.state === 'running') this.transition('suspend');
   }
 
   /** 포그라운드 복귀 시 재개. */
   resume() {
-    if (this.ctx && this.ctx.state === 'suspended') void this.ctx.resume();
+    if (this.ctx?.state === 'suspended') this.transition('resume');
   }
 
   /**
@@ -207,13 +180,15 @@ export class SoundManager {
    * '한 사건 = 한 소리'로 통일. 세기는 '서 있던 핀 수'로 — 풀랙=쾅, 1~2핀=가벼운 톡.
    */
   playRackCrash(standingCount: number) {
-    if (!this.ctx || !this.enabled) return;
-    if (this.strikeBuf) this.playStrike(standingCount); // 실제 샘플(핀수로 볼륨·길이 스케일) — 1~2핀도 합성 '뽁' 대신 가벼운 실제 타격음
-    else if (standingCount <= LIGHT_HIT_MAX) this.click(70); // 디코드 전 폴백
-    else this.crash(standingCount);
+    // 샘플이 없으면 **소리를 안 낸다.** 예전엔 합성 크래시(고-Q 크랙 + 노이즈 클러터 + 서브베이스
+    // + 우드 클랙 다발 ≈ 145줄)가 폴백이었는데, 디코드는 첫 제스처에 시작하고 첫 투구는 그보다
+    // 몇 초 뒤라 **실제로는 도달한 적이 없는 경로**였다. 컨볼루션 리버브 버스도 그 폴백만 쓰고
+    // 있어서 같이 걷어냈다(2026-09-01). 이제 여기서 무음이면 wav 디코드가 실패한 것이다.
+    if (!this.ctx || !this.enabled || !this.strikeBuf) return;
+    this.playStrike(standingCount); // 핀수로 볼륨·길이 스케일 — 1~2핀도 가벼운 실제 타격음이 된다
   }
 
-  /** 실제 스트라이크 녹음 재생 — 자연 잔향 포함이라 합성 리버브 우회(드라이, 이중 잔향 방지). */
+  /** 스트라이크 녹음 재생 — 녹음에 자연 잔향이 이미 들어 있어 드라이로 직결한다. */
   private playStrike(count: number) {
     const ctx = this.ctx!;
     const now = ctx.currentTime;
@@ -232,149 +207,38 @@ export class SoundManager {
     src.start(0, STRIKE_LEADIN, dur); // 임팩트 구간부터, 길이는 핀수 비례
   }
 
-  /** 1~2핀 딸각 — 짧고 또렷한 고음 틱 */
-  private click(magnitude: number) {
-    const ctx = this.ctx!;
-    const now = ctx.currentTime;
-    const vol = Math.min(1, magnitude / 60) * 0.4;
-    if (vol < 0.01) return;
-    const osc = ctx.createOscillator();
-    const gain = ctx.createGain();
-    osc.type = 'triangle';
-    osc.frequency.value = 220 + Math.min(magnitude, 160) * 4;
-    gain.gain.setValueAtTime(vol, now);
-    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.1);
-    osc.connect(gain).connect(this.out());
-    osc.start(now);
-    osc.stop(now + 0.11);
-  }
-
   /**
-   * 풀랙 크래시 — 투구당 1회(playRackCrash가 호출). 어택은 고-Q 공명 '톡'(나무 크랙),
-   * 뒤로 노이즈 클러터 '구름'(미세 클릭 다발)이 깔리고, 무게감은 저역 쿵 1발.
-   * 어택이 노이즈 스웰이면 '쉭'으로 들려서 — 크랙을 앞세우고 노이즈 어택은 살짝 늦춘다.
+   * 합성 단음 — 지수 어택/릴리즈로 클릭 없는 '삑'. 해금 차임과 BGM 노트가 공유한다.
+   * dest를 받는 이유: 차임은 destination 직결이고 BGM은 musicGain(레벨 일괄 제어)을 거친다.
    */
-  private crash(count: number) {
+  private blip(
+    dest: AudioNode,
+    freq: number,
+    time: number,
+    dur: number,
+    type: OscillatorType,
+    vol: number,
+    attack = 0.006,
+  ) {
     const ctx = this.ctx!;
-    const now = ctx.currentTime;
-    const intensity = Math.min(1, count / 10);
-
-    // 0) 어택 크랙 — 짧은 고-Q 공명 '톡'. 노이즈 스웰 대신 또렷한 나무 타격으로 시작.
-    const crackBuf = ctx.createBuffer(1, Math.ceil(ctx.sampleRate * 0.05), ctx.sampleRate);
-    const cd = crackBuf.getChannelData(0);
-    for (let i = 0; i < cd.length; i++) cd[i] = (Math.random() * 2 - 1) * (1 - i / cd.length);
-    const crack = ctx.createBufferSource();
-    crack.buffer = crackBuf;
-    const cbp = ctx.createBiquadFilter();
-    cbp.type = 'bandpass';
-    cbp.frequency.value = 520 + intensity * 180;
-    cbp.Q.value = 9; // 고Q → 노이즈가 피치 있는 '톡'으로
-    const cg = ctx.createGain();
-    cg.gain.setValueAtTime(0.34 + intensity * 0.2, now);
-    cg.gain.exponentialRampToValueAtTime(0.001, now + 0.05);
-    crack.connect(cbp).connect(cg).connect(this.out());
-    crack.start(now);
-    crack.stop(now + 0.06);
-
-    // 1) 나무 클러터 '구름' — 베이스 노이즈 워시 + 앞쪽 밀집 미세 클릭. 크랙 뒤로 깔리는 잔해.
-    //    필터 Q를 올려(쉭 노이즈 → 톤 있는 우드) + 어택을 살짝 늦춰 크랙이 앞서게.
-    const dur = 0.5 + intensity * 0.25;
-    const buf = ctx.createBuffer(1, Math.ceil(ctx.sampleRate * dur), ctx.sampleRate);
-    const data = buf.getChannelData(0);
-    for (let i = 0; i < data.length; i++) {
-      const t = i / data.length;
-      const decay = (1 - t) * (1 - t);
-      let s = (Math.random() * 2 - 1) * 0.5 * decay;
-      if (Math.random() < 0.05 * (1 - t)) s += (Math.random() * 2 - 1) * 0.8; // 미세 클릭 폭주
-      data[i] = Math.max(-1, Math.min(1, s));
-    }
-    const noise = ctx.createBufferSource();
-    noise.buffer = buf;
-    const bp1 = ctx.createBiquadFilter();
-    bp1.type = 'bandpass';
-    bp1.frequency.value = 800 + intensity * 300;
-    bp1.Q.value = 5;
-    const bp2 = ctx.createBiquadFilter();
-    bp2.type = 'bandpass';
-    bp2.frequency.value = 1900 + intensity * 500;
-    bp2.Q.value = 6;
-    const ng = ctx.createGain();
-    ng.gain.setValueAtTime(0.0001, now);
-    ng.gain.exponentialRampToValueAtTime(0.22 + intensity * 0.14, now + 0.03); // 살짝 늦은 어택(크랙이 앞)
-    ng.gain.exponentialRampToValueAtTime(0.001, now + dur);
-    noise.connect(bp1).connect(ng);
-    noise.connect(bp2).connect(ng);
-    ng.connect(this.out());
-    noise.start(now);
-    noise.stop(now + dur);
-
-    // 2) 저역 쿵 (thud) — 한 발만 (무게감)
-    const osc = ctx.createOscillator();
-    const og = ctx.createGain();
-    osc.type = 'sine';
-    osc.frequency.setValueAtTime(140, now);
-    osc.frequency.exponentialRampToValueAtTime(60, now + 0.12);
-    og.gain.setValueAtTime(0.0001, now);
-    og.gain.exponentialRampToValueAtTime(0.26 + intensity * 0.18, now + 0.008);
-    og.gain.exponentialRampToValueAtTime(0.001, now + 0.22);
-    osc.connect(og).connect(this.out());
-    osc.start(now);
-    osc.stop(now + 0.24);
-
-    // 2b) 서브베이스 — 큰 스트라이크일수록 바닥을 치는 묵직한 흉부 thump. intensity 게이트(count≳3부터
-    //     점증, 작은 히트엔 0)로 가벼운 정리 투구는 그대로 두고 풀랙만 무게를 얹는다. 저역 쿵(2)보다
-    //     한 옥타브 아래(70→34Hz)·긴 감쇠 → 헤드폰/우퍼에서 '쿵' 잔향. 랩탑 스피커엔 거의 안 들림(의도).
-    const subVol = Math.max(0, intensity - 0.3) * 0.5; // count 3 이하=0, 풀랙(10)≈0.35
-    if (subVol > 0.01) {
-      const sub = ctx.createOscillator();
-      const sg = ctx.createGain();
-      sub.type = 'sine';
-      sub.frequency.setValueAtTime(70, now);
-      sub.frequency.exponentialRampToValueAtTime(34, now + 0.18);
-      sg.gain.setValueAtTime(0.0001, now);
-      sg.gain.exponentialRampToValueAtTime(subVol, now + 0.012);
-      sg.gain.exponentialRampToValueAtTime(0.001, now + 0.34);
-      sub.connect(sg).connect(this.out());
-      sub.start(now);
-      sub.stop(now + 0.36);
-    }
-
-    // 3) 나무 핀 클래터 — 이산 우드 클랙 다발. 노이즈 워시만으론 '쉭'에 가까워, 핀끼리 부딪는
-    //    피치 있는 '딱딱딱'을 여러 발 스태거해 실제 나무 클래터 질감을 더한다.
-    //    한 번의 playRackCrash 안에서 스케줄되는 '한 이벤트'라 슬로모 '탭탭탭' 아티팩트 없음.
-    const clacks = 3 + Math.round(intensity * 5); // 핀 많을수록 촘촘 (~3~8발)
-    for (let i = 0; i < clacks; i++) {
-      const t = now + 0.015 + Math.random() * (0.32 + intensity * 0.25); // ~0.5s 창에 분산
-      const o = ctx.createOscillator();
-      const g = ctx.createGain();
-      o.type = 'triangle';
-      o.frequency.value = 380 + Math.random() * 520; // 나무 공명 대역
-      const v = (0.05 + Math.random() * 0.07) * (0.6 + intensity * 0.6);
-      g.gain.setValueAtTime(v, t);
-      g.gain.exponentialRampToValueAtTime(0.001, t + 0.05 + Math.random() * 0.04);
-      o.connect(g).connect(this.out());
-      o.start(t);
-      o.stop(t + 0.12);
-    }
+    const o = ctx.createOscillator();
+    const g = ctx.createGain();
+    o.type = type;
+    o.frequency.value = freq;
+    g.gain.setValueAtTime(0.0001, time);
+    g.gain.exponentialRampToValueAtTime(vol, time + attack);
+    g.gain.exponentialRampToValueAtTime(0.0001, time + dur);
+    o.connect(g).connect(dest);
+    o.start(time);
+    o.stop(time + dur + 0.02); // 릴리즈가 다 흐른 뒤 정리 (조기 stop = 뚝 끊김)
   }
 
-  /** 업적/스킨 해금 '딩' — 합성 2음 차임(에셋 0). 결과 화면 토스트와 함께. */
+  /** 업적/스킨 해금 '딩' — 합성 2음 차임. 결과 화면 토스트와 함께. */
   playUnlock() {
     if (!this.ctx || !this.enabled) return;
-    const ctx = this.ctx;
-    const now = ctx.currentTime;
+    const now = this.ctx.currentTime;
     [880, 1318.5].forEach((freq, i) => {
-      const t = now + i * 0.11; // A5 → E6 상승
-      const osc = ctx.createOscillator();
-      const gain = ctx.createGain();
-      osc.type = 'sine';
-      osc.frequency.value = freq;
-      gain.gain.setValueAtTime(0.0001, t);
-      gain.gain.exponentialRampToValueAtTime(0.22, t + 0.012);
-      gain.gain.exponentialRampToValueAtTime(0.001, t + 0.3);
-      osc.connect(gain).connect(ctx.destination);
-      osc.start(t);
-      osc.stop(t + 0.32);
+      this.blip(this.ctx!.destination, freq, now + i * 0.11, 0.3, 'sine', 0.22, 0.012); // A5 → E6 상승
     });
   }
 
@@ -473,24 +337,11 @@ export class SoundManager {
   private playMusicStep(i: number, time: number, stepDur: number) {
     const chord = this.MUSIC_PROG[Math.floor(i / 8) % this.MUSIC_PROG.length];
     const local = i % 8;
-    this.musicTone(this.mtof(chord.arp[local % chord.arp.length]), time, stepDur * 0.9, 'square', 0.07); // 아르페지오
-    if (local === 0 || local === 4) this.musicTone(this.mtof(chord.bass), time, stepDur * 3.6, 'triangle', 0.16); // 베이스(half마다)
-    if (local === 0) this.musicTone(this.mtof(chord.arp[0] + 12), time, stepDur * 1.6, 'square', 0.03); // 코드 전환 반짝임
-  }
-
-  /** 음악용 단음 — musicGain 경유(페이드/볼륨 일괄). 클릭 방지 위해 짧은 어택/릴리즈. */
-  private musicTone(freq: number, time: number, dur: number, type: OscillatorType, vol: number) {
-    const ctx = this.ctx!;
-    const o = ctx.createOscillator();
-    const g = ctx.createGain();
-    o.type = type;
-    o.frequency.value = freq;
-    g.gain.setValueAtTime(0.0001, time);
-    g.gain.exponentialRampToValueAtTime(vol, time + 0.006);
-    g.gain.exponentialRampToValueAtTime(0.0001, time + dur);
-    o.connect(g).connect(this.musicGain!);
-    o.start(time);
-    o.stop(time + dur + 0.02);
+    const note = (m: number, dur: number, type: OscillatorType, vol: number) =>
+      this.blip(this.musicGain!, this.mtof(m), time, dur, type, vol); // 전부 musicGain 경유 = 레벨 일괄
+    note(chord.arp[local % chord.arp.length], stepDur * 0.9, 'square', 0.07); // 아르페지오
+    if (local === 0 || local === 4) note(chord.bass, stepDur * 3.6, 'triangle', 0.16); // 베이스(half마다)
+    if (local === 0) note(chord.arp[0] + 12, stepDur * 1.6, 'square', 0.03); // 코드 전환 반짝임
   }
 
   /** MIDI 노트 → 주파수(Hz). */

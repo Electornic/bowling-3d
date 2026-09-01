@@ -3,11 +3,14 @@ import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import type RAPIER from '@dimforge/rapier3d-compat';
 import { getRapier } from './Boot';
 import { isCoarsePointer } from './device';
+import { GRAVITY } from '../game/constants';
 
 /**
  * 저사양(주로 모바일) 판정 — 부팅 1회 (MOBILE_SUPPORT.md §6).
- * deviceMemory(Chrome)·coarse 포인터·화면폭 휴리스틱. antialias는 생성자 옵션이라
- * 런타임 토글 불가 → 여기서 한 번 결정. pixelRatio·shadowMap도 이 판정으로 낮춘다.
+ *
+ * 이 판정이 **실제로 가르는 건 둘뿐**이다: pixelRatio 상한(1.5 vs 2)과 shadow map 크기
+ * (512 vs 1024). antialias는 아래에서 보듯 **항상 ON**이라 이 판정과 무관하다 — 끄면
+ * 고대비 모서리(거터 벽)가 카메라 이동 중 떨리는 edge crawl이 생긴다.
  */
 function isLowEnd(): boolean {
   // 실제 저메모리 신호(Chrome/Android의 deviceMemory ≤4GB)일 때만 저사양 처리. 화면폭만으로는
@@ -16,6 +19,22 @@ function isLowEnd(): boolean {
   // 이동 시 떨리는(edge crawl) 점멸이 생겼다.
   const mem = (navigator as Navigator & { deviceMemory?: number }).deviceMemory;
   return isCoarsePointer() && mem !== undefined && mem <= 4;
+}
+
+/**
+ * 현재 창 크기의 안전한 aspect — **0이 들어오는 순간이 있다.** 탭 숨김·모바일 주소창
+ * 애니메이션·앱 복귀 직후, 그리고 숨은 탭에서의 부팅. 그대로 쓰면 aspect가 NaN(0/0) 또는
+ * Infinity(w/0)가 되어 투영 행렬이 오염되고, **그 프레임에 투영을 써서 계산된 것들이 NaN으로
+ * 굳는다** (조준 화살촉이 화면 공간에서 만들어져 정확히 이 피해를 입었다 — 캐시에 남아
+ * 크기가 정상으로 돌아와도 계속 깨져 보였다).
+ *
+ * null이면 "아직 유효한 크기가 아니다" — 생성자는 16/9로 시작하고 onResize는 건너뛴다.
+ * 예전엔 이 방어가 두 곳에 복붙돼 있었고 주석이 "서로 한 쌍"이라고만 적어뒀다.
+ */
+function safeAspect(): number | null {
+  const w = window.innerWidth;
+  const h = window.innerHeight;
+  return w >= 1 && h >= 1 ? w / h : null;
 }
 
 /** three 메시 ↔ rapier 강체 페어 */
@@ -53,7 +72,7 @@ export class Engine {
     // --- 렌더러 --- (antialias 항상 ON으로 엣지 크롤 방지; 저사양만 pixelRatio 1.5 상한, MOBILE_SUPPORT.md §6)
     this.renderer = new THREE.WebGLRenderer({ antialias: true });
     this.renderer.setSize(window.innerWidth, window.innerHeight);
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, this.lowEnd ? 1.5 : 2));
+    this.renderer.setPixelRatio(this.pixelRatioCap(true)); // 부팅 기본 = high
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.shadowMap.enabled = true;
@@ -88,7 +107,7 @@ export class Engine {
       // FOV만 줄이면 조준 화면에서 공이 화면 아래로 떨어진다(fov 45에서 y=-1.09, 52에서도 -0.92로
       // 이미 하단에 걸침). 높이를 0.75로 낮춰야 fov 37까지 공이 남는다. 핀은 전 구간 프레임 안.
       40,
-      window.innerWidth / window.innerHeight,
+      safeAspect() ?? 16 / 9, // 숨은 탭에서 부팅하면 창 크기가 0이다 (safeAspect 주석)
       0.1,
       200,
     );
@@ -131,7 +150,7 @@ export class Engine {
     this.scene.add(bounce);
 
     // --- 물리 월드 ---
-    this.world = new RAPIER.World({ x: 0, y: -9.81, z: 0 });
+    this.world = new RAPIER.World({ x: 0, y: GRAVITY, z: 0 });
     this.world.integrationParameters.maxCcdSubsteps = 4; // 저FPS(모바일) 터널링 보완 (도안 §12)
     this.eventQueue = new RAPIER.EventQueue(true);
 
@@ -139,7 +158,9 @@ export class Engine {
   }
 
   private onResize = () => {
-    this.camera.aspect = window.innerWidth / window.innerHeight;
+    const aspect = safeAspect();
+    if (aspect === null) return; // 유효한 크기가 올 때까지 건너뛴다 (safeAspect 주석)
+    this.camera.aspect = aspect;
     this.camera.updateProjectionMatrix();
     this.renderer.setSize(window.innerWidth, window.innerHeight);
   };
@@ -151,9 +172,13 @@ export class Engine {
    * 지배 인자는 fill-rate라 pixelRatio만으로 충분.
    */
   setQuality(high: boolean) {
-    const cap = high ? (this.lowEnd ? 1.5 : 2) : 1;
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, cap));
+    this.renderer.setPixelRatio(this.pixelRatioCap(high));
     this.renderer.setSize(window.innerWidth, window.innerHeight); // pixelRatio 변경 반영
+  }
+
+  /** 품질별 pixelRatio — 생성자와 setQuality가 같은 식을 쓰게. perf는 1.0(픽셀 ~1/4). */
+  private pixelRatioCap(high: boolean): number {
+    return Math.min(window.devicePixelRatio, high ? (this.lowEnd ? 1.5 : 2) : 1);
   }
 
   /** 물리 강체 + 시각 메시 등록 (보간 상태 초기화) */
@@ -184,8 +209,9 @@ export class Engine {
     }
     this.world.timestep = dt;
     this.world.step(this.eventQueue);
-    if (this.onContact) {
-      this.eventQueue.drainContactForceEvents((e) => this.onContact!(e.totalForceMagnitude()));
+    const onContact = this.onContact;
+    if (onContact) {
+      this.eventQueue.drainContactForceEvents((e) => onContact(e.totalForceMagnitude()));
     }
     for (const o of this.objects) {
       const t = o.body.translation();

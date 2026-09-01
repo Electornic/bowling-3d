@@ -3,7 +3,6 @@
  */
 
 // --- 좌표·규격 ---
-export const LANE_LENGTH = 18.29; // 파울라인(z=0) → 1번핀
 export const LANE_WIDTH = 1.05;
 export const BALL_RADIUS = 0.109; // 지름 21.8cm (무게 무관 고정)
 export const PIN_HEIGHT = 0.38;
@@ -51,9 +50,11 @@ export const PIN_COLLISION_GROUPS = (GROUP_PIN << 16) | 0xffff; // 핀: PIN 소�
 export const BALL_GROUPS_ALL = 0xffffffff;
 export const BALL_GROUPS_NO_PINS = (0xffff << 16) | (0xffff & ~GROUP_PIN);
 export const BALL_START_Z = -1; // 공 시작 (파울라인 뒤)
+/** 레인 바닥이 시작하는 z (공 시작 뒤 여유). Lane 콜라이더·오일 시트·Environment 배경이 공유한다. */
+export const LANE_START_Z = -2;
 
 // --- 핀 배치 (정삼각형) ---
-export const HEADPIN_Z = 18.29; // 1번핀
+export const HEADPIN_Z = 18.29; // 1번핀 = 파울라인(z=0)에서의 레인 길이
 export const ROW_GAP = PIN_SPACING * Math.cos(Math.PI / 6); // ≈0.264 행 간격
 export const PIN_DECK_END = HEADPIN_Z + 3 * ROW_GAP; // ≈19.08 마지막 행 (전환 트리거 기준 §4.2)
 // --- 핀 베이(핀덱을 둘러싼 오목한 공간) ---
@@ -90,8 +91,7 @@ export const PIN_RESTITUTION = 0.3;
 export const PIN_LINEAR_DAMPING = 0.7;
 
 // --- 물리 (도안 §4.4 튜닝 시작값) ---
-export const GRAVITY = -9.81;
-export const TIMESTEP = 1 / 60;
+export const GRAVITY = -9.81; // Engine의 rapier World가 쓴다
 export const REF_MASS = 5.0; // 스핀 측면력 기준 질량 (≈11lb = 슬라이더 중앙)
 export const FRICTION_K = 0.16; // 스핀 측면력 계수 — 드라이 존에서만 작용 (hookFactor 게이트)
 
@@ -106,7 +106,7 @@ export const LANE_FRICTION_DRY = 0.14; // 드라이 존 (Rapier 자체 마찰도
 export const BALL_FRICTION = 0.1;
 export const SLIP_EPS = 0.05; // 이하면 롤링으로 간주
 export const SPIN_RATE = 14; // 발사 스핀 ωz = spin·SPIN_RATE (rad/s) — 훅 연료. 풀스핀 미드파워 총휨 ~61cm
-// 약스핀 저역 부스트 (SPIN_FEEL_AND_AI_LADDER.md ①): 발사 각속도에 |spin|^SPIN_POW.
+// 약스핀 저역 부스트 (docs/legacy/SPIN_FEEL_AND_AI_LADDER.md ①): 발사 각속도에 |spin|^SPIN_POW.
 // 1.0이 고정점이라 풀스핀·전 가드(−30cm·윈도우 4/31·7/31·65cm) 불변, 저/미드 스핀만 훅↑.
 // sim-carry --spinPow 0.7 검증: 저스핀 막판스냅 −2.8→−4.1cm(+40%), 풀스핀·윈도우 베이스라인 동일.
 export const SPIN_POW = 0.7;
@@ -123,7 +123,7 @@ export const AIM_RANGE = 0.08;
 // 터치(ⓑ 상대 드래그) 조준 게인 (MOBILE_SUPPORT.md §2.4). 1.0 = 화면폭 절반 드래그로
 // ±AIM_RANGE(최대 조준)에 도달. 높이면 적게 끌어도 크게 꺾여 정밀도↓, 낮추면 그 반대.
 export const AIM_GAIN = 1.0;
-// --- P3 릴리스 타이밍 (실행 텐션, GAMEPLAY_ROADMAP P0.5 레버② / P3) ---
+// --- P3 릴리스 타이밍 (실행 텐션, docs/legacy/GAMEPLAY_ROADMAP.md P0.5 레버② / P3) ---
 // 노이즈 0인 마우스 조준에 *실행 분산*을 되돌려준다. 파워 게이지 골드 띠(=정확 릴리스 구간) 안에서
 // 떼면 정확, 벗어날수록 aim에 gaussian 노이즈. 노이즈 단위 = 진입 x cm (AI aimJitterCm와 동일 모델).
 // **플레이어 전용** — Controls 발사 경로에만 주입(AI는 computeAiThrow 자체 jitter 보유, throwBall 직행).
@@ -142,10 +142,11 @@ export const SETTLE_TIMEOUT = 4; // s
 export const PIN_FALL_ANGLE = Math.PI / 4; // 45° 쓰러짐 임계
 
 // --- P2 타격감 (juice) ---
-// 공이 이 z를 넘으면 '핀 임팩트'로 취급 (셰이크·크래시 사운드·슬로모 트리거).
-// 그 전(레인 굴림 중) 접촉은 기존 그대로 — 굴림 거동은 안 건드린다.
-// 공이 헤드핀에 실제 닿는 z (공R0.109+핀R0.06≈0.18). 임팩트 트리거의 '접촉 시점' 기준.
-export const PIN_CONTACT_Z = HEADPIN_Z - 0.18; // ≈18.11 (Boot 임팩트 push-in 카메라 트리거)
+// 공이 헤드핀에 실제 닿는 z (공R 0.109 + 핀R 0.06 ≈ 0.18).
+// ⚠️ 이 z가 트리거하는 건 **카메라 연출뿐**이다(Boot.onContact → push-in). 크래시 사운드와
+// 슬로모는 z를 안 본다 — GameState.notifyImpact가 **핀이 실제로 움직였는지**(|v|>0.5 m/s)로
+// 판정한다. 옛 주석이 여기에 셋을 다 적어뒀지만 그건 고정 z 트리거 시절 얘기다.
+export const PIN_CONTACT_Z = HEADPIN_Z - 0.18; // ≈18.11
 // 스트라이크/포켓 슬로모: 임팩트 순간 timeScale를 떨궜다가 복원 (Loop.timeScale 인프라 공용).
 // ⚠️ 물리 dt는 불변 — accumulator 유입만 스케일 (Loop 주석 참고).
 export const SLOWMO_SCALE = 0.32; // 슬로모 진입 배속 (낮을수록 더 느림) — 충돌 순간 깊이
@@ -153,22 +154,21 @@ export const SLOWMO_SCALE = 0.32; // 슬로모 진입 배속 (낮을수록 더 �
 // 길어도 되지만, 0.85s는 매 투구마다 "렉 걸린 듯" 길게 읽혔다(사용자 피드백). realism 목표상
 // 시간왜곡은 최소화 — 짧게 떨궜다가 ease-out으로 복원(GameState.update, 하드컷 제거).
 export const SLOWMO_REAL_SEC = 0.45;
-// 카메라 셰이크: 임팩트 contact force 누적 → 진폭, 실시간 감쇠.
-// 토글 OFF — 볼링 손맛은 슬로모+사운드+핀물리가 들고 있고, 화면 셰이크(평행이동 화이트노이즈)는
-// 톤이 어긋나고 과하게 읽힘. 일단 끄고 실플레이 검증(P0). 허전하면 셰이크 복원이 아니라
-// 핀 쪽 push-in(dolly/FOV)으로 채우는 방향.
-export const SHAKE_ENABLED = false;
-export const SHAKE_MAX = 0.12; // 최대 진폭 (m)
-export const SHAKE_DECAY = 10; // 감쇠율 (1/s, 클수록 빨리 잦아듦 — ~0.4s)
-export const SHAKE_FORCE_REF = 150; // 단일 contact force 기준값 (force/이값 비율 × KICK)
-export const SHAKE_KICK = 0.05; // contact 1건당 진폭 기여 상한 (크래시는 여러 건 누적 → SHAKE_MAX)
-// 임팩트 push-in (셰이크 대체 연출). 충돌 시 카메라가 시선 방향(핀 쪽)으로 dolly-in →
-// 잠깐 유지 → 부드럽게 복귀. 좌우 흔들림 없이 "들여다보는" 흥분. dt는 실시간(Loop.onFrame)이라
-// 슬로모(실시간 0.85s)와 자연 동기. 허전/과함은 아래 상수로 튜닝.
+// 카메라 셰이크는 **없다** (2026-09-01 제거). contact force를 진폭으로 쌓아 평행이동
+// 화이트노이즈를 주는 연출이었는데, 토글(SHAKE_ENABLED=false)로 꺼둔 채 오래 지났고 주석에도
+// 결론이 적혀 있었다 — "허전하면 셰이크 복원이 아니라 핀 쪽 push-in으로 채우는 방향".
+// 실제로 아래 push-in이 그 자리를 채웠으므로 상수 5개·CameraRig.addShake·Boot 배선을 걷었다.
+// 되살릴 일이 생기면 `git log -S SHAKE_ENABLED`에 구현이 통째로 남아 있다.
+// 임팩트 push-in (셰이크를 대체한 연출 — 셰이크는 2026-09-01에 걷어냈다). 충돌 시 카메라가
+// 시선 방향(핀 쪽)으로 dolly-in → 잠깐 유지 → 부드럽게 복귀. 좌우 흔들림 없이 "들여다보는" 흥분.
+// dt는 실시간(Loop.onFrame)이라 슬로모(SLOWMO_REAL_SEC, 실시간 0.45s)와 자연 동기.
 export const PUSHIN_ENABLED = true; // 임팩트 시 핀덱으로 살짝 lean-in (방송 카메라 느낌). 접근 카메라와 이중되지 않게 DIST는 작게.
 export const PUSHIN_DIST = 0.6; // 최대 근접 dolly 거리 (m, 시선 방향) — 접근 카메라(CAM_APPROACH_Z)와 겹쳐 과하지 않게 '살짝'만
 export const PUSHIN_HOLD = 0.45; // 최대 근접 유지 (실시간 s) — 핀 접촉마다 갱신
 export const PUSHIN_RATE = 9; // 진입/복귀 스무딩 (1/s, 클수록 빠릿)
-// 핀 접근 카메라 (P2): 공이 이 z를 넘으면 로우·와이드 팔로우 → 수평·근접 핀덱 뷰로 이징.
-// 임팩트/핀 쓰러짐이 잘 보이게. 스무딩(k)이 전환을 흡수해 휙 도는 휘프팬 없이 dolly-in처럼 당겨짐.
+// 핀 접근 전환 시작 z (P2). 공이 여기를 넘으면 진행도 u가 0→1로 올라가며 **시선(target)**이
+// 공에서 핀덱으로 옮겨간다. 임팩트·핀 쓰러짐이 잘 보이게 하는 프레이밍이다.
+// ⚠️ **위치는 여기서 이징하지 않는다** — 리니어 체이스 정식화(2026-09-01) 때 위치 블렌드를
+// 걷어냈다. 카메라는 릴리스부터 임팩트까지 순수 체이스로 가고 파킹은 클램프 상한이 맡는다.
+// 리플레이 카메라(Replay.placeCamera)도 같은 z를 자기 추적거리 이징의 기준으로 쓴다.
 export const CAM_APPROACH_Z = HEADPIN_Z - 6; // ≈12.29 (레인 마지막 1/3에서 전환)

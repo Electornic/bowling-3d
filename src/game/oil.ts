@@ -19,7 +19,7 @@ export type OilPattern = 'house' | 'short' | 'long';
 /**
  * ⚠️ 프리셋은 더 이상 **메뉴에서 선택되지 않는다** — 실사용은 하우스 고정(GameState 기본값)이다.
  * 오일은 난이도가 아니라 최적 전략이 이동하는 축이라(숏은 직구가 오히려 쉬워진다) 난이도 사다리에
- * 안 맞아 UI를 걷었다. 상세·근거: docs/OIL_META_AND_AUTO.md §2.8.
+ * 안 맞아 UI를 걷었다. 상세·근거: docs/legacy/OIL_META_AND_AUTO.md §2.8.
  * 프리셋 3종은 sim-carry / ai-match-sim 검증축과 후속(데일리 시드 챌린지)용으로 남긴다.
  * **마름(advanceOilDrying)은 그대로 살아 있다** — 하우스 기준으로 풀게임 내내 훅이 앞당겨진다.
  */

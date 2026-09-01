@@ -30,6 +30,11 @@ const LANE_START_Z = -2; // Lane.ts와 동일
 const LANE_END_Z = PIN_DECK_END + 1.5;
 const LANE_UNIT = LANE_WIDTH + GUTTER_WIDTH * 2 + 0.1; // 레인 1칸 폭(거터+레일)
 const HALL_HALF_W = LANE_UNIT * 2.5 + 0.4; // 좌우 각 2개 옆 레인 + 여유
+/** 레인 전장·중점 — 바닥·거터·벽·천장이 전부 이 한 쌍을 기준으로 놓인다. */
+const LANE_LEN = LANE_END_Z - LANE_START_Z;
+const LANE_MID_Z = (LANE_START_Z + LANE_END_Z) / 2;
+/** 마스킹 월 앞면 z. 캐노피가 여기까지 이어져 베이 위를 닫는다. */
+const MASK_FACE_Z = LANE_END_Z + 0.45 - 0.125;
 
 /**
  * 절차적 나무 보드 텍스처 (에셋 0). 톤이 조금씩 다른 세로 판자 + 이음매 + 가로 결.
@@ -293,15 +298,6 @@ interface AmbientLane {
 }
 
 /**
- * 옆 레인용 레이크(스윕 바) — 플레이 레인 스윕 바(PinSet)의 축약판.
- *
- * 이게 없으면 사이클이 "핀이 몇 개 눕는다 → 오뚜기처럼 일어난다"로 읽힌다(사용자 지적).
- * 기계가 보여야 같은 움직임이 '리셋'으로 읽힌다. 형상·색은 플레이 레인과 같게 맞춘다 —
- * 같은 볼링장의 같은 기계라 눈높이가 다르면 오히려 이상해진다.
- * 블레이드에 키네마틱 콜라이더가 붙어 **핀을 실제로 민다** — 서 있던 핀은 밀리며 알아서 눕는다.
- * (플레이 레인 스윕은 여전히 z 비교로 미는 시각 처리다. 눈높이만 같으면 되고, 이쪽이 더 정확하다.)
- */
-/**
  * 옆 레인 정적 콜라이더 — 바닥·거터·킥백·뒷벽. 치수는 플레이 레인(Lane.ts)을 cx로 평행이동한 것이고
  * 시각 메시와 같은 자리를 쓴다(윗면 AMB_FLOOR_TOP = 플레이 레인보다 1cm 아래).
  *
@@ -362,6 +358,15 @@ function buildAmbLanePhysics(engine: Engine, cx: number) {
   );
 }
 
+/**
+ * 옆 레인용 레이크(스윕 바) — 플레이 레인 스윕 바(PinSet)의 축약판.
+ *
+ * 이게 없으면 사이클이 "핀이 몇 개 눕는다 → 오뚜기처럼 일어난다"로 읽힌다(사용자 지적).
+ * 기계가 보여야 같은 움직임이 '리셋'으로 읽힌다. 형상·색은 플레이 레인과 같게 맞춘다 —
+ * 같은 볼링장의 같은 기계라 눈높이가 다르면 오히려 이상해진다.
+ * 블레이드에 키네마틱 콜라이더가 붙어 **핀을 실제로 민다** — 서 있던 핀은 밀리며 알아서 눕는다.
+ * (플레이 레인 스윕은 여전히 z 비교로 미는 시각 처리다. 눈높이만 같으면 되고, 이쪽이 더 정확하다.)
+ */
 function makeAmbRake(cx: number): THREE.Group {
   const W = LANE_WIDTH + 2 * GUTTER_WIDTH + 0.06;
   const H = 0.14;
@@ -424,6 +429,319 @@ function mulberry32(seed: number): () => number {
   };
 }
 
+/** 어프로치(투구 구역) 바닥 — 파울라인 뒤 나무 바닥. */
+function buildApproachFloor(engine: Engine) {
+  // --- 어프로치(투구 구역) 바닥 ---
+  const woodApproach = makeWoodTexture('#8a6234', '#64461f', 12);
+  woodApproach.repeat.set(8, 3);
+  const approach = new THREE.Mesh(
+    new THREE.BoxGeometry(HALL_HALF_W * 2, 0.1, 7),
+    new THREE.MeshStandardMaterial({ map: woodApproach, roughness: 0.6 }),
+  );
+  approach.position.set(0, -0.05, LANE_START_Z - 3.5);
+  approach.receiveShadow = true;
+  engine.addVisual(approach);
+}
+
+/** 핀덱을 둘러싼 껍데기 — 뒤 마스킹 월 · 위 캐노피 · 옆 킥백(레인 5개) · 베이 뒷벽. */
+function buildPinBayShell(engine: Engine) {
+  // --- 핀덱 뒤 마스킹 월 + 네온 띠 ---
+  const wall = new THREE.Mesh(
+    new THREE.BoxGeometry(HALL_HALF_W * 2, 3.6, 0.25),
+    new THREE.MeshStandardMaterial({ color: 0x0b0e14, roughness: 0.9 }),
+  );
+  wall.position.set(0, 1.8, LANE_END_Z + 0.45);
+  engine.addVisual(wall);
+
+  // 핀 위 캐노피(마스킹 유닛) + 전면 네온 2줄
+  // 캐노피 = 베이 천장. 앞면은 네온 띠(z≈17.77) 바로 뒤에 두고, 뒤로는 마스킹 월까지 이어
+  // 붙여 베이 위를 닫는다 — 예전엔 z 19.99에서 끊겨 베이 천장에 구멍이 났고,
+  // 그 틈으로 뒷벽이 보여 핀이 '박스 안'이 아니라 평면 위에 놓인 것처럼 읽혔다.
+  const canopyLen = MASK_FACE_Z - PIN_BAY_FRONT_Z;
+  const canopyH = PIN_BAY_CANOPY_TOP - PIN_BAY_TOP;
+  const canopy = new THREE.Mesh(
+    new THREE.BoxGeometry(HALL_HALF_W * 2, canopyH, canopyLen),
+    new THREE.MeshStandardMaterial({ color: 0x12161f, roughness: 0.85 }),
+  );
+  canopy.position.set(0, PIN_BAY_TOP + canopyH / 2, PIN_BAY_FRONT_Z + canopyLen / 2);
+  engine.addVisual(canopy);
+
+  // --- 핀 베이 측벽(킥백) — 레인 5개 전부 ---
+  // 실제 볼링장은 레인마다 핀덱이 양옆 킥백 + 위 캐노피 + 뒤 마스킹 월로 둘러싸인 박스 안에 있다.
+  // 이게 없으면 핀이 '안으로 들어가 있는' 느낌이 안 나고, 플레이 레인에만 있으면 더 어색하다.
+  // 시각 전용 — 플레이 레인의 물리 킥백 콜라이더는 Lane.ts가 같은 높이(PIN_BAY_TOP)로 만든다.
+  const matKick = new THREE.MeshStandardMaterial({ color: 0x222831, roughness: 1, metalness: 0, envMapIntensity: 0 });
+  const bayLen = MASK_FACE_Z - KICKBACK_START_Z;
+  for (const side of [-1, 1]) {
+    for (let k = 0; k <= 2; k++) {
+      const kick = new THREE.Mesh(new THREE.BoxGeometry(0.1, PIN_BAY_TOP, bayLen), matKick);
+      kick.position.set(side * (LANE_UNIT / 2 + k * LANE_UNIT), PIN_BAY_TOP / 2, KICKBACK_START_Z + bayLen / 2);
+      kick.receiveShadow = true;
+      engine.addVisual(kick);
+    }
+  }
+
+  // 베이 뒷벽 — 개구부 높이만큼(y 0~PIN_BAY_TOP) 홀 전폭을 막는다. 전광판(z≈20.69) **앞**에
+  // 둬야 아랫단을 가린다. 이게 없으면 핀 뒤로 전광판이 비쳐 '뚫린' 것처럼 보인다.
+  // 플레이 레인 피트는 y<0이라 안 가려진다(공이 떨어지는 건 그대로 보인다).
+  const bayBack = new THREE.Mesh(
+    new THREE.BoxGeometry(HALL_HALF_W * 2, PIN_BAY_TOP, 0.1),
+    new THREE.MeshStandardMaterial({ color: 0x0a0d12, roughness: 1, metalness: 0, envMapIntensity: 0 }),
+  );
+  bayBack.position.set(0, PIN_BAY_TOP / 2, LANE_END_Z + 0.02); // 전광판(+0.11)보다 앞
+  bayBack.receiveShadow = true;
+  engine.addVisual(bayBack);
+  // (마스킹 유닛 아랫단 네온 트림 2줄은 제거했다 — 전광판을 개구부 바로 위까지 내린 뒤로는
+  //  전광판과 핀 사이를 가로지르는 굵은 띠로만 읽혔다. 낮은 접근 카메라에선 특히 화면을 먹었다.)
+}
+
+/** 홀의 벽·천장 — 3단 벽(웨인스코트·레일·코브) + 코퍼드 천장 + 조명 스트립·보·다운라이트. */
+function buildHallSurfaces(engine: Engine) {
+  // --- 양쪽 벽 (3단) + 천장(코퍼드) + 조명 ---
+  //
+  // 예전엔 옆벽 = 31.6m 박스 1개에 단색(#161b26), 천장 = 평면 1개에 스트립 3줄이었다.
+  // 실측(레이캐스트)에서 **가로 화면 조준 시 맨살 옆벽이 29.7%** — 플레이 레인(14.4%)의 두 배가
+  // 정보량 0인 검은 면이었고, 세로 화면에선 가로 FOV가 좁아 그 자리를 **천장 17.6%**가 대신했다.
+  // 픽셀 휘도로도 레인 0.869 vs 벽 0.055~0.098 · 천장 0.044 — 20:1이라 '면'이 아니라 '구멍'으로 읽혔다.
+  //
+  // 그래서 밝히는 게 아니라 **구조를 넣는다**(실제 볼링장 벽·천장이 그렇다):
+  //  · 벽 = 하부 웨인스코트(우드) / 체어 레일 / 코브 워시 상부 → 수평 수렴선 2줄 + 판자·이음매 리듬
+  //  · 천장 = 스트립 3줄은 그대로 두고 그 **사이사이**를 보(beam)로 메워 코퍼드 격자
+  // 세로·가로가 서로 다른 면 때문에 휑하므로 둘 다 손대야 한다(한쪽만 하면 한쪽은 그대로다).
+  const WALL_LEN = LANE_LEN + 9;
+  const WALL_Z = LANE_MID_Z - 3;
+  const WAINSCOT_TOP = 1.0; // 체어 레일 높이 (실제 웨인스코트 ~0.9~1.1m)
+  const WALL_STRUCT_TOP = 4.25; // 벽 상단 — 천장(4.0~4.2)과 겹쳐 이음선을 감춘다
+  const CEIL_UNDER = 4.0; // 천장 아랫면
+  // 코브는 옆벽 광고판(y 1.8~3.0) **위**에 둔다 — 겹치면 광고판이 코브 선을 4번 끊는다.
+  const COVE_Y = 3.25;
+
+  const wallTex = makeWallTexture((COVE_Y - WAINSCOT_TOP) / (WALL_STRUCT_TOP - WAINSCOT_TOP));
+  wallTex.repeat.set(Math.round(WALL_LEN / 1.6), 1); // 패널 폭 ≈0.8m (타일당 이음매 2줄)
+  const matWallUp = new THREE.MeshStandardMaterial({ map: wallTex, roughness: 0.9, metalness: 0 });
+  // 웨인스코트 — makeWoodTexture의 판자(u축)가 벽면에선 **세로결**이 된다. z로 반복돼 리듬을 만든다.
+  const wainTex = makeWoodTexture('#5a3f20', '#3a2712', 10);
+  wainTex.repeat.set(Math.round(WALL_LEN / 1.5), 1); // 판자 폭 ≈0.15m
+  const matWain = new THREE.MeshStandardMaterial({ map: wainTex, roughness: 0.8 });
+  const matRail = new THREE.MeshStandardMaterial({ color: 0x394153, roughness: 0.7 });
+  const matCove = new THREE.MeshStandardMaterial({
+    color: 0x000000,
+    emissive: NEON.ice,
+    emissiveIntensity: 1.35, // 천장 스트립(1.6)보다 살짝 죽여 시선이 위로 안 끌리게
+  });
+  for (const side of [-1, 1]) {
+    const up = new THREE.Mesh(
+      new THREE.BoxGeometry(0.3, WALL_STRUCT_TOP - WAINSCOT_TOP, WALL_LEN),
+      matWallUp,
+    );
+    up.position.set(side * HALL_HALF_W, (WAINSCOT_TOP + WALL_STRUCT_TOP) / 2, WALL_Z);
+    engine.addVisual(up);
+
+    const wain = new THREE.Mesh(new THREE.BoxGeometry(0.3, WAINSCOT_TOP + 0.25, WALL_LEN), matWain);
+    wain.position.set(side * HALL_HALF_W, (WAINSCOT_TOP - 0.25) / 2, WALL_Z); // 아래 -0.25(바닥 아래)까지
+    wain.receiveShadow = true;
+    engine.addVisual(wain);
+
+    // 체어 레일·코브는 벽면보다 살짝 튀어나오게(두께 ↑) — 얇은 그림자선이 생겨 수평선이 또렷해진다.
+    const rail = new THREE.Mesh(new THREE.BoxGeometry(0.36, 0.07, WALL_LEN), matRail);
+    rail.position.set(side * HALL_HALF_W, WAINSCOT_TOP, WALL_Z);
+    engine.addVisual(rail);
+
+    const cove = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.07, WALL_LEN), matCove);
+    cove.position.set(side * HALL_HALF_W, COVE_Y, WALL_Z);
+    engine.addVisual(cove);
+  }
+
+  const ceiling = new THREE.Mesh(
+    new THREE.BoxGeometry(HALL_HALF_W * 2, 0.2, WALL_LEN),
+    // 0x0e1118 → 살짝 올림. 보를 얹을 '바탕'이 필요해서지, 밝히려는 게 아니다(실제 천장도 어둡다).
+    new THREE.MeshStandardMaterial({ color: 0x171c26, roughness: 0.95 }),
+  );
+  ceiling.position.set(0, CEIL_UNDER + 0.1, WALL_Z);
+  engine.addVisual(ceiling);
+
+  // 조명 스트립 3줄 — 그대로 유지. 실측/스크린샷에서 **수렴선 역할을 제대로 하고 있던** 유일한
+  // 천장 요소다. 보를 이 위에 겹쳐 끊지 않도록, 보는 스트립 사이 x 구간에만 넣는다(아래).
+  const STRIP_X = [-2.4, 0, 2.4];
+  const STRIP_HALF_W = 0.15;
+  const stripMat = new THREE.MeshStandardMaterial({
+    color: 0x000000,
+    emissive: NEON.ice,
+    emissiveIntensity: 1.6,
+  });
+  for (const x of STRIP_X) {
+    const strip = new THREE.Mesh(new THREE.BoxGeometry(STRIP_HALF_W * 2, 0.06, LANE_LEN + 7), stripMat);
+    strip.position.set(x, 3.96, WALL_Z); // 천장 수렴선 = 강한 원근 단서
+    engine.addVisual(strip);
+  }
+
+  // 천장 보(beam) — 레인 직각으로 2.5m마다. 스트립이 지나는 x 구간은 비워 4토막으로 넣는다
+  // (스트립을 가로질러 끊으면 애써 살아 있던 수렴선이 죽는다). 세그먼트 폭이 달라 스케일을
+  // 인스턴스마다 넣는다. InstancedMesh라 4×13=52개가 드로우콜 1개.
+  const BEAM_GAP = 2.5;
+  const beamZ0 = WALL_Z - WALL_LEN / 2 + 0.5;
+  const beamRows = Math.floor((WALL_LEN - 1.0) / BEAM_GAP) + 1;
+  const gaps: [number, number][] = []; // 스트립 사이·바깥의 x 구간
+  let edge = -HALL_HALF_W;
+  for (const x of STRIP_X) {
+    gaps.push([edge, x - STRIP_HALF_W]);
+    edge = x + STRIP_HALF_W;
+  }
+  gaps.push([edge, HALL_HALF_W]);
+  const beamGeo = new THREE.BoxGeometry(1, 0.2, 0.22); // 폭 1 = 인스턴스 스케일로 늘린다
+  const matBeam = new THREE.MeshStandardMaterial({ color: 0x323b4c, roughness: 0.9 }); // 천장(0x171c26)보다 밝게 — 바운스광에서 격자가 읽히도록
+  const beams = new THREE.InstancedMesh(beamGeo, matBeam, beamRows * gaps.length);
+  const _m = new THREE.Matrix4();
+  let bi = 0;
+  for (let r = 0; r < beamRows; r++) {
+    for (const [x0, x1] of gaps) {
+      _m.makeScale(x1 - x0, 1, 1);
+      _m.setPosition((x0 + x1) / 2, CEIL_UNDER - 0.1, beamZ0 + r * BEAM_GAP);
+      beams.setMatrixAt(bi++, _m);
+    }
+  }
+  beams.instanceMatrix.needsUpdate = true;
+  engine.addVisual(beams);
+
+  // 다운라이트 — 스트립이 없는 **바깥 구간**(|x|>2.55)이 천장에서 가장 어두웠다. 보 사이 칸 중앙에
+  // 하나씩 박는다. 아래를 향한 원판(rotX +90° → 법선 -y). 여기도 InstancedMesh 1개.
+  const DOWN_X = [-3.5, 3.5];
+  const downGeo = new THREE.CircleGeometry(0.085, 12);
+  const downs = new THREE.InstancedMesh(
+    downGeo,
+    new THREE.MeshStandardMaterial({
+      color: 0x000000,
+      emissive: 0xfff2d8, // 코브·스트립의 시안과 대비되는 따뜻한 백색 (실제 다운라이트)
+      emissiveIntensity: 2.2,
+      side: THREE.DoubleSide,
+    }),
+    (beamRows - 1) * DOWN_X.length,
+  );
+  const _q = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), Math.PI / 2);
+  const _s = new THREE.Vector3(1, 1, 1);
+  const _p = new THREE.Vector3();
+  let di = 0;
+  for (let r = 0; r < beamRows - 1; r++) {
+    for (const x of DOWN_X) {
+      _p.set(x, CEIL_UNDER - 0.012, beamZ0 + (r + 0.5) * BEAM_GAP);
+      downs.setMatrixAt(di++, _m.compose(_p, _q, _s));
+    }
+  }
+  downs.instanceMatrix.needsUpdate = true;
+  engine.addVisual(downs);
+}
+
+/** 핀 뒤 애니메이션 전광판 — 캔버스를 붙인 평면. 컨텍스트·텍스처는 호출부가 들고 매 프레임 그린다. */
+function buildScreen(engine: Engine): { ctx: CanvasRenderingContext2D; tex: THREE.CanvasTexture } {
+  // --- 핀 뒤 애니메이션 전광판 (절차적, 에셋 0) ---
+  const sc = document.createElement('canvas');
+  sc.width = 768;
+  sc.height = 256;
+  const ctx = sc.getContext('2d')!;
+  const tex = new THREE.CanvasTexture(sc);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  // rotateY(π) 단독이면 텍스트 정상 — 별도 미러 보정 불필요(repeat.x=-1 넣으면 오히려 뒤집힘)
+  // 전광판은 **마스킹 유닛(캐노피) 앞면**에 붙인다 — 개구부 바로 위부터 시작.
+  // 예전엔 뒤쪽 마스킹 월(z≈20.69)에 있어서 캐노피 위로만 보였고, 그 사이 캐노피 앞면이
+  // 높이 1.35m짜리 시커먼 띠로 남았다. 실제 볼링장도 마스킹 유닛 면이 디스플레이다.
+  // 아래로는 네온 트림 바로 위(PIN_BAY_TOP+0.28)까지만 내려온다 — 개구부는 안 가린다.
+  // 화면을 마스킹 유닛에 **꽉 채운다** — 위아래 검은 띠를 없애는 게 목적이다.
+  //  · 폭: 홀 전폭(양옆 벽까지)
+  //  · 아랫단: 정확히 개구부 상단(PIN_BAY_TOP) — 핀 베이와 맞닿아 틈이 없다
+  //  · 윗단: 3:1 비율로 따라오면 3.55, 마스킹 월 상단(3.6) 바로 아래
+  // 베젤(검은 테)은 제거했다. 전광판이 뒤쪽 마스킹 월에 있던 시절의 액자인데,
+  // 캐노피 앞면으로 옮긴 뒤로는 화면 위아래로 0.15씩 삐져나온 **검은 띠**로만 보였다.
+  // (아래쪽은 캐노피 면 0.6~0.73까지 겹쳐 0.28짜리 띠가 됐다.)
+  const scrW = HALL_HALF_W * 2;
+  const scrH = scrW * (256 / 768);
+  const scrBottom = PIN_BAY_TOP;
+  const screenY = scrBottom + scrH / 2;
+  const screenZ = PIN_BAY_FRONT_Z - 0.03; // 캐노피 앞면 바로 앞
+  const screen = new THREE.Mesh(
+    new THREE.PlaneGeometry(scrW, scrH),
+    new THREE.MeshBasicMaterial({ map: tex, toneMapped: false }),
+  );
+  screen.position.set(0, screenY, screenZ);
+  screen.rotation.y = Math.PI; // 플레이어(−z)를 향함
+  engine.addVisual(screen);
+  return { ctx, tex };
+}
+
+/** 옆벽 그래픽 밴드 — 핀 실루엣이 반복되는 가로 밴드 + 돌출 프레임. */
+function buildWallBands(engine: Engine) {
+  // --- 옆벽 그래픽 밴드 (정적, 절차적) ---
+  //
+  // 예전엔 1.7×1.2 '액자'에 전광판과 같은 신스웨이브 선셋을 넣었다. 세 가지가 겹쳐 있었다:
+  //  ① 옆벽은 시선과 거의 평행이라 가로폭이 22~56%로 압축된다 → 가로 그림이 세로로 눌리고,
+  //     하필 콘텐츠가 **원**(해)이라 계란이 됐다. 세로형으로 뒤집는 건 정반대 처방이다 —
+  //     압축이 그 위에 곱해져 바늘이 된다(1.2×1.7이면 보이는 비 0.15). **더 가로로 길어야** 한다.
+  //     실측 보이는 비: 1.7×1.2 = 0.31~1.38 / 5.0×0.8 = 1.35~6.08(전 포즈 가로형 유지).
+  //  ② MeshBasicMaterial + toneMapped:false라 조명과 톤매핑을 둘 다 무시했다. 벽이 검을 때는
+  //     네온 사인으로 맞았지만, 벽이 코브 워시를 받는 면이 된 뒤로는 **화면에서 유일하게 빛을
+  //     안 받는 물체**라 붙여놓은 스티커로 읽혔다. → MeshStandardMaterial.
+  //  ③ 전광판(홀 전폭)과 같은 그림이라 한 화면에 같은 이미지가 5개(큰 것 1 + 미니 4)였다.
+  //     → 핀 실루엣 반복 밴드(makePosterTexture 주석 참고).
+  // 실제 볼링장 옆벽에 있는 것도 액자가 아니라 레인을 따라 달리는 긴 그래픽 밴드다.
+  const AD_W = 5.0;
+  const AD_H = 0.8;
+  const wallFaceX = HALL_HALF_W - 0.15; // 벽 내측면
+  const adGeo = new THREE.PlaneGeometry(AD_W, AD_H);
+  // 프레임 — 레일·코브와 같은 문법(돌출 → 그림자선). 바깥면을 벽에 7.5mm 박아 뜬 틈을 없앤다.
+  const frameGeo = new THREE.BoxGeometry(0.05, AD_H + 0.1, AD_W + 0.1);
+  const matFrame = new THREE.MeshStandardMaterial({ color: 0x2a3142, roughness: 0.75 });
+  // 액센트는 홀 팔레트에 맞춰 웜(골드)·쿨(시안) 한 쌍. 구 핑크/퍼플은 전광판 색이라 뺐다.
+  const ads = [
+    { tex: makePosterTexture(NEON.gold, NEON.amber), z: 3.5 },
+    { tex: makePosterTexture(NEON.cyan, NEON.ice), z: 9.5 },
+  ];
+  for (const side of [-1, 1]) {
+    for (const ad of ads) {
+      const frame = new THREE.Mesh(frameGeo, matFrame);
+      frame.position.set(side * (wallFaceX - 0.0175), 2.4, ad.z); // 내측면이 벽에서 42.5mm 돌출
+      engine.addVisual(frame);
+
+      const band = new THREE.Mesh(
+        adGeo,
+        new THREE.MeshStandardMaterial({ map: ad.tex, roughness: 0.85, metalness: 0 }),
+      );
+      band.position.set(side * (wallFaceX - 0.048), 2.4, ad.z); // 프레임 내측면보다 5.5mm 앞
+      band.rotation.y = side < 0 ? Math.PI / 2 : -Math.PI / 2; // 플레이어 쪽(레인 중앙)을 향함
+      engine.addVisual(band);
+    }
+  }
+}
+
+/** 플레이 레인 마커 — 파울라인 · 에임 화살표 7 · 스팟 5. 거리·속도 지각 단서. */
+function buildLaneMarkers(engine: Engine) {
+  // --- 플레이 레인 마커 (파울라인·에임 화살표·스팟) — 거리·속도 지각 단서 ---
+  const matMark = new THREE.MeshStandardMaterial({ color: 0x46280e, roughness: 0.6 });
+  const foul = new THREE.Mesh(new THREE.PlaneGeometry(LANE_WIDTH, 0.05),
+    new THREE.MeshStandardMaterial({ color: 0x551515, roughness: 0.6 }));
+  foul.rotation.x = -Math.PI / 2;
+  foul.position.set(0, 0.004, 0);
+  engine.addVisual(foul);
+
+  const tri = new THREE.Shape();
+  tri.moveTo(0, -0.1);
+  tri.lineTo(-0.035, 0.05);
+  tri.lineTo(0.035, 0.05);
+  tri.closePath();
+  const triGeo = new THREE.ShapeGeometry(tri); // rotX(-90°) 후 +z(다운레인) 방향
+  for (let i = -3; i <= 3; i++) {
+    const arrow = new THREE.Mesh(triGeo, matMark);
+    arrow.rotation.x = -Math.PI / 2;
+    arrow.position.set(i * 0.131, 0.004, 4.7 - Math.abs(i) * 0.28);
+    engine.addVisual(arrow);
+  }
+  const dotGeo = new THREE.CircleGeometry(0.022, 12);
+  for (let i = -2; i <= 2; i++) {
+    const dot = new THREE.Mesh(dotGeo, matMark);
+    dot.rotation.x = -Math.PI / 2;
+    dot.position.set(i * 0.18, 0.004, 2.13);
+    engine.addVisual(dot);
+  }
+}
+
 /**
  * 볼링장 배경 (시각 전용, 충돌체 없음).
  * 옆 레인×4 + 어프로치 바닥 + 양쪽 벽 + 천장(조명 스트립) + 핀덱 마스킹·네온 + 레인 마커.
@@ -435,9 +753,6 @@ export class Environment {
   private readonly screenTex: THREE.CanvasTexture;
   private time = 0;
   private lastDraw = -1; // 전광판 마지막 재드로우 시각(#2 스로틀). -1 = 첫 프레임 강제 드로우.
-  private announceText = '';
-  private announceColor: string = NEON.pink;
-  private announceUntil = 0;
   // 커스텀 전광판 (히든 보상). null이면 기본 신스웨이브를 그린다.
   private customImg: HTMLImageElement | null = null;
   private customReady = false;
@@ -453,8 +768,6 @@ export class Environment {
 
   constructor(engine: Engine) {
     const RAPIER = getRapier(); // 옆 레인 핀·공·레이크를 강체로 올린다 (도안 §5.2와 같은 월드)
-    const len = LANE_END_Z - LANE_START_Z;
-    const midZ = (LANE_START_Z + LANE_END_Z) / 2;
     const half = LANE_WIDTH / 2;
 
     const woodNeighbor = makeWoodTexture('#a8763a', '#7d5524');
@@ -462,14 +775,13 @@ export class Environment {
     const matLane = new THREE.MeshStandardMaterial({ map: woodNeighbor, roughness: 0.55 });
     const matGutter = new THREE.MeshStandardMaterial({ color: 0x14181f, roughness: 0.7 });
     const matCap = new THREE.MeshStandardMaterial({ color: 0x1b2029, roughness: 1, metalness: 0, envMapIntensity: 0 }); // Lane.ts 캐핑과 동일 톤
-    // 배경 장식 핀 — 진짜 핀(Pin.ts)과 같은 병 실루엣 LatheGeometry. (예전 단순 원뿔 실린더라 어색했음.)
-    // base가 y=0, 꼭대기 y≈0.38. 배경이라 세그먼트는 적게(12). 프로파일은 constants.PIN_PROFILE 단일소스 공유(#9).
-    // 진짜 핀과 같은 헬퍼 — 목 빨간 띠까지 공유한다(한쪽만 민무늬면 같은 화면에서 티가 난다).
-    // 세그먼트는 12→16만: 장식이라 항상 멀리 있고 4레인 × 10개 = 40개다.
+    // 옆 레인 핀 — 진짜 핀(Pin.ts)과 같은 병 실루엣 LatheGeometry에 목 빨간 띠까지 공유한다
+    // (한쪽만 민무늬면 같은 화면에서 티가 난다). 프로파일은 constants.PIN_PROFILE 단일소스(#9).
+    // radialSegments는 16 — 진짜 핀(32)의 절반이다. 항상 멀리 있고 4레인 × 10개 = 40개라
+    // 가로 각짐이 안 보인다.
+    // ⚠️ makePinGeometry는 **캐시된 공유 인스턴스**를 준다 — 여기서 변형하면 진짜 핀까지 어긋난다.
+    // (이미 몸통 중심이 원점이라 cylinder 콜라이더 원점과 기준이 같다.)
     const pinGeo = makePinGeometry(16);
-    // 원점을 밑동 → 몸통 **중심**으로. cylinder 콜라이더의 원점이 중심이라 Engine.sync가 그대로 맞는다
-    // (Pin.ts의 진짜 핀도 같은 이유로 같은 보정을 한다).
-    pinGeo.translate(0, -PIN_HEIGHT / 2, 0);
     const pinMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.5 });
     // 앰비언트 공 — 4레인 공용. 어둡고 채도 낮게: 배경 모션이 내 조준에서 시선을 덜 끌어야 한다
     // (주변부 모션은 비자발적 주의 전환을 강제한다 — 위 Lane courtesy 주석 참고).
@@ -481,15 +793,15 @@ export class Environment {
       for (let k = 1; k <= 2; k++) {
         const cx = side * k * LANE_UNIT;
         buildAmbLanePhysics(engine, cx); // 바닥·거터·킥백·뒷벽 — 핀이 실제로 놓이고 튕길 면
-        const floor = new THREE.Mesh(new THREE.BoxGeometry(LANE_WIDTH, 0.1, len), matLane);
-        floor.position.set(cx, -0.06, midZ); // 플레이 레인보다 1cm 낮게 (구분감)
+        const floor = new THREE.Mesh(new THREE.BoxGeometry(LANE_WIDTH, 0.1, LANE_LEN), matLane);
+        floor.position.set(cx, -0.06, LANE_MID_Z); // 플레이 레인보다 1cm 낮게 (구분감)
         floor.receiveShadow = true;
         engine.addVisual(floor);
         for (const s2 of [-1, 1]) {
-          const gut = new THREE.Mesh(new THREE.BoxGeometry(GUTTER_WIDTH, 0.1, len), matGutter);
+          const gut = new THREE.Mesh(new THREE.BoxGeometry(GUTTER_WIDTH, 0.1, LANE_LEN), matGutter);
           // 윗면을 플레이 레인 거터와 같은 -GUTTER_DEPTH로. 예전 -0.18(윗면 -0.13)은 옛 거터 깊이가
           // 남은 값이라, 홀을 평탄화하고 나니 옆 레인만 도랑처럼 깊게 파여 보였다.
-          gut.position.set(cx + s2 * (half + GUTTER_WIDTH / 2), -GUTTER_DEPTH - 0.05, midZ);
+          gut.position.set(cx + s2 * (half + GUTTER_WIDTH / 2), -GUTTER_DEPTH - 0.05, LANE_MID_Z);
           engine.addVisual(gut);
         }
         // 핀 10개 (정삼각형) — 더는 '장식'이 아니다. 앰비언트 사이클에서 실제로 넘어지고 다시 선다.
@@ -577,316 +889,24 @@ export class Environment {
       // 원근 단서는 이제 능선이 아니라 레인/거터/캐핑이 만드는 색 띠의 수렴선이 담당한다
       // (천장 조명 스트립 3줄 + 레인 화살표가 보강).
       for (let k = 1; k <= 2; k++) {
-        const cap = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.1, len), matCap);
-        cap.position.set(side * (LANE_UNIT / 2 + k * LANE_UNIT), -0.05, midZ); // 윗면 y=0
+        const cap = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.1, LANE_LEN), matCap);
+        cap.position.set(side * (LANE_UNIT / 2 + k * LANE_UNIT), -0.05, LANE_MID_Z); // 윗면 y=0
         cap.receiveShadow = true;
         engine.addVisual(cap);
       }
     }
 
-    // --- 어프로치(투구 구역) 바닥 ---
-    const woodApproach = makeWoodTexture('#8a6234', '#64461f', 12);
-    woodApproach.repeat.set(8, 3);
-    const approach = new THREE.Mesh(
-      new THREE.BoxGeometry(HALL_HALF_W * 2, 0.1, 7),
-      new THREE.MeshStandardMaterial({ map: woodApproach, roughness: 0.6 }),
-    );
-    approach.position.set(0, -0.05, LANE_START_Z - 3.5);
-    approach.receiveShadow = true;
-    engine.addVisual(approach);
-
-    // --- 핀덱 뒤 마스킹 월 + 네온 띠 ---
-    const wall = new THREE.Mesh(
-      new THREE.BoxGeometry(HALL_HALF_W * 2, 3.6, 0.25),
-      new THREE.MeshStandardMaterial({ color: 0x0b0e14, roughness: 0.9 }),
-    );
-    wall.position.set(0, 1.8, LANE_END_Z + 0.45);
-    engine.addVisual(wall);
-
-    // 핀 위 캐노피(마스킹 유닛) + 전면 네온 2줄
-    // 캐노피 = 베이 천장. 앞면은 네온 띠(z≈17.77) 바로 뒤에 두고, 뒤로는 마스킹 월까지 이어
-    // 붙여 베이 위를 닫는다 — 예전엔 z 19.99에서 끊겨 베이 천장에 구멍이 났고,
-    // 그 틈으로 뒷벽이 보여 핀이 '박스 안'이 아니라 평면 위에 놓인 것처럼 읽혔다.
-    const bayFrontZ = PIN_BAY_FRONT_Z;
-    const maskFaceZ = LANE_END_Z + 0.45 - 0.125; // 마스킹 월 앞면
-    const canopyLen = maskFaceZ - bayFrontZ;
-    const canopyH = PIN_BAY_CANOPY_TOP - PIN_BAY_TOP;
-    const canopy = new THREE.Mesh(
-      new THREE.BoxGeometry(HALL_HALF_W * 2, canopyH, canopyLen),
-      new THREE.MeshStandardMaterial({ color: 0x12161f, roughness: 0.85 }),
-    );
-    canopy.position.set(0, PIN_BAY_TOP + canopyH / 2, bayFrontZ + canopyLen / 2);
-    engine.addVisual(canopy);
-
-    // --- 핀 베이 측벽(킥백) — 레인 5개 전부 ---
-    // 실제 볼링장은 레인마다 핀덱이 양옆 킥백 + 위 캐노피 + 뒤 마스킹 월로 둘러싸인 박스 안에 있다.
-    // 이게 없으면 핀이 '안으로 들어가 있는' 느낌이 안 나고, 플레이 레인에만 있으면 더 어색하다.
-    // 시각 전용 — 플레이 레인의 물리 킥백 콜라이더는 Lane.ts가 같은 높이(PIN_BAY_TOP)로 만든다.
-    const matKick = new THREE.MeshStandardMaterial({ color: 0x222831, roughness: 1, metalness: 0, envMapIntensity: 0 });
-    const bayLen = maskFaceZ - KICKBACK_START_Z;
-    for (const side of [-1, 1]) {
-      for (let k = 0; k <= 2; k++) {
-        const kick = new THREE.Mesh(new THREE.BoxGeometry(0.1, PIN_BAY_TOP, bayLen), matKick);
-        kick.position.set(side * (LANE_UNIT / 2 + k * LANE_UNIT), PIN_BAY_TOP / 2, KICKBACK_START_Z + bayLen / 2);
-        kick.receiveShadow = true;
-        engine.addVisual(kick);
-      }
-    }
-
-    // 베이 뒷벽 — 개구부 높이만큼(y 0~PIN_BAY_TOP) 홀 전폭을 막는다. 전광판(z≈20.69) **앞**에
-    // 둬야 아랫단을 가린다. 이게 없으면 핀 뒤로 전광판이 비쳐 '뚫린' 것처럼 보인다.
-    // 플레이 레인 피트는 y<0이라 안 가려진다(공이 떨어지는 건 그대로 보인다).
-    const bayBack = new THREE.Mesh(
-      new THREE.BoxGeometry(HALL_HALF_W * 2, PIN_BAY_TOP, 0.1),
-      new THREE.MeshStandardMaterial({ color: 0x0a0d12, roughness: 1, metalness: 0, envMapIntensity: 0 }),
-    );
-    bayBack.position.set(0, PIN_BAY_TOP / 2, LANE_END_Z + 0.02); // 전광판(+0.11)보다 앞
-    bayBack.receiveShadow = true;
-    engine.addVisual(bayBack);
-    // (마스킹 유닛 아랫단 네온 트림 2줄은 제거했다 — 전광판을 개구부 바로 위까지 내린 뒤로는
-    //  전광판과 핀 사이를 가로지르는 굵은 띠로만 읽혔다. 낮은 접근 카메라에선 특히 화면을 먹었다.)
-
-    // --- 양쪽 벽 (3단) + 천장(코퍼드) + 조명 ---
-    //
-    // 예전엔 옆벽 = 31.6m 박스 1개에 단색(#161b26), 천장 = 평면 1개에 스트립 3줄이었다.
-    // 실측(레이캐스트)에서 **가로 화면 조준 시 맨살 옆벽이 29.7%** — 플레이 레인(14.4%)의 두 배가
-    // 정보량 0인 검은 면이었고, 세로 화면에선 가로 FOV가 좁아 그 자리를 **천장 17.6%**가 대신했다.
-    // 픽셀 휘도로도 레인 0.869 vs 벽 0.055~0.098 · 천장 0.044 — 20:1이라 '면'이 아니라 '구멍'으로 읽혔다.
-    //
-    // 그래서 밝히는 게 아니라 **구조를 넣는다**(실제 볼링장 벽·천장이 그렇다):
-    //  · 벽 = 하부 웨인스코트(우드) / 체어 레일 / 코브 워시 상부 → 수평 수렴선 2줄 + 판자·이음매 리듬
-    //  · 천장 = 스트립 3줄은 그대로 두고 그 **사이사이**를 보(beam)로 메워 코퍼드 격자
-    // 세로·가로가 서로 다른 면 때문에 휑하므로 둘 다 손대야 한다(한쪽만 하면 한쪽은 그대로다).
-    const WALL_LEN = len + 9;
-    const WALL_Z = midZ - 3;
-    const WAINSCOT_TOP = 1.0; // 체어 레일 높이 (실제 웨인스코트 ~0.9~1.1m)
-    const WALL_STRUCT_TOP = 4.25; // 벽 상단 — 천장(4.0~4.2)과 겹쳐 이음선을 감춘다
-    const CEIL_UNDER = 4.0; // 천장 아랫면
-    // 코브는 옆벽 광고판(y 1.8~3.0) **위**에 둔다 — 겹치면 광고판이 코브 선을 4번 끊는다.
-    const COVE_Y = 3.25;
-
-    const wallTex = makeWallTexture((COVE_Y - WAINSCOT_TOP) / (WALL_STRUCT_TOP - WAINSCOT_TOP));
-    wallTex.repeat.set(Math.round(WALL_LEN / 1.6), 1); // 패널 폭 ≈0.8m (타일당 이음매 2줄)
-    const matWallUp = new THREE.MeshStandardMaterial({ map: wallTex, roughness: 0.9, metalness: 0 });
-    // 웨인스코트 — makeWoodTexture의 판자(u축)가 벽면에선 **세로결**이 된다. z로 반복돼 리듬을 만든다.
-    const wainTex = makeWoodTexture('#5a3f20', '#3a2712', 10);
-    wainTex.repeat.set(Math.round(WALL_LEN / 1.5), 1); // 판자 폭 ≈0.15m
-    const matWain = new THREE.MeshStandardMaterial({ map: wainTex, roughness: 0.8 });
-    const matRail = new THREE.MeshStandardMaterial({ color: 0x394153, roughness: 0.7 });
-    const matCove = new THREE.MeshStandardMaterial({
-      color: 0x000000,
-      emissive: NEON.ice,
-      emissiveIntensity: 1.35, // 천장 스트립(1.6)보다 살짝 죽여 시선이 위로 안 끌리게
-    });
-    for (const side of [-1, 1]) {
-      const up = new THREE.Mesh(
-        new THREE.BoxGeometry(0.3, WALL_STRUCT_TOP - WAINSCOT_TOP, WALL_LEN),
-        matWallUp,
-      );
-      up.position.set(side * HALL_HALF_W, (WAINSCOT_TOP + WALL_STRUCT_TOP) / 2, WALL_Z);
-      engine.addVisual(up);
-
-      const wain = new THREE.Mesh(new THREE.BoxGeometry(0.3, WAINSCOT_TOP + 0.25, WALL_LEN), matWain);
-      wain.position.set(side * HALL_HALF_W, (WAINSCOT_TOP - 0.25) / 2, WALL_Z); // 아래 -0.25(바닥 아래)까지
-      wain.receiveShadow = true;
-      engine.addVisual(wain);
-
-      // 체어 레일·코브는 벽면보다 살짝 튀어나오게(두께 ↑) — 얇은 그림자선이 생겨 수평선이 또렷해진다.
-      const rail = new THREE.Mesh(new THREE.BoxGeometry(0.36, 0.07, WALL_LEN), matRail);
-      rail.position.set(side * HALL_HALF_W, WAINSCOT_TOP, WALL_Z);
-      engine.addVisual(rail);
-
-      const cove = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.07, WALL_LEN), matCove);
-      cove.position.set(side * HALL_HALF_W, COVE_Y, WALL_Z);
-      engine.addVisual(cove);
-    }
-
-    const ceiling = new THREE.Mesh(
-      new THREE.BoxGeometry(HALL_HALF_W * 2, 0.2, WALL_LEN),
-      // 0x0e1118 → 살짝 올림. 보를 얹을 '바탕'이 필요해서지, 밝히려는 게 아니다(실제 천장도 어둡다).
-      new THREE.MeshStandardMaterial({ color: 0x171c26, roughness: 0.95 }),
-    );
-    ceiling.position.set(0, CEIL_UNDER + 0.1, WALL_Z);
-    engine.addVisual(ceiling);
-
-    // 조명 스트립 3줄 — 그대로 유지. 실측/스크린샷에서 **수렴선 역할을 제대로 하고 있던** 유일한
-    // 천장 요소다. 보를 이 위에 겹쳐 끊지 않도록, 보는 스트립 사이 x 구간에만 넣는다(아래).
-    const STRIP_X = [-2.4, 0, 2.4];
-    const STRIP_HALF_W = 0.15;
-    const stripMat = new THREE.MeshStandardMaterial({
-      color: 0x000000,
-      emissive: NEON.ice,
-      emissiveIntensity: 1.6,
-    });
-    for (const x of STRIP_X) {
-      const strip = new THREE.Mesh(new THREE.BoxGeometry(STRIP_HALF_W * 2, 0.06, len + 7), stripMat);
-      strip.position.set(x, 3.96, WALL_Z); // 천장 수렴선 = 강한 원근 단서
-      engine.addVisual(strip);
-    }
-
-    // 천장 보(beam) — 레인 직각으로 2.5m마다. 스트립이 지나는 x 구간은 비워 4토막으로 넣는다
-    // (스트립을 가로질러 끊으면 애써 살아 있던 수렴선이 죽는다). 세그먼트 폭이 달라 스케일을
-    // 인스턴스마다 넣는다. InstancedMesh라 4×13=52개가 드로우콜 1개.
-    const BEAM_GAP = 2.5;
-    const beamZ0 = WALL_Z - WALL_LEN / 2 + 0.5;
-    const beamRows = Math.floor((WALL_LEN - 1.0) / BEAM_GAP) + 1;
-    const gaps: [number, number][] = []; // 스트립 사이·바깥의 x 구간
-    let edge = -HALL_HALF_W;
-    for (const x of STRIP_X) {
-      gaps.push([edge, x - STRIP_HALF_W]);
-      edge = x + STRIP_HALF_W;
-    }
-    gaps.push([edge, HALL_HALF_W]);
-    const beamGeo = new THREE.BoxGeometry(1, 0.2, 0.22); // 폭 1 = 인스턴스 스케일로 늘린다
-    const matBeam = new THREE.MeshStandardMaterial({ color: 0x323b4c, roughness: 0.9 }); // 천장(0x171c26)보다 밝게 — 바운스광에서 격자가 읽히도록
-    const beams = new THREE.InstancedMesh(beamGeo, matBeam, beamRows * gaps.length);
-    const _m = new THREE.Matrix4();
-    let bi = 0;
-    for (let r = 0; r < beamRows; r++) {
-      for (const [x0, x1] of gaps) {
-        _m.makeScale(x1 - x0, 1, 1);
-        _m.setPosition((x0 + x1) / 2, CEIL_UNDER - 0.1, beamZ0 + r * BEAM_GAP);
-        beams.setMatrixAt(bi++, _m);
-      }
-    }
-    beams.instanceMatrix.needsUpdate = true;
-    engine.addVisual(beams);
-
-    // 다운라이트 — 스트립이 없는 **바깥 구간**(|x|>2.55)이 천장에서 가장 어두웠다. 보 사이 칸 중앙에
-    // 하나씩 박는다. 아래를 향한 원판(rotX +90° → 법선 -y). 여기도 InstancedMesh 1개.
-    const DOWN_X = [-3.5, 3.5];
-    const downGeo = new THREE.CircleGeometry(0.085, 12);
-    const downs = new THREE.InstancedMesh(
-      downGeo,
-      new THREE.MeshStandardMaterial({
-        color: 0x000000,
-        emissive: 0xfff2d8, // 코브·스트립의 시안과 대비되는 따뜻한 백색 (실제 다운라이트)
-        emissiveIntensity: 2.2,
-        side: THREE.DoubleSide,
-      }),
-      (beamRows - 1) * DOWN_X.length,
-    );
-    const _q = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), Math.PI / 2);
-    const _s = new THREE.Vector3(1, 1, 1);
-    const _p = new THREE.Vector3();
-    let di = 0;
-    for (let r = 0; r < beamRows - 1; r++) {
-      for (const x of DOWN_X) {
-        _p.set(x, CEIL_UNDER - 0.012, beamZ0 + (r + 0.5) * BEAM_GAP);
-        downs.setMatrixAt(di++, _m.compose(_p, _q, _s));
-      }
-    }
-    downs.instanceMatrix.needsUpdate = true;
-    engine.addVisual(downs);
-
-    // --- 핀 뒤 애니메이션 전광판 (절차적, 에셋 0) ---
-    const sc = document.createElement('canvas');
-    sc.width = 768;
-    sc.height = 256;
-    this.screenCtx = sc.getContext('2d')!;
-    this.screenTex = new THREE.CanvasTexture(sc);
-    this.screenTex.colorSpace = THREE.SRGBColorSpace;
-    // rotateY(π) 단독이면 텍스트 정상 — 별도 미러 보정 불필요(repeat.x=-1 넣으면 오히려 뒤집힘)
-    // 전광판은 **마스킹 유닛(캐노피) 앞면**에 붙인다 — 개구부 바로 위부터 시작.
-    // 예전엔 뒤쪽 마스킹 월(z≈20.69)에 있어서 캐노피 위로만 보였고, 그 사이 캐노피 앞면이
-    // 높이 1.35m짜리 시커먼 띠로 남았다. 실제 볼링장도 마스킹 유닛 면이 디스플레이다.
-    // 아래로는 네온 트림 바로 위(PIN_BAY_TOP+0.28)까지만 내려온다 — 개구부는 안 가린다.
-    // 화면을 마스킹 유닛에 **꽉 채운다** — 위아래 검은 띠를 없애는 게 목적이다.
-    //  · 폭: 홀 전폭(양옆 벽까지)
-    //  · 아랫단: 정확히 개구부 상단(PIN_BAY_TOP) — 핀 베이와 맞닿아 틈이 없다
-    //  · 윗단: 3:1 비율로 따라오면 3.55, 마스킹 월 상단(3.6) 바로 아래
-    // 베젤(검은 테)은 제거했다. 전광판이 뒤쪽 마스킹 월에 있던 시절의 액자인데,
-    // 캐노피 앞면으로 옮긴 뒤로는 화면 위아래로 0.15씩 삐져나온 **검은 띠**로만 보였다.
-    // (아래쪽은 캐노피 면 0.6~0.73까지 겹쳐 0.28짜리 띠가 됐다.)
-    const scrW = HALL_HALF_W * 2;
-    const scrH = scrW * (256 / 768);
-    const scrBottom = PIN_BAY_TOP;
-    const screenY = scrBottom + scrH / 2;
-    const screenZ = bayFrontZ - 0.03; // 캐노피 앞면 바로 앞
-    const screen = new THREE.Mesh(
-      new THREE.PlaneGeometry(scrW, scrH),
-      new THREE.MeshBasicMaterial({ map: this.screenTex, toneMapped: false }),
-    );
-    screen.position.set(0, screenY, screenZ);
-    screen.rotation.y = Math.PI; // 플레이어(−z)를 향함
-    engine.addVisual(screen);
+    // 나머지 정적 지오메트리는 빌더로 나눠 둔다 — 여기 있던 430줄이 옆 레인·홀 껍데기·벽·천장·
+    // 전광판·광고밴드·마커를 한 몸에 들고 있었다. 순서는 의미가 없다(전부 독립 배치).
+    buildApproachFloor(engine);
+    buildPinBayShell(engine);
+    buildHallSurfaces(engine);
+    const scr = buildScreen(engine);
+    this.screenCtx = scr.ctx;
+    this.screenTex = scr.tex;
     this.drawScreen(); // 초기 1프레임
-
-    // --- 옆벽 그래픽 밴드 (정적, 절차적) ---
-    //
-    // 예전엔 1.7×1.2 '액자'에 전광판과 같은 신스웨이브 선셋을 넣었다. 세 가지가 겹쳐 있었다:
-    //  ① 옆벽은 시선과 거의 평행이라 가로폭이 22~56%로 압축된다 → 가로 그림이 세로로 눌리고,
-    //     하필 콘텐츠가 **원**(해)이라 계란이 됐다. 세로형으로 뒤집는 건 정반대 처방이다 —
-    //     압축이 그 위에 곱해져 바늘이 된다(1.2×1.7이면 보이는 비 0.15). **더 가로로 길어야** 한다.
-    //     실측 보이는 비: 1.7×1.2 = 0.31~1.38 / 5.0×0.8 = 1.35~6.08(전 포즈 가로형 유지).
-    //  ② MeshBasicMaterial + toneMapped:false라 조명과 톤매핑을 둘 다 무시했다. 벽이 검을 때는
-    //     네온 사인으로 맞았지만, 벽이 코브 워시를 받는 면이 된 뒤로는 **화면에서 유일하게 빛을
-    //     안 받는 물체**라 붙여놓은 스티커로 읽혔다. → MeshStandardMaterial.
-    //  ③ 전광판(홀 전폭)과 같은 그림이라 한 화면에 같은 이미지가 5개(큰 것 1 + 미니 4)였다.
-    //     → 핀 실루엣 반복 밴드(makePosterTexture 주석 참고).
-    // 실제 볼링장 옆벽에 있는 것도 액자가 아니라 레인을 따라 달리는 긴 그래픽 밴드다.
-    const AD_W = 5.0;
-    const AD_H = 0.8;
-    const wallFaceX = HALL_HALF_W - 0.15; // 벽 내측면
-    const adGeo = new THREE.PlaneGeometry(AD_W, AD_H);
-    // 프레임 — 레일·코브와 같은 문법(돌출 → 그림자선). 바깥면을 벽에 7.5mm 박아 뜬 틈을 없앤다.
-    const frameGeo = new THREE.BoxGeometry(0.05, AD_H + 0.1, AD_W + 0.1);
-    const matFrame = new THREE.MeshStandardMaterial({ color: 0x2a3142, roughness: 0.75 });
-    // 액센트는 홀 팔레트에 맞춰 웜(골드)·쿨(시안) 한 쌍. 구 핑크/퍼플은 전광판 색이라 뺐다.
-    const ads = [
-      { tex: makePosterTexture(NEON.gold, NEON.amber), z: 3.5 },
-      { tex: makePosterTexture(NEON.cyan, NEON.ice), z: 9.5 },
-    ];
-    for (const side of [-1, 1]) {
-      for (const ad of ads) {
-        const frame = new THREE.Mesh(frameGeo, matFrame);
-        frame.position.set(side * (wallFaceX - 0.0175), 2.4, ad.z); // 내측면이 벽에서 42.5mm 돌출
-        engine.addVisual(frame);
-
-        const band = new THREE.Mesh(
-          adGeo,
-          new THREE.MeshStandardMaterial({ map: ad.tex, roughness: 0.85, metalness: 0 }),
-        );
-        band.position.set(side * (wallFaceX - 0.048), 2.4, ad.z); // 프레임 내측면보다 5.5mm 앞
-        band.rotation.y = side < 0 ? Math.PI / 2 : -Math.PI / 2; // 플레이어 쪽(레인 중앙)을 향함
-        engine.addVisual(band);
-      }
-    }
-
-    // --- 플레이 레인 마커 (파울라인·에임 화살표·스팟) — 거리·속도 지각 단서 ---
-    const matMark = new THREE.MeshStandardMaterial({ color: 0x46280e, roughness: 0.6 });
-    const foul = new THREE.Mesh(new THREE.PlaneGeometry(LANE_WIDTH, 0.05),
-      new THREE.MeshStandardMaterial({ color: 0x551515, roughness: 0.6 }));
-    foul.rotation.x = -Math.PI / 2;
-    foul.position.set(0, 0.004, 0);
-    engine.addVisual(foul);
-
-    const tri = new THREE.Shape();
-    tri.moveTo(0, -0.1);
-    tri.lineTo(-0.035, 0.05);
-    tri.lineTo(0.035, 0.05);
-    tri.closePath();
-    const triGeo = new THREE.ShapeGeometry(tri); // rotX(-90°) 후 +z(다운레인) 방향
-    for (let i = -3; i <= 3; i++) {
-      const arrow = new THREE.Mesh(triGeo, matMark);
-      arrow.rotation.x = -Math.PI / 2;
-      arrow.position.set(i * 0.131, 0.004, 4.7 - Math.abs(i) * 0.28);
-      engine.addVisual(arrow);
-    }
-    const dotGeo = new THREE.CircleGeometry(0.022, 12);
-    for (let i = -2; i <= 2; i++) {
-      const dot = new THREE.Mesh(dotGeo, matMark);
-      dot.rotation.x = -Math.PI / 2;
-      dot.position.set(i * 0.18, 0.004, 2.13);
-      engine.addVisual(dot);
-    }
-  }
-
-  /** 이벤트(스트라이크/스페어 등)를 전광판에 큼지막하게 띄움 (Boot.onEvent에서 호출) */
-  announce(text: string, color: string = NEON.pink) {
-    this.announceText = text;
-    this.announceColor = color;
-    this.announceUntil = this.time + 2.2;
+    buildWallBands(engine);
+    buildLaneMarkers(engine);
   }
 
   /**
@@ -912,7 +932,7 @@ export class Environment {
       void this.videoEl.play().catch(() => {});
     }
     // 재드로우 스로틀(#2): drawScreen()은 그라디언트2 + 태양 + 그리드 33선 + 마퀴를 매번 다시 그리고
-    // 768×256 텍스처를 통째 재업로드한다. 스크롤(0.3/s)·마퀴(80px/s)·announce 펄스(~2.5Hz)는 모두
+    // 768×256 텍스처를 통째 재업로드한다. 스크롤(0.3/s)·마퀴(80px/s)는 모두
     // 24fps에서 무손실이므로 ~1/24초 간격으로만 갱신 → 렌더 비용 절반↓ (섀도우맵 정적화와 결 맞춤).
     if (this.time - this.lastDraw >= 1 / 24) {
       this.lastDraw = this.time;
@@ -921,7 +941,7 @@ export class Environment {
     }
   }
 
-  /** 전광판 한 프레임 렌더 (신스웨이브 + 스크롤 마퀴 + 이벤트 어나운스) */
+  /** 전광판 한 프레임 렌더 (신스웨이브 + 스크롤 마퀴) */
   /**
    * 옆 레인 앰비언트 사이클 — 핀 10개가 **다이나믹 강체**, 공·레이크가 키네마틱:
    *   idle → roll → settle → hold → guard → sweep → set → rack → lift → idle
@@ -1158,7 +1178,7 @@ export class Environment {
     }
 
     // 상단 스크롤 마퀴 — 커스텀 전광판일 땐 끈다(사용자 이미지를 가리지 않게).
-    // 어나운스는 게임 정보라 커스텀 위에도 계속 띄운다.
+    // 이제 전광판엔 텍스트 연출이 없으므로(어나운스 제거) 커스텀은 통째로 그대로 노출된다.
     if (!this.customReady) {
       ctx.save();
       ctx.font = 'bold 26px sans-serif';
@@ -1170,36 +1190,6 @@ export class Environment {
       const mw = ctx.measureText(msg).width;
       const off = (t * 80) % mw;
       for (let x = -off; x < W; x += mw) ctx.fillText(msg, x, 8);
-      ctx.restore();
-    }
-
-    // 이벤트 어나운스 (스트라이크/스페어)
-    if (this.time < this.announceUntil) {
-      const left = this.announceUntil - this.time;
-      const pulse = 1 + 0.1 * Math.sin(t * 16);
-      // 커스텀 배경 위에선 글자가 묻힐 수 있다 → 뒤에 어두운 띠를 깔아 가독성 확보
-      if (this.customReady) {
-        const band = ctx.createLinearGradient(0, horizon - 52, 0, horizon + 64);
-        band.addColorStop(0, 'rgba(4,6,12,0)');
-        band.addColorStop(0.5, 'rgba(4,6,12,0.66)');
-        band.addColorStop(1, 'rgba(4,6,12,0)');
-        ctx.fillStyle = band;
-        ctx.fillRect(0, horizon - 52, W, 116);
-      }
-      ctx.save();
-      ctx.translate(cx, horizon + 6);
-      ctx.scale(pulse, pulse);
-      ctx.globalAlpha = Math.min(1, left * 1.8);
-      ctx.font = 'bold 76px sans-serif';
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.shadowColor = this.announceColor;
-      ctx.shadowBlur = 34;
-      ctx.fillStyle = this.announceColor;
-      ctx.fillText(this.announceText, 0, 0);
-      ctx.lineWidth = 2;
-      ctx.strokeStyle = 'rgba(255,255,255,0.9)';
-      ctx.strokeText(this.announceText, 0, 0);
       ctx.restore();
     }
   }

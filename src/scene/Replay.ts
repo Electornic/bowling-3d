@@ -4,7 +4,7 @@ import type { Engine } from '../core/Engine';
 import type { Ball } from './Ball';
 import type { PinSet } from './PinSet';
 import type { GameStateName } from '../game/GameState';
-import { HEADPIN_Z, CAM_APPROACH_Z, PIN_DECK_END } from '../game/constants';
+import { HEADPIN_Z, CAM_APPROACH_Z, PIN_DECK_END, BALL_RADIUS } from '../game/constants';
 
 const OBJ_COUNT = 11; // 공 1 + 핀 10
 const FLOATS = 7; // 객체당 x,y,z, qx,qy,qz,qw
@@ -18,9 +18,18 @@ const PIN_STILL_EPS = 0.008; // [튜닝] 스냅 간 핀 10개 위치 이동량 �
 const PIN_STILL_HOLD = 4; // [튜닝] 연속 '정지' 스냅 수(~0.13s sim). 이만큼 지속돼야 핀 정리 완료로 확정(단발 정지 오검 방지)
 // 카메라 포즈 오프셋 — 공 기준. 개구부(PIN_BAY_TOP)와 커플링돼 있다(placeCamera 주석 + 시선 테스트).
 export const REPLAY_CAM_Y_OFF = 0.42; // 공 위 카메라 높이
-export const REPLAY_LOOK_Y_OFF = 0.20; // 공 위 시선 높이 (클수록 시선이 눕는다)
+// 공 위 시선 높이 (클수록 시선이 눕는다). 0.20 → 0.04 (2026-09-01).
+// 0.20은 '위에서 내려다보는 인상'을 줄이려 눕힌 값이었는데, 그 대가로 **프레임 위쪽이 열려
+// 전광판 아랫단이 들어왔다** — 전광판 아랫단 y는 개구부 상단(0.6)과 같으므로 개구부 위를 보면
+// 반드시 전광판이 보인다. 당시 실측 점유율: 라이브 접근 27.8% vs 리플레이 추적 34~38% → 0.04로
+// 24~29%까지 내려 같은 급으로 맞췄다.
+// ⚠️ 그 뒤 리니어 체이스 정식화로 **라이브가 12.4%까지 내려가 부등호가 뒤집혔다**(리플레이 파킹
+// 18.3%). 리플레이 카메라는 공 위 0.42m라 0.529에 앉는데 라이브는 0.45로 내려갔기 때문이다.
+// 맞추려면 REPLAY_CAM_Y_OFF부터 프레이밍을 다시 재야 해서 별건으로 뒀고, 테스트는 '리플레이가
+// 라이브보다 덜 보여준다' → '차이가 8%p 아래'로 바뀌었다(tests/camera-sightline.test.ts).
+export const REPLAY_LOOK_Y_OFF = 0.04;
 export const REPLAY_TRAIL_NEAR = 1.4; // 핀 근처 추적 거리
-export const REPLAY_TRAIL_FAR = 2.0; // 먼 구간 추적 거리
+export const REPLAY_TRAIL_FAR = 1.8; // 먼 구간 추적 거리. 2.0 → 1.8: 멀수록 전광판이 더 들어온다.
 
 /**
  * 특별샷 리플레이 (스냅샷 방식, item 2 폴리싱 — 스트라이크 전용).
@@ -220,9 +229,14 @@ export class Replay {
    * 카메라 y 0.659로 개구부(0.6)보다 높아, 크래시로 튀어오른 핀(베이 구간 실측 최대 0.518)이
    * 캐노피 아랫단에 정확히 잘렸다 — 여유 **−0.001**. 리플레이가 하필 그 크래시를 보여주는
    * 연출이라 제일 보고 싶은 프레임이 잘리고 있었다.
-   * 지금(+0.42 / 시선 +0.20): 서 있는 핀 여유 0.056 → 0.132, 튀는 핀 −0.001 → **+0.076**
-   * (접근 카메라 0.035보다도 넉넉). 시선 피치도 −10.9° → −4.9°로 눕혀 '위에서 내려다보는'
-   * 인상을 줄였다. tests/camera-sightline.test.ts가 이 포즈를 고정한다.
+   * 지금(+0.42): 서 있는 핀 여유 0.056 → 0.132, 튀는 핀 −0.001 → **+0.076**.
+   * tests/camera-sightline.test.ts가 이 포즈를 고정한다. (⚠️ 당시엔 "접근 카메라 0.035보다도
+   * 넉넉"이라고 적었는데, 그 접근 카메라가 0.45로 내려가며 0.106이 돼 지금은 라이브가 더 넉넉하다.)
+   *
+   * ⚠️ **카메라 높이는 공이 튀어도 안 따라 올라간다** (2026-09-01). py를 `by + OFF`로 잡으면
+   * 헤드핀에서 래치되는 순간 공이 떠 있을 때 카메라가 통째로 그만큼 올라가, 전광판 점유율이
+   * 27% → 49%까지 튄다("가끔 전광판이 보인다"의 정체). 레인 위 높이로 클램프해 포즈를 고정한다 —
+   * 시선(ly)은 실제 공을 그대로 따라가므로 튀어오른 공은 여전히 화면 안에 담긴다.
    */
   private placeCamera(bx: number, by: number, bz: number) {
     const cam = this.engine.camera;
@@ -237,7 +251,7 @@ export class Replay {
     const trail = THREE.MathUtils.lerp(REPLAY_TRAIL_FAR, REPLAY_TRAIL_NEAR, e); // 핀 근처선 바짝
     const fz = Math.min(bz, HEADPIN_Z); // 헤드핀 넘어가면 전진 정지 → 핀 앞
     const px = bx * 0.7;
-    const py = Math.max(0.45, by + REPLAY_CAM_Y_OFF);
+    const py = Math.max(0.45, Math.min(by, BALL_RADIUS) + REPLAY_CAM_Y_OFF);
     const pz = fz - trail;
     const lx = bx;
     const ly = by + REPLAY_LOOK_Y_OFF;

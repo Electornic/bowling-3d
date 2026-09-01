@@ -32,17 +32,20 @@ import {
 } from '../game/constants';
 import { hookFactor, oilEndZ } from '../game/oil';
 import { gauss, ENTRY_DIST } from '../game/ai'; // 릴리스 타이밍 노이즈(#9) — ai와 동일 구현 단일소스 공유
+
+/** 하단 도크(스핀·파워)의 공용 베이스라인. 둘이 겹치면 syncDockLayout()이 파워바만 위로 올린다. */
+const DOCK_BOTTOM = 'calc(10px + env(safe-area-inset-bottom))';
+/** 도크 패널 사이 최소 간격(px) — 겹침 판정과 회피 높이에 같은 값을 쓴다. */
+const DOCK_GAP = 8;
 import { css, NEON, FONT_UI, rgba, ensureNeonStyles, applyPanel } from '../ui/theme';
 
 const PREVIEW_DT = 0.08; // 예측 경로 적분 스텝 (s)
 
 // 조준선 색 — 매 재빌드마다 THREE.Color를 새로 할당하던 것을 모듈 스크래치로 재사용(무할당, #1).
 // tan/dark는 불변 상수, spinCol은 스핀 따라 .set()으로 갱신, tmp는 lerp 스크래치.
-const AIM_TAN = new THREE.Color(0xcdb892); // 레인색(끝 페이드 타겟)
-const AIM_DARK = new THREE.Color(0x0a0e16); // 외곽선 어두운색
+const AIM_DARK = 0x0a0e16; // 외곽선 어두운색(케이스 머티리얼 고정색)
 const AIM_SPIN_COL = new THREE.Color(); // 스핀색 스크래치(중립→방향색, |spin| 비례)
 const AIM_DIR_COL = new THREE.Color(); // 방향색 스크래치(L=시안 / R=앰버) — 선·화살촉이 공유
-const AIM_TMP_COL = new THREE.Color(); // lerp 스크래치
 // 스핀 크기 = 조준선 색 농도. 예전엔 방향만 아는 하드 스위치라 0.3과 1.0이 화면상 같아 보였고,
 // 카메라를 near로 당긴 뒤로는 곡률로도 구분이 안 됐다(최대 스핀도 조준 화면에선 거의 직선).
 // 바닥값 — 0에서 곧장 올라가면 약한 스핀(0.1)이 흰색에 묻혀 '방향 없음'으로 읽힌다. 0.3부터 시작해
@@ -60,8 +63,28 @@ const SPIN_WHEEL_MIN_MS = 60;
 // 중립색(스핀 0)을 흰색에서 흐린 청회색으로 내렸다. 흰색 기준이면 앰버(#ffd86b)가 흰색 바로 옆이라
 // 그 사이를 아무리 나눠도 0.3과 1.0이 구분이 안 된다(실측: 둘 다 거의 흰색). 중립을 낮추면 크기가
 // 채도뿐 아니라 **밝기**로도 표현돼 폭이 넓어진다 — 스핀 0은 차분한 가이드, 풀스핀은 형광 네온.
-const AIM_NEUTRAL = 0xa8b2c8;
-const AIM_TIP = new THREE.Vector3(); // 조준선 끝점 월드좌표 스크래치 — 링 위치·카메라 거리(무할당)
+/**
+ * 조준선 코어의 중립색. `0xa8b2c8`(회청색)이었는데 **밝은 레인 위에서 명도 대비가 거의 없어**
+ * 선이 뿌옇게 보였다 — 화살촉만 또렷했던 건 거기는 색을 NEON.ice로 고정하기 때문이다.
+ * 화살촉과 같은 아이스로 맞춰 선-촉이 한 몸으로 읽히게 한다(스핀 색 물듦은 그대로).
+ */
+const AIM_NEUTRAL = 0xdfe8ff;
+/**
+ * 조준선 획 굵기(px). 8/4였는데 **너무 쨍했다** — 한 획 안에서 코어(명도 ≈94%)와 케이스(`0a0e16`,
+ * ≈4%)가 20:1로 붙어 있어, 씬에 그려진 선이 아니라 위에 붙인 스티커로 읽힌다. 조명을 안 받는
+ * `LineMaterial`이라 화면에서 가장 밝은 것과 가장 어두운 것을 이 선 하나가 동시에 갖는다.
+ *
+ * 비율(2:1)은 유지한 채 무게만 뺀다 — 대비 구조는 그대로라 밝은 레인 위 가독성은 안 잃는다.
+ *
+ * ⚠️ **알파로 누그러뜨리려 하지 말 것.** Line2는 정점마다 라운드 캡을 그려 인접 세그먼트가 선폭
+ * 절반씩 겹친다 — opacity<1이면 이음매마다 알파가 두 번 곱해져 얼룩이 돌아온다(9d7f977·678018f).
+ * 두 머티리얼이 `transparent:true, opacity:1`인 게 그 이유다. 톤은 **색값으로만** 조절한다.
+ */
+const AIM_CASE_W = 6;
+const AIM_CORE_W = 3;
+const AIM_TIP = new THREE.Vector3(); // 조준선 끝점 월드좌표 스크래치 — 카메라 거리 계산(무할당)
+const AIM_NDC_A = new THREE.Vector3(); // 데시메이션용 NDC 스크래치 (직전 유지 정점)
+const AIM_NDC_B = new THREE.Vector3(); // 데시메이션용 NDC 스크래치 (후보 정점)
 // 끝 마감: 조준선 폴리라인(Line2) 끝에 같은 획(core+case)으로 화살촉(∧)을 이어 붙인다 — 별도 마커/오브젝트가
 // 아니라 라인 지오메트리의 일부라 항상 선과 한 몸으로 자연스럽게 이어진다. 화살촉은 끝 접선(실제 진행 방향,
 // 훅 포함) 을 가리켜 "여기로 이렇게 굴러간다"를 함께 표현. 끝은 페이드 없이 또렷한 네온(우훅=앰버/그외=시안·아이스).
@@ -69,14 +92,17 @@ const ARROW_PX = 0.03; // [튜닝] 화살촉 팔 길이 = 이 값 × 카메라�
 const ARROW_MIN = 0.13; // [튜닝] 팔 길이 하한(월드 m)
 const ARROW_MAX = 0.3; // [튜닝] 팔 길이 상한(월드 m)
 const ARROW_HALF = 0.5; // [튜닝] 화살촉 반각(rad, ≈29°) — 작을수록 뾰족/슬림
-// 끝 페이드(C) — 중간은 레인색으로 녹이되 화살촉 직전 되살려 '떠 보임' 제거.
-const FADE_MAX = 0.82; // [튜닝] 최대 페이드(레인색 혼합) — 중간부 소멸 강도
-const FADE_PEAK = 0.8; // [튜닝] 페이드가 최대가 되는 지점(0~1). 이후 화살촉 향해 하강
-const FADE_RECOVER = 0.72; // [튜닝] 끝에서 페이드 되돌리는 비율 — 화살촉 연결 또렷도(1=완전 복원)
+/** 화살촉 곡선 분할 수 — 좌↔우를 한 줄로 잇는 베지어를 몇 조각으로 근사할지(8이면 육안으로 각이 없다). */
+const HEAD_SEGS = 8;
+/**
+ * 조준선 정점의 최소 화면 간격(px). **케이스 선폭에서 파생된다** — 그보다 촘촘하면 세그먼트가
+ * 겹쳐 얼룩진다. 상수로 박아두면 선을 얇게 만들 때 같이 안 따라와 곡선만 괜히 거칠어진다.
+ */
+const MIN_SEG_PX = AIM_CASE_W + 1;
 // 파워 차징 속도(단위 /초). 기존엔 프레임당 +0.018(프레임레이트 의존 — 고주사율/저FPS에서 속도가
 // 달라지는 버그)이었다. ×60fps = 1.08/s로 환산해 dt를 곱하면 어떤 FPS에서도 0→1 약 0.93초로 일정.
 const CHARGE_RATE = 1.08;
-// 스트라이크 최적 파워 존(흐리게 암시 — UI_REVAMP.md 결정②). carry sim상 윈도우는 "풀파워 근방"이나
+// 스트라이크 최적 파워 존(흐리게 암시 — docs/legacy/UI_REVAMP.md 결정②). carry sim상 윈도우는 "풀파워 근방"이나
 // 풀스핀은 미드파워가 더 휘어 *정확한* 최적은 플레이별로 갈림 → 넓고 은은한 상단~중상 띠로만 힌트.
 // 꼭대기(=최대)는 직진 과속이라 살짝 못 미치게 둔다. 정밀 조준은 실력에 맡김(난이도 보존).
 // 시각 골드 띠 = 릴리스 타이밍 '정확 구간'과 동일하게 constants에서 공용(P3) — 띠 안에서 떼면 정확.
@@ -86,7 +112,8 @@ const POWER_SWEET_HI = RELEASE_SWEET_HI;
 // 릴리스 타이밍(P3) 노이즈용 gauss()·ENTRY_DIST(aim↔진입x 변환 거리)는 ai.ts에서 import(#9) — 예전엔 여기 복제였다.
 
 /**
- * 포인터(마우스+터치) + 키보드 입력 추상화 (도안 §8 / MOBILE_SUPPORT.md §2).
+ * 포인터(마우스+터치) 입력 (도안 §8 / MOBILE_SUPPORT.md §2). **키보드는 안 쓴다** —
+ * 예전엔 Q/E로 스핀을 줬는데 휠로 옮겼다(Esc만 Boot이 따로 듣는다).
  * - 마우스: X → 조준(aim) hover 상시 갱신, 누르고 있으면 파워 핑퐁 차징, 떼면 발사.
  * - 터치(ⓑ): hover가 없어 **누른 채 좌우 드래그**로 조준(anchor 기준 상대), 동시에 파워 핑퐁
  *   차징, 떼면 발사. `isPrimary`/`pointerId`로 단일 포인터만 차징, `pointercancel`로 고착 방지.
@@ -121,6 +148,7 @@ export class Controls {
 
   // 터치 ⓑ — 상대 조준 anchor + 단일 포인터 추적 (멀티터치 오발사·pointercancel 고착 방지)
   private readonly coarse = isCoarsePointer();
+  private dockShown = false; // 하단 도크 노출 상태 — false→true 전환에서 겹침을 다시 잡는다
   /**
    * 휠을 **실제로 본 적 있는가.** 스핀 바 노출의 기준은 "터치냐"가 아니라 "휠이 있느냐"다 —
    * 휠 없는 마우스나 태블릿에선 바가 유일한 스핀 입력이므로 숨으면 입력이 사라진다.
@@ -128,7 +156,6 @@ export class Controls {
    * 올 때만 알 수 있으므로 **바를 기본으로 두고 휠이 나타나면 강등**한다(fail-safe 방향).
    */
   private wheelSeen = false;
-  private spinHint!: HTMLDivElement;
   private activePointerId: number | null = null;
   private anchorX = 0;
   private anchorAim = 0;
@@ -156,26 +183,26 @@ export class Controls {
 
     // 조준 곡선 라인 — Line2(굵기 지원)로 실제 예측 경로를 그린다. THREE.Line은 브라우저가 linewidth를
     // 무시해 1px로만 나와 밝은 레인에서 안 보였음. 어두운 외곽선(case) + 밝은 코어(core) 2겹이라
-    // 중립(흰색)도 또렷하고, 끝으로 갈수록 레인색으로 페이드(updateAimArrow). 두 겹은 좌표는 같고 색만 다름.
+    // 중립(아이스)도 또렷하다. 두 겹은 좌표는 같고 색·굵기만 다르다.
     const seed = [0, 0.02, BALL_START_Z, 0, 0.02, BALL_START_Z + 0.5];
     this.aimCoreGeo = new LineGeometry();
     this.aimCoreGeo.setPositions(seed);
-    this.aimCoreGeo.setColors([1, 1, 1, 1, 1, 1]);
     this.aimCaseGeo = new LineGeometry();
     this.aimCaseGeo.setPositions(seed);
-    this.aimCaseGeo.setColors([0, 0, 0, 0, 0, 0]);
+    // ⚠️ 케이스는 **불투명**이다(opacity 1). 반투명이면 세그먼트가 겹치는 이음매마다 알파가 두 번
+    // 곱해져 그 자리만 진해진다 — Line2는 정점마다 라운드 캡을 그려서 인접 세그먼트가 선폭의 절반씩
+    // 겹치므로, 겹침은 정점 간격을 벌려도 남는다. 얼룩의 나머지 절반이 이것이었다(앞의 절반은
+    // 원근 압축으로 정점이 2.6px까지 붙던 것 — updateAimArrow의 데시메이션 주석).
     this.aimCaseMat = new LineMaterial({
-      color: 0xffffff,
-      vertexColors: true,
-      linewidth: 8,
-      transparent: true,
-      opacity: 0.7,
+      color: AIM_DARK, // 외곽선은 고정 — 페이드를 걷어내며 정점색이 필요 없어졌다
+      linewidth: AIM_CASE_W,
+      transparent: true, // 알파는 안 쓰지만 렌더 순서를 코어와 맞추려면 필요하다(둘 다 depthWrite:false)
+      opacity: 1,
       depthWrite: false,
     });
     this.aimCoreMat = new LineMaterial({
-      color: 0xffffff,
-      vertexColors: true,
-      linewidth: 4,
+      color: AIM_NEUTRAL, // 매 갱신마다 스핀 색으로 덮어쓴다(updateAimArrow)
+      linewidth: AIM_CORE_W,
       transparent: true,
       opacity: 1,
       depthWrite: false,
@@ -194,7 +221,7 @@ export class Controls {
     this.aimGroup.visible = false;
     engine.scene.add(this.aimGroup);
 
-    // 하단 도크 통합(UI_REVAMP P2): 스핀=좌하단 컴팩트 · 파워=우하단 세로, 같은 글래스+시안 액센트로 한 쌍.
+    // 하단 도크 통합(docs/legacy/UI_REVAMP.md P2): 스핀=좌하단 컴팩트 · 파워=우하단 세로, 같은 글래스+시안 액센트로 한 쌍.
     // 가운데를 비워 공·조준 화살표(바나나 곡선) 밑동이 그대로 보이게 한다(공 가림 해소, 진단④).
 
     // === 파워 게이지 (우측 하단 — 중앙은 공과 겹침) ===
@@ -202,7 +229,7 @@ export class Controls {
     applyPanel(powerWrap, NEON.cyan);
     css(powerWrap, {
       position: 'fixed', // 우측 세로 파워바 (가운데 레인을 비움)
-      bottom: 'calc(10px + env(safe-area-inset-bottom))', // 스핀과 같은 베이스라인 (스핀이 더는 풀폭이 아님)
+      bottom: DOCK_BOTTOM, // 스핀과 같은 베이스라인 — 좁은 화면에선 syncDockLayout()이 위로 올린다
       right: this.coarse
         ? 'calc(var(--col-edge, 0px) + 10px + env(safe-area-inset-right))'
         : 'calc(var(--col-edge, 0px) + 24px + env(safe-area-inset-right))',
@@ -215,7 +242,7 @@ export class Controls {
       gap: '7px',
     });
     // ⚡ 아이콘 — 세로 게이지 위. 이전엔 "POWER" 텍스트가 바(14px)보다 넓어 패널이 불균형해 뺐는데,
-    // 아이콘 1자는 바 폭과 비슷해 균형 유지 + "이게 파워"임을 한눈에 (빈 캡슐 문제 해소, UI_REVAMP 진단①).
+    // 아이콘 1자는 바 폭과 비슷해 균형 유지 + "이게 파워"임을 한눈에 (빈 캡슐 문제 해소, docs/legacy/UI_REVAMP.md 진단①).
     const powerIcon = document.createElement('div');
     powerIcon.textContent = '⚡';
     css(powerIcon, {
@@ -280,7 +307,7 @@ export class Controls {
     applyPanel(spinWrap, NEON.cyan); // 파워와 동일 액센트로 통일 (입력 쌍)
     css(spinWrap, {
       position: 'fixed', // 좌하단 컴팩트 — 풀폭 폐기(공·조준선 밑동 가림). 2단: 헤더(라벨+값) / 트랙.
-      bottom: 'calc(10px + env(safe-area-inset-bottom))',
+      bottom: DOCK_BOTTOM,
       left: this.coarse
         ? 'calc(var(--col-edge, 0px) + 12px + env(safe-area-inset-left))'
         : 'calc(var(--col-edge, 0px) + 24px + env(safe-area-inset-left))',
@@ -391,24 +418,15 @@ export class Controls {
     spinTrack.appendChild(tick);
     spinTrack.appendChild(this.spinThumb);
 
-    const spinHint = (this.spinHint = document.createElement('div'));
-    spinHint.textContent = t('controls.spin.hintDrag'); // 휠을 보면 controls.spin.hintWheel로 바뀐다
-    css(spinHint, {
-      font: FONT_UI,
-      fontSize: '9px',
-      letterSpacing: '0.04em',
-      color: rgba(NEON.ice, 0.62),
-      textAlign: 'center',
-      margin: '4px 0 0',
-    });
-    // 이 두 라벨은 **생성자에서 한 번만** 쓰인다(HUD처럼 매 프레임 다시 그리지 않는다) → 언어가
-    // 바뀌면 스스로 갱신되지 않으므로 구독한다. 힌트는 휠 강등 상태(wheelSeen)를 존중해야 한다.
+    // 이 라벨은 **생성자에서 한 번만** 쓰인다(HUD처럼 매 프레임 다시 그리지 않는다) → 언어가
+    // 바뀌면 스스로 갱신되지 않으므로 구독한다.
     onLocaleChange(() => {
       spinLabel.textContent = t('controls.spin');
-      spinHint.textContent = t(this.wheelSeen && !this.coarse ? 'controls.spin.hintWheel' : 'controls.spin.hintDrag');
     });
 
-    const spinHeader = document.createElement('div'); // 2단 상단: 라벨 ↔ 현재 수치
+    // 헤더가 따로 있는 이유: 예전엔 오른쪽에 현재 수치가 같이 앉는 2단이었다. 수치는 걷었지만
+    // (썸·채움이 이미 값을 말한다) 라벨 정렬은 이 행이 잡고 있어 그대로 둔다.
+    const spinHeader = document.createElement('div');
     css(spinHeader, { display: 'flex', justifyContent: 'space-between', alignItems: 'center' });
     spinHeader.appendChild(spinLabel);
 
@@ -417,6 +435,13 @@ export class Controls {
 
     document.body.appendChild(spinWrap); // 하단 풀폭 스핀바
     document.body.appendChild(powerWrap); // 우측 세로 파워바
+    // 화면이 바뀌면 두 패널의 겹침 여부도 바뀐다(회전·창 크기·safe-area).
+    // rAF로 한 번 더 재는 이유: 모바일은 회전 직후 resize가 **레이아웃이 잡히기 전에** 오는 경우가
+    // 있어 그 프레임의 측정이 옛 값이다(실제로 뷰포트 전환 직후 옛 값이 남는 걸 관측했다).
+    addEventListener('resize', () => {
+      this.syncDockLayout();
+      requestAnimationFrame(() => this.syncDockLayout());
+    });
 
     this.bindEvents();
   }
@@ -425,7 +450,6 @@ export class Controls {
     return (e.target as HTMLElement)?.tagName === 'CANVAS';
   }
 
-  /** 스핀 바 위 포인터 x → spin ∈ [-1,1] (SPIN_STEP 단위 — 휠과 같은 값 공간) */
   /**
    * 휠을 처음 본 순간 — 스핀 바를 **주 입력에서 표시기로 강등**한다.
    *
@@ -437,11 +461,11 @@ export class Controls {
     if (this.wheelSeen) return;
     this.wheelSeen = true;
     if (this.coarse) return;
-    this.spinHint.textContent = t('controls.spin.hintWheel');
     this.spinTrack.style.pointerEvents = 'none';
     // opacity는 update()의 트랜지언트 로직이 이어받는다(wheelSeen 게이트가 이제 열렸다).
   }
 
+  /** 스핀 바 위 포인터 x → spin ∈ [-1,1] (SPIN_STEP 단위 — 휠과 같은 값 공간) */
   private setSpinFromPointer(clientX: number) {
     const r = this.spinTrack.getBoundingClientRect();
     const ratio = (clientX - r.left) / r.width; // 0..1
@@ -560,7 +584,7 @@ export class Controls {
     }
     this.gaugeFill.style.height = `${this.power * 100}%`;
 
-    // 스핀 게이지: 중앙에서 좌(Q/드래그, 시안)/우(E/드래그, 앰버)로 차오름 + 썸 + 수치
+    // 스핀 게이지: 중앙에서 좌(시안)/우(앰버)로 차오름 + 썸. 입력은 휠 또는 바 드래그.
     const s = this.spin;
     const dirColor = s < 0 ? NEON.cyan : NEON.amber;
     this.spinFill.style.width = `${Math.abs(s) * 50}%`;
@@ -585,6 +609,9 @@ export class Controls {
     const inGame = this.game.state !== 'MENU' && this.game.isHumanTurn();
     this.spinWrap.style.display = inGame ? '' : 'none';
     this.powerWrap.style.display = inGame ? '' : 'none';
+    // 숨어 있는 동안엔 측정이 전부 0이라 겹침 판정을 못 한다 → 보이기 시작할 때 한 번 잡는다.
+    if (inGame && !this.dockShown) this.syncDockLayout();
+    this.dockShown = inGame;
 
     const aiming = this.game.readyToThrow && this.game.isHumanTurn();
     // 터치는 hover가 없어 aim이 갱신되지 않으므로, 새 조준 턴 진입 시 정중앙에서 시작 (드리프트 방지)
@@ -595,8 +622,29 @@ export class Controls {
   }
 
   /**
+   * 스핀 패널과 파워바가 가로로 겹치면 파워바를 스핀 패널 **위로** 올린다.
+   *
+   * 둘 다 같은 베이스라인(DOCK_BOTTOM)에 앉는데, 좁은 화면에선 스핀 패널의 최소 폭(clamp 하한)이
+   * 파워바 자리까지 밀고 들어와 파워바 아랫부분이 스핀 패널에 겹쳐 보였다(모바일 실기 제보).
+   * 폭은 이미 clamp로 하한이 걸려 있어 더 줄이면 트랙이 못 쓰게 되므로, **세로로 피한다.**
+   *
+   * 고정값이 아니라 매번 재는 이유: 스핀 패널 높이가 폰트·safe-area·언어(문자 높이)에 따라
+   * 달라지고, 회전하면 겹침 여부 자체가 뒤집힌다. 데스크톱처럼 안 겹치는 화면은 그대로 둔다.
+   */
+  private syncDockLayout() {
+    this.powerWrap.style.bottom = DOCK_BOTTOM; // 기준선으로 되돌리고 다시 잰다(누적 방지)
+    const spin = this.spinWrap.getBoundingClientRect();
+    if (spin.height === 0) return; // 숨김 상태 — 보일 때 다시 부른다
+    const power = this.powerWrap.getBoundingClientRect();
+    const overlaps = spin.right + DOCK_GAP > power.left && spin.top < power.bottom;
+    if (overlaps) this.powerWrap.style.bottom = `calc(${DOCK_BOTTOM} + ${Math.round(spin.height) + DOCK_GAP}px)`;
+  }
+
+  /**
    * 조준 곡선 라인 갱신 — 실제 발사 물리와 같은 수식으로 예측 경로를 적분(검증 오차 ~1cm)해
-   * Line2(외곽선+코어 2겹)로 그린다. 오일 존 직진 → 드라이 존 레이트 훅. Z_CAP까지만, 끝은 페이드.
+   * Line2(외곽선+코어 2겹)로 그린다. 오일 존 직진 → 드라이 존 레이트 훅.
+   * 길이는 조준 보조(aid)가 정하고, 끝은 페이드가 아니라 **화살촉**으로 맺는다
+   * (끝 페이드는 6fa4ed2에서 걷어냈다 — 선은 처음부터 끝까지 한 색이다).
    */
   private updateAimArrow() {
     // 곡률 보존 압축: REF_Z까지의 훅 곡선을 적분해 '모양'을 확보한 뒤, 시작점 기준 k배로 비례 축소해
@@ -614,7 +662,11 @@ export class Controls {
     // oilEndZ()는 aid와 별개로 반드시 키에 — hookFactor(z)가 모든 aid에서 오일 endZ에 의존(마름 반영).
     // 볼물성(speedScale/massKg)도 필수 — speed/inject가 의존하고 setSpec()은 조준 중 호출되는 정상 경로.
     // resolution만 리사이즈 대응차 매 프레임 갱신하고 종료(가벼운 uniform 쓰기).
-    const key = `${this.aim}|${this.spin}|${aid}|${oilEndZ()}|${this.ball.massKg}|${this.ball.speedScale}`;
+    // 카메라 **위치**는 키에 남긴다 — 팔 길이가 카메라 거리에 비례하므로(ARROW_PX × camDist),
+    // 위치가 빠지면 핀세터 사이클 뒤 카메라가 조준 포즈로 복귀하는 동안 만들어진 길이가 그대로 굳는다.
+    // 회전·종횡비는 이제 화살촉에 안 쓰이므로 뺀다(그만큼 재적분이 줄어든다).
+    const cp = this.camera.position;
+    const key = `${this.aim}|${this.spin}|${aid}|${oilEndZ()}|${this.ball.massKg}|${this.ball.speedScale}|${cp.x.toFixed(2)},${cp.y.toFixed(2)},${cp.z.toFixed(2)}`;
     if (key === this.lastAimKey) {
       this.aimCoreMat.resolution.set(window.innerWidth, window.innerHeight);
       this.aimCaseMat.resolution.set(window.innerWidth, window.innerHeight);
@@ -630,7 +682,7 @@ export class Controls {
     const inject = (FRICTION_K * REF_MASS * 9.81) / this.ball.massKg;
 
     // 경로 적분 (발사 물리와 동일 게이트). z가 Z_CAP/핀에 닿으면 종료.
-    const path: number[][] = [[0, BALL_START_Z]];
+    let path: number[][] = [[0, BALL_START_Z]];
     let x = 0;
     let z = BALL_START_Z;
     for (let i = 0; i < 80 && z < endZ && z < HEADPIN_Z; i++) {
@@ -666,36 +718,54 @@ export class Controls {
     // REF_Z 곡선을 DRAW_Z로 비례 축소 (시작점 기준 균일 스케일 k)
     const k = (DRAW_Z - BALL_START_Z) / (REF_Z - BALL_START_Z);
     const sz = (z0: number) => BALL_START_Z + (z0 - BALL_START_Z) * k;
+
+    // ⚠️ **화면 간격으로 정점을 솎아낸다.** 적분 스텝은 시간 균등이라 월드에선 고르지만, 원근 압축
+    // 때문에 먼 쪽 정점이 화면에서 51px → **2.6px**까지 붙는다(실측). 선폭(AIM_CASE_W·AIM_CORE_W)
+    // 보다 짧은 세그먼트는 서로 겹치고, 당시 케이스가 반투명이라 **겹친 만큼 진해져** 선이
+    // 얼룩덜룩·점선처럼 보였다(확대 시 뚜렷 — 사용자 제보). 겹치지 않을 만큼만 남기면 매끈한 한 줄.
+    //
+    // 간격은 **실제 투영으로 잰다.** 처음엔 거리 비례로 근사했는데, 끝부분 세그먼트는 대부분 시선
+    // 방향이라 화면에서 훨씬 더 눌린다 — 근사식이 2배 과대평가해 4~8px 세그먼트가 그대로 남았다.
+    // 비용은 정점당 행렬곱 하나(약 25회)라 무시할 수준이고, 카메라 위치는 이미 캐시 키에 있다.
+    const halfW = window.innerWidth / 2;
+    const halfH = window.innerHeight / 2;
+    const projected = (x0: number, z0: number, out: THREE.Vector3) => out.set(x0 * k, 0.02, sz(z0)).project(this.camera);
+    const kept: number[][] = [path[0]];
+    let lastN = projected(path[0][0], path[0][1], AIM_NDC_A);
+    for (let i = 1; i < path.length - 1; i++) {
+      const n2 = projected(path[i][0], path[i][1], AIM_NDC_B);
+      if (Math.hypot((n2.x - lastN.x) * halfW, (n2.y - lastN.y) * halfH) >= MIN_SEG_PX) {
+        kept.push(path[i]);
+        lastN = AIM_NDC_A.copy(n2);
+      }
+    }
+    kept.push(path[path.length - 1]); // 끝점은 endZ에 정확히 트림된 값이라 반드시 남긴다
+    path = kept;
+
     const positions: number[] = [];
     for (let i = 0; i < path.length; i++) positions.push(path[i][0] * k, 0.02, sz(path[i][1]));
 
-    // 색: 중립(청회색)에서 방향색(L=시안 / R=앰버)으로 |spin| 비례 lerp — 방향뿐 아니라 **크기**까지 화면
-    // 중앙에서 읽힌다(휠로 조준 중 스핀을 굴리게 되면서 필요해진 정보). 끝으로 갈수록 레인색(tan)으로
-    // 페이드 → 레인에 자연스럽게 녹아듦. 모듈 스크래치 재사용(무할당) — tan/dark 불변, tmp는 lerp용.
+    // 색: 중립(아이스)에서 방향색(L=시안 / R=앰버)으로 |spin| 비례 lerp — 방향뿐 아니라 **크기**까지
+    // 화면 중앙에서 읽힌다(휠로 조준 중 스핀을 굴리게 되면서 필요해진 정보).
+    //
+    // 예전엔 여기서 정점마다 레인색을 섞어 선 끝을 **녹였다**(FADE_MAX/PEAK/RECOVER). 그 장치는
+    // "선 끝이 레인 한복판에서 뚝 잘려 보인다"를 가리려던 건데, 그 뒤에 화살촉이 생기면서 녹일 끝단
+    // 자체가 없어졌다 — 끝을 도로 살리는 FADE_RECOVER가 그 모순의 증거였다. 남은 효과는 길이의
+    // 60~90% 구간이 푹 꺼져 **가운데만 뿌연 선**이 되는 것뿐이라 통째로 걷어냈다(사용자 판단).
+    // 그래서 선은 이제 **처음부터 끝까지 한 색**이고, 정점색·색 배열도 필요 없다(머티리얼 색 하나).
     const spinMag = Math.abs(this.spin);
     const spinT = spinMag > 0 ? SPIN_TINT_FLOOR + (1 - SPIN_TINT_FLOOR) * spinMag : 0;
-    const dirCol = AIM_DIR_COL.set(this.spin < 0 ? NEON.cyan : NEON.amber); // 화살촉과 공유
-    const spinCol = AIM_SPIN_COL.set(AIM_NEUTRAL).lerp(dirCol, spinT);
-    const tan = AIM_TAN;
-    const dark = AIM_DARK;
-    const tmp = AIM_TMP_COL;
-    const coreColors: number[] = [];
-    const caseColors: number[] = [];
-    const last = path.length - 1;
-    for (let i = 0; i <= last; i++) {
-      // C: 중간은 레인색으로 녹이되(자연 소멸) 끝 화살촉 직전에선 페이드를 되돌려 또렷하게 — 화살촉이
-      // 선에서 떨어져 '떠 보이던' 문제 제거. 오르막(제곱) 후 FADE_PEAK 지나 하강.
-      const t = i / last;
-      const rise = Math.pow(Math.min(t / FADE_PEAK, 1), 2.0);
-      const settle = t > FADE_PEAK ? (t - FADE_PEAK) / (1 - FADE_PEAK) : 0;
-      const fade = FADE_MAX * rise * (1 - FADE_RECOVER * settle);
-      tmp.copy(spinCol).lerp(tan, fade);
-      coreColors.push(tmp.r, tmp.g, tmp.b);
-      tmp.copy(dark).lerp(tan, fade);
-      caseColors.push(tmp.r, tmp.g, tmp.b);
-    }
+    const dirCol = AIM_DIR_COL.set(this.spin < 0 ? NEON.cyan : NEON.amber);
+    this.aimCoreMat.color.copy(AIM_SPIN_COL.set(AIM_NEUTRAL).lerp(dirCol, spinT));
+
     // 끝 화살촉: 가이드라인과 같은 stroke(core+case)로 슬림한 ∧ 를 폴리라인에 이어 붙인다. 팁=마지막 점,
     // 거기서 뒤쪽 좌우로 두 갈래(진행 방향의 반대). 팔 길이는 카메라 거리 비례라 멀어도 화면상 크기 일정.
+    //
+    // 화살촉은 **레인 평면에 눕는다.** 조준 카메라가 레인과 거의 나란해서 깊이 성분이 화면에서 눌리므로
+    // ∧가 아니라 납작한 가로 바로 보이는데, 그게 이 게임에서 쓰기로 한 모양이다(사용자 선택).
+    // 화면 공간에서 만들어 세우는 안(뾰족한 ∧·곡선 날개)도 만들어 봤지만 되돌렸다 — 카메라에 종속되는
+    // 대신 캐시·NaN 취급이 까다로워지고, 무엇보다 이 톤엔 납작한 쪽이 맞았다.
+    const last = path.length - 1;
     const ex = positions[positions.length - 3]; // path[last].x * k
     const ez = positions[positions.length - 1]; // sz(path[last].z)
     let dx = ex - path[last - 1][0] * k;
@@ -709,30 +779,29 @@ export class Controls {
     const sa = Math.sin(ARROW_HALF);
     const bx = -dx;
     const bz = -dz; // 뒤 방향
-    positions.push(
-      ex + (bx * ca - bz * sa) * AL, 0.02, ez + (bx * sa + bz * ca) * AL, // 좌 갈래
-      ex, 0.02, ez, // 팁으로 복귀(겹침)
-      ex + (bx * ca + bz * sa) * AL, 0.02, ez + (-bx * sa + bz * ca) * AL, // 우 갈래
-    );
-    // 끝을 또렷하게: 팁 vertex + 화살촉 3점을 페이드 없는 네온으로, case는 어두운 외곽으로 고정 —
-    // 끝이 레인색에 녹지 않고 선의 뾰족한 끝으로 맺힌다. 농도는 선 본체와 같은 spinT를 써서
-    // 중립(아이스)→방향색으로 같이 물든다 — 선은 옅은데 촉만 진하면 크기 신호가 어긋난다.
-    tmp.set(NEON.ice).lerp(dirCol, spinT);
-    coreColors[last * 3] = tmp.r;
-    coreColors[last * 3 + 1] = tmp.g;
-    coreColors[last * 3 + 2] = tmp.b;
-    caseColors[last * 3] = dark.r;
-    caseColors[last * 3 + 1] = dark.g;
-    caseColors[last * 3 + 2] = dark.b;
-    for (let n = 0; n < 3; n++) {
-      coreColors.push(tmp.r, tmp.g, tmp.b);
-      caseColors.push(dark.r, dark.g, dark.b);
+    const lx = ex + (bx * ca - bz * sa) * AL; // 좌 갈래 끝
+    const lz = ez + (bx * sa + bz * ca) * AL;
+    const rx = ex + (bx * ca + bz * sa) * AL; // 우 갈래 끝
+    const rz = ez + (-bx * sa + bz * ca) * AL;
+    // ⚠️ 좌→팁→우로 **꺾어** 그리면 마감이 지저분하다. 이 각도에서 화살촉은 거의 접히다시피 해서
+    // 두 세그먼트가 서로 겹치는데, 당시 case가 반투명이라 겹친 자리만 진해지고 이음매가 덩어리로
+    // 보였다(확대 시 뚜렷). 지금은 case가 불투명(opacity 1)이라 그 증상 자체는 없어졌지만,
+    // 곡선 쪽 실루엣이 더 나아서 되돌리지 않았다 — **좌↔우를 2차 베지어 한 줄로** 잇는다.
+    // 제어점은 `2·팁 − 좌우 중점`: 이러면 곡선이 t=0.5에서 **정확히 팁을 지난다** → 실루엣(팔 끝·꼭짓점)은
+    // 그대로 두고 이음매만 없앤다.
+    const cx = 2 * ex - (lx + rx) / 2;
+    const cz = 2 * ez - (lz + rz) / 2;
+    for (let i = 0; i <= HEAD_SEGS; i++) {
+      const t2 = i / HEAD_SEGS;
+      const m2 = 1 - t2;
+      positions.push(
+        m2 * m2 * lx + 2 * m2 * t2 * cx + t2 * t2 * rx,
+        0.02,
+        m2 * m2 * lz + 2 * m2 * t2 * cz + t2 * t2 * rz,
+      );
     }
-
     this.aimCoreGeo.setPositions(positions);
-    this.aimCoreGeo.setColors(coreColors);
     this.aimCaseGeo.setPositions(positions);
-    this.aimCaseGeo.setColors(caseColors);
     this.aimCoreMat.resolution.set(window.innerWidth, window.innerHeight);
     this.aimCaseMat.resolution.set(window.innerWidth, window.innerHeight);
   }

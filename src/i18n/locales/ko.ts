@@ -17,11 +17,10 @@ export const ko = {
   'hud.pill.gameover': '🎳 {total}',
   'hud.pill.spare': '{frame}/{frames} · 성공 {made}',
   'hud.pill.frame': '{frame}F {ball}구 · {total}{suffix}',
+  'hud.pindeck': '남은 핀: {pins}',
 
   // ─── 조작 UI ───
   'controls.spin': '스핀',
-  'controls.spin.hintDrag': '드래그로 좌/우 스핀',
-  'controls.spin.hintWheel': '휠 ◀ ▶',
 
   // ─── 인게임 알림·버튼 ───
   'boot.rotatePortrait': '↻ 세로로 돌려주세요',
@@ -30,9 +29,7 @@ export const ko = {
   'boot.strike': '스트라이크',
   'boot.spareCleared': '스페어 정리',
   'boot.zeroPins': '0 핀',
-  'boot.split': '{label} 스플릿!',
-  'boot.splitConverted': '{label} 변환!',
-  'boot.turn': '{name} 차례',
+  'boot.splitConverted': '{label} 스플릿 정리',
 
   // ─── 시작 메뉴 ───
   'menu.me': '나',
@@ -62,7 +59,6 @@ export const ko = {
   'menu.result.newUnlock': '{icon} NEW · {badge} → {skin}',
   'menu.result.equip': '{label} 장착하기',
   'menu.result.equipped': '✓ {label} 장착됨',
-  'menu.result.frameHint': '프레임별 점수는 상단 점수표에서 확인',
   'menu.result.retry': '다시 하기',
 
   // ─── 일시정지 ───
@@ -109,6 +105,9 @@ export const ko = {
   // ─── 언어 선택 ───
   'menu.section.lang': '언어',
   'lang.auto': '자동 · 기기 설정',
+  /** 칩용 짧은 표기 — 일시정지 언어 칩은 폭이 좁다(전체 표기는 lang.auto). */
+  'lang.auto.short': '자동',
+  'menu.more': '더보기',
 
   // ─── 모드 ───
   'mode.full': '풀게임',

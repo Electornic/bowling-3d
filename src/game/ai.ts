@@ -42,7 +42,7 @@ export const AI_PROFILES: AiProfile[] = [
     style: 'straight',
     power: 1.0,
     powerJitter: 0.05,
-    aimJitterCm: 10, // 매치 sim 확정: mean ~130 (쉬움). SPIN_FEEL_AND_AI_LADDER.md §3
+    aimJitterCm: 10, // 매치 sim 확정: mean ~130 (쉬움). docs/legacy/SPIN_FEEL_AND_AI_LADDER.md §3
     spareAimJitterCm: 7,
     spin: 0,
     ballLb: 10,
