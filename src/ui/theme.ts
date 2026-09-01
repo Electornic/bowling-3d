@@ -90,6 +90,13 @@ export function applyPanel(el: HTMLElement, accent: string = NEON.turquoise): vo
   });
 }
 
+/**
+ * 인쇄 잉크 — '종이 반대편'. index.html 부팅 로더 body 배경과 같은 값이다.
+ * 팝아트(카탈로그 300 갈래) 문법에서 **원색 블록 위에 앉는 글자·규선**이 이 색이다.
+ * NEON 안에 넣지 않은 이유: NEON은 액센트 팔레트이고 이건 잉크(비-액센트)라 역할이 다르다.
+ */
+export const INK = '#171210';
+
 /** 패널 서피스 단색 (색상 220° — 위 실측의 쿨 슬레이트 축). text/dim/faint 대비 계산의 기준면. */
 export const PANEL_BG = '#151a20';
 

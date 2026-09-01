@@ -1,7 +1,7 @@
 import { frameScores } from '../game/Scoreboard';
 import { SPARE_LEAVES, type GameStateName, type GameMode, type GameSummary } from '../game/GameState';
 import { t, type I18nKey } from '../i18n';
-import { css, NEON, FONT_UI, FONT_DIGITS, rgba, applyPanel, ensureNeonStyles } from './theme';
+import { css, INK, NEON, FONT_UI, FONT_DIGITS, rgba, applyPanel, ensureNeonStyles } from './theme';
 import { PinDeck } from './PinDeck';
 
 // 점수판은 항상 한 줄(스크롤 0). 행 폭 = min(96vw, SHEET_MAX), 프레임·셀은 flex-basis:0 비례 분배 →
@@ -31,6 +31,13 @@ const DIGIT_FS = 'clamp(13px, 4.3vw, 18px)'; // 마크·누적 점수 글자 크
  * 좁은 화면 판정 — **주입 CSS의 @media와 같은 값이어야 한다.** 두 곳이 갈리면
  * 알약/시트 가시성(CSS)과 5칸 청크(JS)가 서로 다른 폭에서 전환돼 한 줄 10칸이 좁은 화면에 남는다.
  */
+/**
+ * 인쇄 규선 — 시트는 **스코어 용지**의 문법이라 칸 경계가 또렷해야 한다.
+ * 예전엔 `1.5px solid rgba(cream,0.14)`로 굵고 흐렸다. 인쇄물의 격자는 그 반대다: **얇고 확실하다.**
+ * (1.5→1px · 0.14→0.28) 두 값을 한 곳에 묶어 프레임 칸·마크 칸·스페어 칸이 갈리지 않게 한다.
+ */
+const RULE = `1px solid ${rgba(NEON.cream, 0.28)}`;
+
 const NARROW_Q = '(max-width: 760px)';
 const isNarrowSheet = () => matchMedia(NARROW_Q).matches;
 
@@ -432,10 +439,10 @@ function buildSheet(
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
-        borderRadius: '6px',
-        border: isCurrent ? '0' : `1.5px solid ${rgba(NEON.cream, 0.16)}`,
-        animation: isCurrent ? 'neonPulse 1.4s ease-in-out infinite' : '',
-        color: done ? (cleared ? NEON.sage : NEON.red) : '#dfe6f2',
+        borderRadius: '2px',
+        background: isCurrent ? NEON.mustard : '',
+        border: isCurrent ? `1px solid ${NEON.mustard}` : RULE,
+        color: isCurrent ? INK : done ? (cleared ? NEON.sage : NEON.red) : '#dfe6f2',
         fontSize: DIGIT_FS,
       });
       box.textContent = done ? (cleared ? '✓' : '✗') : '';
@@ -487,15 +494,19 @@ function buildSheet(
     css(box, {
       flex: `${f === d.frames - 1 ? 3 : 2} 1 0`, // 칸 수(일반2/마지막3) 비례 분배 → 모든 셀 폭 균일
       minWidth: '0',
-      borderRadius: '7px',
+      borderRadius: '2px', // 7px → 2px. 인쇄 격자의 칸은 굴리지 않는다
       overflow: 'hidden',
-      background: isCurrent ? rgba(NEON.mustard, 0.1) : 'rgba(255,255,255,0.04)',
-      border: isCurrent ? '0' : `1.5px solid ${rgba(NEON.cream, 0.14)}`,
-      animation: isCurrent ? 'neonPulse 1.4s ease-in-out infinite' : '',
+      // 현재 프레임 = **플랫 머스터드 블록**. 예전엔 알파 10% 바탕 + neonPulse(외곽 글로우 맥동)였다.
+      // 정지한 고대비 색면이 맥동보다 곁눈에 강하고(그게 이 시트의 설계 근거다 — 파일 상단 주석),
+      // 모션도 하나 줄어든다. 대비 실측: 잉크 글자 on 머스터드 = 7.8:1.
+      background: isCurrent ? NEON.mustard : 'rgba(255,255,255,0.04)',
+      border: isCurrent ? `1px solid ${NEON.mustard}` : RULE,
     });
 
     const marks = document.createElement('div');
-    css(marks, { display: 'flex' });
+    // 마크 행과 누적 점수 행 사이 **가로 규선** — 실제 스코어 용지에 있는 선이다.
+    // 없으면 두 행이 이어져 보여 "투구 표기"와 "누적"의 구분이 흐려진다(3배 확대 렌더로 확인).
+    css(marks, { display: 'flex', borderBottom: isCurrent ? `1px solid ${rgba(INK, 0.22)}` : RULE });
     for (const m of f === d.frames - 1 ? marksLast(fr) : marksNormal(fr)) {
       const cell = document.createElement('div');
       css(cell, {
@@ -506,8 +517,8 @@ function buildSheet(
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
-        borderLeft: `1px solid ${rgba(NEON.cream, 0.14)}`,
-        color: markColor(m),
+        borderLeft: isCurrent ? `1px solid ${rgba(INK, 0.22)}` : RULE, // 머스터드 블록 위에서는 규선도 잉크
+        color: isCurrent ? INK : markColor(m),
       });
       cell.textContent = m;
       marks.appendChild(cell);
@@ -520,7 +531,7 @@ function buildSheet(
       alignItems: 'center',
       justifyContent: 'center',
       fontSize: DIGIT_FS,
-      color: '#fff',
+      color: isCurrent ? INK : '#fff',
     });
     score.textContent = cum[f] !== undefined ? String(cum[f]) : '';
     // 점수가 새로 뜨거나(이전 undefined) 값이 바뀌면 팝 — 첫 렌더는 조용히.

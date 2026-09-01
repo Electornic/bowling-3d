@@ -19,7 +19,7 @@
 import { PIN_ROWS } from '../game/constants';
 import { PIN_NUMBERS } from '../game/splits';
 import { t } from '../i18n';
-import { NEON, applyPanel, rgba } from './theme';
+import { INK, NEON, applyPanel, rgba } from './theme';
 
 /**
  * 화면 배치 = 실제 핀덱 도면. **뒷줄(7-8-9-10)이 위, 헤드핀(1)이 아래** — 볼러 시점에서
@@ -66,13 +66,15 @@ function ensurePinDeckStyles(): void {
   font:700 ${DOT_FS}/1 ui-monospace, 'SF Mono', 'Roboto Mono', Menlo, monospace;
   /* 쓰러진 핀 = 자리는 남기고 비운다. 자리가 사라지면 삼각형이 무너져 도면으로 안 읽힌다. */
   background:transparent; color:${NEON.faint};
-  border:1px solid rgba(255,255,255,0.16);
-  transition:background 0.16s ease, color 0.16s ease, box-shadow 0.16s ease;
+  border:1px solid ${rgba(NEON.cream, 0.28)};
+  transition:background 0.16s ease, color 0.16s ease;
 }
+/* 서 있는 핀 = **플랫 크림 색면 + 잉크 숫자.** 예전엔 여기에 터쿼이즈 글로우(0 0 7px)가 있었는데,
+   도면은 인쇄물이라 알이 발광하지 않는다 — 색면 대비만으로 이미 충분히 튄다(대비 15:1).
+   transition에서 box-shadow도 뺐다(애니메이션할 대상이 없어졌다). */
 #hud-pindeck .pd-dot.pd-up{
-  background:${NEON.cream}; color:#0b0e16;
-  border-color:${rgba(NEON.cream, 0.9)};
-  box-shadow:0 0 7px ${rgba(NEON.turquoise, 0.45)};
+  background:${NEON.cream}; color:${INK};
+  border-color:${NEON.cream};
 }
 
 @media (max-width:760px){

@@ -319,6 +319,7 @@ function exposeDebugGlobals(o: {
   cameraRig: CameraRig;
   sound: SoundManager;
   controls: Controls;
+  stillCut: StillCut;
 }) {
   const w = window as Window & {
     __ball?: Ball;
@@ -329,6 +330,9 @@ function exposeDebugGlobals(o: {
     __cameraRig?: CameraRig;
     __sound?: SoundManager;
     __controls?: Controls;
+    /** [DEV] 스틸컷 4종을 눈으로 확인하려면 — 실제로 스트라이크가 날 때까지 던질 수 없다.
+        예: `__stillCut.show('strike','STRIKE!','3연속 · ON FIRE')` */
+    __stillCut?: StillCut;
     __unlockAllRewards?: () => void;
     __resetRewards?: () => void;
   };
@@ -340,6 +344,7 @@ function exposeDebugGlobals(o: {
   w.__cameraRig = o.cameraRig;
   w.__sound = o.sound;
   w.__controls = o.controls;
+  w.__stillCut = o.stillCut;
   // [DEV] 보상 디버그 — 콘솔에서 호출 후 새로고침
   w.__unlockAllRewards = () => {
     recordRewards(ACHIEVEMENTS.map((a) => a.id));
@@ -505,7 +510,7 @@ function buildScene(engine: Engine): {
   engine.camera.position.set(0, 1.12, -2.7);
   engine.camera.lookAt(0, -0.05, 7.5);
 
-  exposeDebugGlobals({ ball, pins, engine, environment, game, cameraRig, sound, controls });
+  exposeDebugGlobals({ ball, pins, engine, environment, game, cameraRig, sound, controls, stillCut });
 
   return { game, controls, cameraRig, environment, sound, exitBtn, pauseHook, replay };
 }
