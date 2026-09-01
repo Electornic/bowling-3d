@@ -392,7 +392,9 @@ function buildSheet(
 
   if (multi) {
     const name = document.createElement('div');
-    name.textContent = (p.ai ? '🤖 ' : '') + p.name;
+    // 🤖 접두사를 뗐다 — AI 이름은 초보/중수/고수이고 사람은 '나'라 이름 자체가 이미 구분한다.
+    // (상대를 고른 것도 플레이어 자신이다.) 이모지를 아이콘으로 쓰는 것 자체가 걷어내는 중인 표식.
+    name.textContent = p.name;
     applyPanel(name, accent);
     css(name, {
       font: FONT_UI,

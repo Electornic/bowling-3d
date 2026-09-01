@@ -93,6 +93,16 @@ const FINISH_KEY: Record<SkinFinish, I18nKey> = {
   glow: 'finish.glow',
 };
 
+/**
+ * 사운드 on/off 아이콘 (인라인 SVG, currentColor 상속).
+ * 스피커 콘 + 음파 1줄, off면 슬래시. 24 그리드에 스트로크 2 — 17px에서 픽셀 정렬이 맞는다.
+ */
+const SPEAKER_SVG = (on: boolean): string =>
+  `<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">` +
+  `<path d="M4 9.5v5h3.2L12 18.5v-13L7.2 9.5H4z" fill="currentColor" stroke="none"/>` +
+  (on ? `<path d="M15.8 9.2a4 4 0 0 1 0 5.6"/>` : `<path d="M16.2 9.8l5 4.4M21.2 9.8l-5 4.4"/>`) +
+  `</svg>`;
+
 // 프라이머리 버튼 액센트(#7) — 배경 + 그 위 텍스트색. start/again=fire · handoff/resume=ice · equip=gold.
 // 색만 프리셋으로 묶고 크기(패딩·폰트·라운드)는 호출부가 제각각이라 옵션으로 — 손복사 5곳을 바이트 동일하게 접는다.
 //
@@ -216,7 +226,10 @@ export class MenuUI {
   private soundToggle(): HTMLButtonElement {
     const b = document.createElement('button');
     const paint = () => {
-      b.textContent = this.settings.sound ? '🔊' : '🔇';
+      // 🔊/🔇 이모지 → 인라인 SVG. 이모지는 플랫폼마다 자형·색이 달라 UI 아이콘으로 못 쓰고
+      // (안드로이드에선 컬러 자형이 튄다), 이모지를 아이콘으로 쓰는 것 자체가 걷어내는 중인 표식이다.
+      // currentColor라 버튼 색 상태를 그대로 따라간다.
+      b.innerHTML = SPEAKER_SVG(this.settings.sound);
       b.setAttribute('aria-label', t(this.settings.sound ? 'menu.sound.off' : 'menu.sound.on'));
     };
     css(b, {
@@ -248,7 +261,7 @@ export class MenuUI {
   // --- 시작 메뉴 --- (섹션별 빌더로 분해, #8후반 — 각 빌더는 자족적으로 this.panel에 append)
   showMenu() {
     this.panel.replaceChildren();
-    this.panel.appendChild(this.title('🎳 NEON LANES')); // 브랜드명 — 번역 대상이 아니다(4개 언어에서 차용어로 통한다)
+    this.panel.appendChild(this.title('NEON LANES')); // 브랜드명 — 번역 대상이 아니다(4개 언어에서 차용어로 통한다)
     this.panel.appendChild(this.soundToggle()); // 우상단 사운드 토글
     this.buildMatchupSection(); // 모드 + 상대
     this.buildAimAidSection(); // 조준 난이도 (예측선 표시량 — 점수·물리 무영향)
@@ -427,7 +440,7 @@ export class MenuUI {
     // 언어 진입 — 푸터 톤(작고 흐리게)에 맞춘 한 줄. 우상단 코너 버튼으로 두지 않은 이유:
     // 사운드 토글(40px) 옆에 하나 더 놓으면 좁은 패널(min 340px)에서 타이틀과 겹친다.
     const lang = document.createElement('button');
-    lang.textContent = `🌐 ${LOCALE_LABEL[getLocale()]} ▸`;
+    lang.textContent = `${LOCALE_LABEL[getLocale()]} ▸`; // 🌐 제거 — 언어 이름 자체가 이미 그 언어로 적혀 있다
     css(lang, {
       marginTop: '10px',
       padding: COARSE ? '8px 0' : '4px 0',
@@ -540,7 +553,7 @@ export class MenuUI {
         color: i === summary.winner ? NEON.mustard : NEON.text,
       });
       const unit = summary.mode === 'spare' ? '/10' : t('menu.result.unit');
-      row.innerHTML = `<span>${p.ai ? '🤖 ' : ''}${p.name}</span><span>${p.score}${unit}</span>`;
+      row.innerHTML = `<span>${p.name}</span><span>${p.score}${unit}</span>`; // 🤖 제거 — 이름이 이미 구분한다(Hud 주석)
       list.appendChild(row);
       css(sheets[i], { marginBottom: '10px' });
       list.appendChild(sheets[i]);
@@ -573,7 +586,7 @@ export class MenuUI {
         if (!ach) continue;
         const row = document.createElement('div');
         css(row, { font: '700 13px/1.6 system-ui, sans-serif', color: NEON.mustard });
-        row.textContent = t('menu.result.newUnlock', { icon: ach.icon, badge: t(ach.badgeKey), skin: t(resolveSkin(ach.reward).labelKey) });
+        row.textContent = t('menu.result.newUnlock', { badge: t(ach.badgeKey), skin: t(resolveSkin(ach.reward).labelKey) });
         box.appendChild(row);
       }
       const lastAch = ACHIEVEMENTS.find((a) => a.id === fresh[fresh.length - 1]);
@@ -1072,9 +1085,12 @@ export class MenuUI {
             alignItems: 'center',
             justifyContent: 'center',
             font: '17px/1 system-ui, sans-serif',
+            // ⚠️ 색을 명시해야 한다 — 안 주면 상속이 rgba(16,16,16,0.3)으로 떨어져
+            //    #2b3140 원 위에서 **아예 안 보인다**(렌더로 확인). dim이면 대비 5.0.
+            color: NEON.dim,
             opacity: '0.85',
           });
-          ball.textContent = '🔒';
+          ball.textContent = '—'; // 🔒 → 활자 대시. 미해금 = '아직 없음'이고, 어두운 스와치 자체가 이미 신호다
         }
 
         const labelEl = document.createElement('div');
@@ -1140,9 +1156,6 @@ export class MenuUI {
           border: got ? `1px solid ${rgba(NEON.mustard, 0.22)}` : '1px solid rgba(255,255,255,0.08)',
           opacity: got ? '1' : '0.75',
         });
-        const icon = document.createElement('span');
-        icon.textContent = a.icon;
-        css(icon, { font: '18px/1 system-ui, sans-serif', flex: '0 0 auto', filter: got ? '' : 'grayscale(1)' });
         const badge = document.createElement('div');
         badge.textContent = t(a.badgeKey);
         css(badge, { font: '700 12px/1.3 system-ui, sans-serif', color: got ? NEON.mustard : NEON.dim });
@@ -1156,9 +1169,8 @@ export class MenuUI {
         body.appendChild(badge);
         body.appendChild(desc);
         const status = document.createElement('span');
-        status.textContent = got ? '✓' : '🔒';
+        status.textContent = got ? '✓' : '—'; // ✓/— 활자 한 쌍 — 🔒는 이모지를 상태 아이콘으로 쓴 자리였다
         css(status, { flex: '0 0 auto', font: got ? '800 13px/1 system-ui, sans-serif' : '600 11px/1 system-ui, sans-serif', color: got ? '#5dca8f' : NEON.faint });
-        row.appendChild(icon);
         row.appendChild(body);
         row.appendChild(status);
         achWrap.appendChild(row);

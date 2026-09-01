@@ -40,7 +40,6 @@ export interface Achievement {
   /** 뱃지 이름·설명도 키다 — BallSkin.labelKey와 같은 이유. */
   badgeKey: I18nKey;
   descKey: I18nKey;
-  icon: string;
   reward: string; // SkinId
   tier: AchievementTier;
 }
@@ -75,12 +74,12 @@ export const RIVAL_SKINS: Record<string, BallSkin> = {
 };
 /** v1 업적(§6 core 6). 전부 gameOver 데이터로 판정. */
 export const ACHIEVEMENTS: Achievement[] = [
-  { id: 'first_game', badgeKey: 'ach.first_game', descKey: 'ach.first_game.desc', icon: '🎳', reward: 'satin', tier: 'core' },
-  { id: 'beat_kim', badgeKey: 'ach.beat_kim', descKey: 'ach.beat_kim.desc', icon: '🥉', reward: 'ember', tier: 'core' },
-  { id: 'beat_han', badgeKey: 'ach.beat_han', descKey: 'ach.beat_han.desc', icon: '🏅', reward: 'chrome', tier: 'core' },
-  { id: 'beat_yoon', badgeKey: 'ach.beat_yoon', descKey: 'ach.beat_yoon.desc', icon: '🎰', reward: 'galaxy', tier: 'core' },
-  { id: 'score_200', badgeKey: 'ach.score_200', descKey: 'ach.score_200.desc', icon: '💯', reward: 'volt', tier: 'core' },
-  { id: 'turkey', badgeKey: 'ach.turkey', descKey: 'ach.turkey.desc', icon: '🦃', reward: 'sunset', tier: 'core' },
+  { id: 'first_game', badgeKey: 'ach.first_game', descKey: 'ach.first_game.desc', reward: 'satin', tier: 'core' },
+  { id: 'beat_kim', badgeKey: 'ach.beat_kim', descKey: 'ach.beat_kim.desc', reward: 'ember', tier: 'core' },
+  { id: 'beat_han', badgeKey: 'ach.beat_han', descKey: 'ach.beat_han.desc', reward: 'chrome', tier: 'core' },
+  { id: 'beat_yoon', badgeKey: 'ach.beat_yoon', descKey: 'ach.beat_yoon.desc', reward: 'galaxy', tier: 'core' },
+  { id: 'score_200', badgeKey: 'ach.score_200', descKey: 'ach.score_200.desc', reward: 'volt', tier: 'core' },
+  { id: 'turkey', badgeKey: 'ach.turkey', descKey: 'ach.turkey.desc', reward: 'sunset', tier: 'core' },
 ];
 
 const KEY = 'bowling3d.rewards.v1';
