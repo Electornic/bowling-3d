@@ -4,7 +4,8 @@ import type { Engine } from '../core/Engine';
 import type { Ball } from './Ball';
 import type { PinSet } from './PinSet';
 import type { GameStateName } from '../game/GameState';
-import { HEADPIN_Z, CAM_APPROACH_Z, PIN_DECK_END, BALL_RADIUS } from '../game/constants';
+import { HEADPIN_Z, CAM_APPROACH_Z, PIN_DECK_END } from '../game/constants';
+import { APPROACH_POS } from '../camera/CameraRig'; // 리플레이 카메라 높이 = 라이브 체이스 높이 (아래 REPLAY_CAM_Y 주석)
 
 const OBJ_COUNT = 11; // 공 1 + 핀 10
 const FLOATS = 7; // 객체당 x,y,z, qx,qy,qz,qw
@@ -17,17 +18,49 @@ const END_HOLD = 0.65; // [튜닝] 핀 정리 완료 프레임 프리즈 유지(
 const PIN_STILL_EPS = 0.008; // [튜닝] 스냅 간 핀 10개 위치 이동량 합(m). 이하 = 정지 — 리플레이 프리즈(종료) 시점 판정
 const PIN_STILL_HOLD = 4; // [튜닝] 연속 '정지' 스냅 수(~0.13s sim). 이만큼 지속돼야 핀 정리 완료로 확정(단발 정지 오검 방지)
 // 카메라 포즈 오프셋 — 공 기준. 개구부(PIN_BAY_TOP)와 커플링돼 있다(placeCamera 주석 + 시선 테스트).
-export const REPLAY_CAM_Y_OFF = 0.42; // 공 위 카메라 높이
-// 공 위 시선 높이 (클수록 시선이 눕는다). 0.20 → 0.04 (2026-09-01).
-// 0.20은 '위에서 내려다보는 인상'을 줄이려 눕힌 값이었는데, 그 대가로 **프레임 위쪽이 열려
-// 전광판 아랫단이 들어왔다** — 전광판 아랫단 y는 개구부 상단(0.6)과 같으므로 개구부 위를 보면
-// 반드시 전광판이 보인다. 당시 실측 점유율: 라이브 접근 27.8% vs 리플레이 추적 34~38% → 0.04로
-// 24~29%까지 내려 같은 급으로 맞췄다.
-// ⚠️ 그 뒤 리니어 체이스 정식화로 **라이브가 12.4%까지 내려가 부등호가 뒤집혔다**(리플레이 파킹
-// 18.3%). 리플레이 카메라는 공 위 0.42m라 0.529에 앉는데 라이브는 0.45로 내려갔기 때문이다.
-// 맞추려면 REPLAY_CAM_Y_OFF부터 프레이밍을 다시 재야 해서 별건으로 뒀고, 테스트는 '리플레이가
-// 라이브보다 덜 보여준다' → '차이가 8%p 아래'로 바뀌었다(tests/camera-sightline.test.ts).
-export const REPLAY_LOOK_Y_OFF = 0.04;
+/**
+ * 리플레이 카메라 높이 — **라이브 체이스와 같은 값**을 쓴다(`APPROACH_POS.y` = `FOLLOW_Y`).
+ *
+ * 예전엔 `REPLAY_CAM_Y_OFF = 0.42`를 공 위에 얹어 `max(0.45, min(by, BALL_RADIUS) + 0.42)` =
+ * **0.5285**에 앉았다. 라이브가 리니어 체이스 정식화로 0.60 → 0.45까지 내려오면서 부등호가
+ * 뒤집혀 **리플레이가 라이브보다 7.85cm 높은 카메라**가 됐고, 전광판 점유율이 라이브 12.4% <
+ * 리플레이 파킹 18.3%로 역전됐다. 전광판 아랫단 y는 개구부 상단(PIN_BAY_TOP 0.6)과 같으므로
+ * 카메라가 높아지는 만큼 프레임 위쪽이 열려 전광판 아랫단이 들어온다 — 사용자가 그걸 봤다
+ * ("스트라이크 리플레이에서 카메라가 살짝 위쪽이라 전광판 하단이 보인다").
+ *
+ * 라이브 값을 그대로 쓰는 게 옳은 이유: 리플레이는 **방금 본 것을 다시 보여주는** 연출이다.
+ * 같은 투구를 다른 높이에서 보여줄 이유가 없고, 파킹 z도 이미 거의 같다(리플레이 16.89 ↔ 라이브 16.85).
+ * 높이만 맞추면 두 프레이밍이 사실상 일치한다.
+ *
+ * 캐노피 시선은 **더 안전해진다** — 8cm 낮아지므로 튀어오르는 핀 여유가 그만큼 늘어난다
+ * (tests/camera-sightline.test.ts가 0.518까지 담기는지 고정한다).
+ *
+ * ⚠️ 공 높이를 안 따라간다는 기존 성질은 유지된다(placeCamera 주석): 상수라 아예 못 따라간다.
+ */
+export const REPLAY_CAM_Y = APPROACH_POS.y;
+/**
+ * 시선 y 오프셋 (공 중심 기준, 클수록 시선이 눕는다). **0.04 → −0.04** (2026-09-02).
+ *
+ * 히스토리: 0.20은 '위에서 내려다보는 인상'을 줄이려 눕힌 값이었는데, 대가로 프레임 위쪽이 열려
+ * 전광판 아랫단이 들어왔다(당시 추적 34~38% vs 라이브 27.8%) → 0.04로 내렸다.
+ * 그 뒤 라이브가 리니어 체이스 정식화로 0.60 → 0.45까지 내려앉아 **부등호가 뒤집혔다**:
+ * 라이브 12.45% < 리플레이 파킹 18.21%. 테스트도 그때 '리플레이가 덜 보여준다'에서
+ * '차이가 8%p 아래'로 약해졌고 프레이밍 재측정은 미결로 남았다. 이번에 그걸 닫는다.
+ *
+ * ⚠️ 카메라를 낮추는 것만으로는 **안 된다.** 시선 목표가 그대로면 낮출수록 틸트가 완만해져
+ * 프레임 위쪽이 더 열린다 — 실측으로 파킹은 18.21 → 9.55로 좋아지지만 **추적이 31.7 → 34.2로
+ * 나빠졌다.** 점유율을 지배하는 건 높이가 아니라 **광축의 피치**다. 그래서 높이(→라이브와 동일)와
+ * 시선을 **함께** 내린다.
+ *
+ * 실측 스윕 결과 (파킹 % / 추적 최대 %):
+ *   구값  cy 0.5285 · off +0.04 → 18.21 / 31.7
+ *   높이만 cy 0.45  · off +0.04 →  9.55 / 34.2   ← 추적이 나빠진다
+ *   **채택 cy 0.45 · off −0.04 →  4.98 / 30.6**  ← 양쪽 다 개선, 라이브(12.45)보다도 적다
+ *
+ * −0.04는 공 중심에서 4cm 아래 = y 0.069로, **공이 레인에 닿는 지점**을 본다. 공 위를 보던
+ * 예전보다 자연스럽고(구르는 공의 접지점이 관심 대상이다) 피치가 그만큼 깊어진다.
+ */
+export const REPLAY_LOOK_Y_OFF = -0.04;
 export const REPLAY_TRAIL_NEAR = 1.4; // 핀 근처 추적 거리
 export const REPLAY_TRAIL_FAR = 1.8; // 먼 구간 추적 거리. 2.0 → 1.8: 멀수록 전광판이 더 들어온다.
 
@@ -251,7 +284,7 @@ export class Replay {
     const trail = THREE.MathUtils.lerp(REPLAY_TRAIL_FAR, REPLAY_TRAIL_NEAR, e); // 핀 근처선 바짝
     const fz = Math.min(bz, HEADPIN_Z); // 헤드핀 넘어가면 전진 정지 → 핀 앞
     const px = bx * 0.7;
-    const py = Math.max(0.45, Math.min(by, BALL_RADIUS) + REPLAY_CAM_Y_OFF);
+    const py = REPLAY_CAM_Y; // 라이브 체이스와 동일 높이 (상수 주석 참고)
     const pz = fz - trail;
     const lx = bx;
     const ly = by + REPLAY_LOOK_Y_OFF;

@@ -13,7 +13,7 @@ import {
 } from '../src/game/constants';
 import { APPROACH_POS, APPROACH_TARGET, GAMEOVER_POS, approachZFor } from '../src/camera/CameraRig';
 import {
-  REPLAY_CAM_Y_OFF,
+  REPLAY_CAM_Y,
   REPLAY_LOOK_Y_OFF,
   REPLAY_TRAIL_NEAR,
   REPLAY_TRAIL_FAR,
@@ -21,7 +21,7 @@ import {
 
 /** 리플레이가 헤드핀에서 파킹하는 포즈 (Replay.placeCamera와 같은 식, 공은 레인 위 y=BALL_RADIUS) */
 const REPLAY_PARKED = {
-  y: Math.max(0.45, BALL_RADIUS + REPLAY_CAM_Y_OFF),
+  y: REPLAY_CAM_Y,
   z: HEADPIN_Z - REPLAY_TRAIL_NEAR,
 } as const;
 
@@ -130,7 +130,7 @@ function replayPose(ballZ: number) {
   const e = u * u * (3 - 2 * u);
   const trail = REPLAY_TRAIL_FAR + (REPLAY_TRAIL_NEAR - REPLAY_TRAIL_FAR) * e;
   return {
-    cy: Math.max(0.45, BALL_RADIUS + REPLAY_CAM_Y_OFF),
+    cy: REPLAY_CAM_Y,
     cz: Math.min(ballZ, HEADPIN_Z) - trail,
     ly: BALL_RADIUS + REPLAY_LOOK_Y_OFF,
     lz: Math.min(ballZ + 1.2, PIN_DECK_END + 0.4),
@@ -147,22 +147,22 @@ describe('전광판이 프레임을 잡아먹지 않는다', () => {
     expect(live).toBeLessThan(18);
   });
 
-  // ⚠️ 부호가 뒤집혔다 (2026-09-01). 원래 이 테스트는 "리플레이가 라이브보다 덜 보여준다"였는데,
-  // 라이브가 0.45로 내려가면서 **리플레이(0.529)가 더 높은 카메라**가 됐다: 18.3% vs 12.4%.
-  // 맞추려면 REPLAY_CAM_Y_OFF(공 위 0.42m)를 건드려야 하고 그건 리플레이 프레이밍을 다시 재는
-  // 별건이다. 이 테스트가 원래 막던 건 34~38%짜리 '떠 있는' 리플레이였고 거기서는 여전히 멀다.
-  // 그래서 지금은 **간격에 상한만** 건다 — 더 벌어지면(리플레이가 더 뜨면) 잡힌다.
-  it('리플레이 파킹이 라이브보다 전광판을 더 보여주되 그 차이가 8%p 아래', () => {
+  // ⚠️ **이 단정은 한 번 약해졌다가 복구됐다.** 2026-09-01 라이브가 0.45로 내려앉으며 부호가
+  // 뒤집혀(라이브 12.45% < 리플레이 18.21%) '차이가 8%p 아래'로 완화됐고, 프레이밍 재측정은
+  // 미결로 남았다. 2026-09-02에 리플레이 카메라 높이를 라이브와 맞추고 시선을 함께 내려
+  // **4.98%**가 되면서 원래 의도("리플레이가 라이브보다 덜 보여준다")로 되돌렸다.
+  // 높이만 낮추면 안 되는 이유는 Replay.REPLAY_LOOK_Y_OFF 주석에 실측표로 남겼다.
+  it('리플레이 파킹이 라이브보다 전광판을 덜 보여준다', () => {
     const p = replayPose(HEADPIN_Z);
-    expect(screenBandPct(p.cy, p.cz, p.ly, p.lz) - live).toBeLessThan(8); // 5.8%p
+    expect(screenBandPct(p.cy, p.cz, p.ly, p.lz)).toBeLessThan(live); // 4.98% < 12.45%
   });
 
   // 추적 구간은 원근상 라이브 접근보다 넓게 잡힐 수밖에 없다(멀수록 높은 벽이 더 들어온다).
   // 라이브 팔로우도 같은 위치에서 30%대를 담으므로 목표는 '0'이 아니라 **옛 값(최대 39.6%)에서
   // 확실히 내려온 상태**의 고정이다.
-  it.each([9, 12, 14, 16, 17])('리플레이 추적(공 z=%s)의 전광판 점유율이 32%% 아래', (bz) => {
+  it.each([9, 12, 14, 16, 17])('리플레이 추적(공 z=%s)의 전광판 점유율이 31%% 아래', (bz) => {
     const p = replayPose(bz);
-    expect(screenBandPct(p.cy, p.cz, p.ly, p.lz)).toBeLessThan(32);
+    expect(screenBandPct(p.cy, p.cz, p.ly, p.lz)).toBeLessThan(31); // 실측 최대 30.6% (구 31.7%)
   });
 
   // 리플레이 카메라가 개구부 상단 위로 올라가면 전광판이 급격히 들어온다. 포즈를 공 높이에
