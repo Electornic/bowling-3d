@@ -241,7 +241,7 @@ export class MenuUI {
       display: 'flex',
       alignItems: 'center',
       justifyContent: 'center',
-      borderRadius: '10px',
+      borderRadius: '3px',
       border: '1px solid rgba(255,255,255,0.14)',
       background: 'rgba(255,255,255,0.04)',
       color: HOUSE.text,
@@ -261,7 +261,7 @@ export class MenuUI {
   // --- 시작 메뉴 --- (섹션별 빌더로 분해, #8후반 — 각 빌더는 자족적으로 this.panel에 append)
   showMenu() {
     this.panel.replaceChildren();
-    this.panel.appendChild(this.title('STARLITE LANES')); // 브랜드명 — 번역 대상이 아니다(4개 언어에서 차용어로 통한다)
+    this.panel.appendChild(this.houseSign('STARLITE LANES')); // 브랜드명 — 번역 대상이 아니다(4개 언어에서 차용어로 통한다)
     this.panel.appendChild(this.soundToggle()); // 우상단 사운드 토글
     this.buildMatchupSection(); // 모드 + 상대
     this.buildAimAidSection(); // 조준 난이도 (예측선 표시량 — 점수·물리 무영향)
@@ -396,7 +396,7 @@ export class MenuUI {
       width: '100%',
       padding: COARSE ? '12px' : '10px',
       minHeight: COARSE ? '44px' : '',
-      borderRadius: '10px',
+      borderRadius: '3px',
       border: '1px solid rgba(255,255,255,0.18)',
       background: 'rgba(255,255,255,0.05)',
       color: HOUSE.text,
@@ -478,7 +478,7 @@ export class MenuUI {
         width: '100%',
         padding: COARSE ? '12px 14px' : '10px 13px',
         minHeight: COARSE ? '44px' : '',
-        borderRadius: '10px',
+        borderRadius: '3px',
         border: `1px solid ${on ? rgba(HOUSE.mustard, 0.5) : 'rgba(255,255,255,0.18)'}`,
         background: on ? rgba(HOUSE.mustard, 0.14) : 'rgba(255,255,255,0.05)',
         color: on ? HOUSE.mustard : HOUSE.text,
@@ -575,7 +575,7 @@ export class MenuUI {
     if (fresh.length) {
       const box = document.createElement('div');
       css(box, {
-        borderRadius: '10px',
+        borderRadius: '3px',
         border: `1px solid ${rgba(HOUSE.mustard, 0.4)}`,
         background: rgba(HOUSE.mustard, 0.08),
         padding: '10px 12px',
@@ -680,7 +680,7 @@ export class MenuUI {
       width: '100%',
       padding: COARSE ? '12px' : '10px',
       minHeight: COARSE ? '44px' : '',
-      borderRadius: '10px',
+      borderRadius: '3px',
       border: `1px solid ${rgba(HOUSE.mustard, 0.34)}`, // 아일랜드가 쓰던 골드 테두리를 이어받는다
       background: 'rgba(255,255,255,0.05)',
       color: HOUSE.text,
@@ -697,7 +697,7 @@ export class MenuUI {
       font: '500 12px/1.7 system-ui, sans-serif',
       color: HOUSE.faint,
       padding: '10px 13px',
-      borderRadius: '10px',
+      borderRadius: '3px',
       background: 'rgba(255,255,255,0.03)',
       border: '1px solid rgba(255,255,255,0.06)',
       marginBottom: '16px',
@@ -805,7 +805,7 @@ export class MenuUI {
       justifyContent: 'space-between',
       gap: '12px',
       padding: '10px 13px',
-      borderRadius: '10px',
+      borderRadius: '3px',
       background: 'rgba(255,255,255,0.04)',
       border: '1px solid rgba(255,255,255,0.08)',
     });
@@ -832,22 +832,94 @@ export class MenuUI {
   }
 
   // --- 헬퍼 ---
+  /**
+   * 모달 헤딩 — **슬랩 세리프**(Georgia). 시작 메뉴·언어·결과·일시정지·컬렉션 5곳이 공유한다.
+   *
+   * 예전엔 `800 24px system-ui`였다. 문제는 색이나 크기가 아니라 **자형이 하우스와 무관**했다는 것 —
+   * 마스킹 유닛 로고타입과 부팅 로더가 Georgia 슬랩인데 메뉴만 시스템 산세리프라, 같은 이름을
+   * 세 곳에서 세 번 다른 목소리로 말하고 있었다. 서체를 맞추는 것만으로 한 벌이 된다.
+   * (패널 바탕은 쿨 슬레이트 220° 그대로 둔다 — 방 실측 근거가 있고, 톤은 자형·구조가 진다.)
+   *
+   * ⚠️ 지역명 `t`를 쓰지 않는다 — 모듈 스코프의 i18n `t()`를 가려서, 이 안에서 번역을 부르면 조용히 깨진다.
+   */
   private title(text: string): HTMLDivElement {
-    // ⚠️ 지역명 `t`를 쓰지 않는다 — 모듈 스코프의 i18n `t()`를 가려서, 이 안에서 번역을 부르면 조용히 깨진다.
     const el = document.createElement('div');
     el.textContent = text;
     css(el, {
-      font: '800 24px/1.2 system-ui, sans-serif',
+      font: '700 26px/1.15 Georgia, "Times New Roman", serif',
+      letterSpacing: '0.01em',
       marginBottom: '18px',
       textAlign: 'center',
     });
     return el;
   }
 
+  /**
+   * 시작 메뉴 전용 **하우스 사인** — 로고타입 → 터쿼이즈 스우시 → 머스터드 태그라인 3단.
+   * 마스킹 유닛(Environment.drawHousePanel)과 부팅 로더(index.html)가 쓰는 것과 **같은 구성**이라,
+   * 부팅 → 시작 메뉴 → 조준 화면에서 같은 사인이 세 번 반복된다(실제 하우스도 그렇게 한다).
+   *
+   * 스우시 폭(230px)은 26px Georgia로 조판한 'STARLITE LANES' 실측 폭(≈242px)에서 왔다.
+   * 이름이 바뀌면 여기도 봐야 한다 — 마스킹 유닛은 measureText로 유도하지만 DOM엔 그 훅이 없다.
+   */
+  private houseSign(name: string): HTMLDivElement {
+    const wrap = document.createElement('div');
+    css(wrap, {
+      display: 'flex',
+      flexDirection: 'column',
+      alignItems: 'center',
+      marginBottom: '20px',
+      // ⚠️ 우상단 사운드 토글(40px, top/right 16) 자리를 **비워둔다.** 실측으로 데스크톱에서
+      //    로고 오른끝 550 ↔ 버튼 왼끝 553으로 여백이 3px밖에 없었고, 320px에서는 패널 내용폭이
+      //    230px로 줄어 로고(26px 조판 246px)가 버튼 아래로 파고든다.
+      //    왼쪽 8px은 광학 보정 — 오른쪽만 비우면 로고가 왼쪽으로 치우쳐 보인다.
+      paddingRight: '44px',
+      paddingLeft: '8px',
+      boxSizing: 'border-box',
+      alignSelf: 'stretch',
+    });
+
+    const logo = document.createElement('div');
+    logo.textContent = name;
+    css(logo, {
+      // 뷰포트 연동 — 좁은 폰에서 버튼 자리를 뺀 폭에 들어가야 한다(320px에서 5.6vw=17.9 → 하한 20px).
+      font: '700 clamp(20px, 5.6vw, 26px)/1.1 Georgia, "Times New Roman", serif',
+      letterSpacing: '0.01em',
+      textAlign: 'center',
+      whiteSpace: 'nowrap',
+    });
+
+    const swoosh = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    swoosh.setAttribute('viewBox', '0 0 300 12');
+    swoosh.setAttribute('aria-hidden', 'true');
+    css(swoosh as unknown as HTMLElement, { display: 'block', width: 'min(230px, 84%)', marginTop: '5px' });
+    const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    path.setAttribute('d', 'M4 6 Q150 13 296 4'); // 부팅 로더와 동일한 곡선
+    path.setAttribute('fill', 'none');
+    path.setAttribute('stroke', HOUSE.turquoise);
+    path.setAttribute('stroke-width', '4');
+    path.setAttribute('stroke-linecap', 'round');
+    swoosh.appendChild(path);
+
+    const tag = document.createElement('div');
+    tag.textContent = 'STRIKE IT UP'; // 하우스 태그라인 — 브랜드라 번역 대상이 아니다(로고타입과 같은 규칙)
+    css(tag, {
+      marginTop: '6px',
+      font: '700 10px/1 Georgia, "Times New Roman", serif',
+      letterSpacing: '0.3em',
+      color: HOUSE.mustard,
+    });
+
+    wrap.append(logo, swoosh, tag);
+    return wrap;
+  }
+
   private sectionLabel(text: string): HTMLDivElement {
     const l = document.createElement('div');
     l.textContent = text;
-    css(l, { font: '700 12px/1 system-ui, sans-serif', color: HOUSE.dim, marginBottom: '8px' });
+    // 자간을 벌린 소형 라벨 — 대문자가 없는 한글에서 '사인 라벨'을 만드는 장치는 letter-spacing이다.
+    // (하우스 사인의 태그라인·마스킹 유닛의 STRIKE IT UP과 같은 문법. 크기는 12→11px로 한 단계 내렸다.)
+    css(l, { font: '700 11px/1 system-ui, sans-serif', letterSpacing: '0.14em', color: HOUSE.dim, marginBottom: '9px' });
     return l;
   }
 
@@ -858,7 +930,7 @@ export class MenuUI {
     css(b, {
       padding: COARSE ? '12px 14px' : '9px 12px',
       minHeight: COARSE ? '44px' : '',
-      borderRadius: '9px',
+      borderRadius: '3px',
       border: '1px solid rgba(255,255,255,0.18)',
       background: 'rgba(255,255,255,0.05)',
       color: HOUSE.text,
@@ -919,7 +991,7 @@ export class MenuUI {
       ...(opts.flex1 ? { flex: '1' } : { width: '100%' }),
       padding: '11px',
       minHeight: opts.coarseMinHeight && COARSE ? opts.coarseMinHeight : '',
-      borderRadius: '10px',
+      borderRadius: '3px',
       border: `1px solid ${opts.danger ? 'rgba(239,68,68,0.5)' : 'rgba(255,255,255,0.25)'}`,
       background: 'transparent',
       color: opts.danger ? '#f87171' : HOUSE.text,
@@ -1005,7 +1077,7 @@ export class MenuUI {
       marginBottom: '16px',
       background: 'rgba(255,255,255,0.03)',
       border: '1px solid rgba(255,255,255,0.08)',
-      borderRadius: '14px',
+      borderRadius: '4px',
     });
     const heroBall = this.ballSwatch(equipped, 78);
     const heroName = document.createElement('div');
@@ -1117,7 +1189,7 @@ export class MenuUI {
           gap: '7px',
           padding: '11px 11px 9px',
           minHeight: COARSE ? '52px' : '',
-          borderRadius: '11px',
+          borderRadius: '3px',
           border: isEquipped ? `1px solid ${HOUSE.mustard}` : isUnlocked ? '1px solid rgba(255,255,255,0.16)' : '1px solid rgba(255,255,255,0.1)',
           background: isEquipped ? rgba(HOUSE.mustard, 0.14) : isUnlocked ? 'rgba(255,255,255,0.04)' : 'rgba(255,255,255,0.02)',
           cursor: isUnlocked ? 'pointer' : 'not-allowed',
@@ -1151,7 +1223,7 @@ export class MenuUI {
           alignItems: 'center',
           gap: '11px',
           padding: '9px 11px',
-          borderRadius: '9px',
+          borderRadius: '3px',
           background: got ? rgba(HOUSE.mustard, 0.08) : 'rgba(255,255,255,0.02)',
           border: got ? `1px solid ${rgba(HOUSE.mustard, 0.22)}` : '1px solid rgba(255,255,255,0.08)',
           opacity: got ? '1' : '0.75',
@@ -1188,7 +1260,7 @@ export class MenuUI {
       css(preview, {
         width: '100%',
         aspectRatio: '3 / 1',
-        borderRadius: '10px',
+        borderRadius: '3px',
         border: '1px solid rgba(255,255,255,0.14)',
         background:
           current && !isVideo ? `#04060c center/cover no-repeat url(${JSON.stringify(current)})` : 'rgba(255,255,255,0.04)',
