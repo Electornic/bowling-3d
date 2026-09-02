@@ -1,16 +1,31 @@
 # 모바일 대응 — 설계 문서
 
-> 작성: 2026-06-14 (6차 세션). 데스크톱(마우스 hover + 키보드) 전제로 만들어진 게임을
-> 모바일 터치에서 정상 플레이 가능하게 만드는 작업의 진단 · 설계 · 단계 계획.
-> 본 문서는 **구현 전 설계 합의용**. 결정된 기본안은 각 절 머리에 표기하고, 검토한 대안도 함께 남긴다.
+> 작성: 2026-06-14 (6차 세션) · **상태 갱신: 2026-09-02.** 데스크톱(마우스 hover + 키보드) 전제로
+> 만들어진 게임을 모바일 터치에서 정상 플레이 가능하게 만드는 작업의 진단 · 설계 · 단계 계획.
+>
+> ⚠️ **원래는 "구현 전 설계 합의용"이었고 이제 M0·M1이 완료됐다.** 각 절의 `> **현재 상태**` 블록이
+> 구현 실황이고, 그 아래 본문은 당시 설계 논의다. 절 번호는 코드 주석이 `MOBILE_SUPPORT.md §N`으로
+> 참조하므로(예: [Menu.ts:51](../src/ui/Menu.ts) → §3.1, [Engine.ts:72](../src/core/Engine.ts) → §6) **고정한다.**
 
 ---
 
 ## 0. TL;DR
 
+> **현재 상태 (2026-09-02) — 아래 원문은 착수 전 요약이라 이미 본문과 어긋나 있었다.**
+> **M0·M1 완료, M2 부분.** 요약을 다시 쓰면:
+>
+> - **발사 모델은 ⓑ(상대 드래그 + 홀드 차징)로 확정·구현됐다**(§2) — `anchorX`/`anchorAim` 기준 상대 조준,
+>   단일 포인터(`activePointerId`) 추적, `pointercancel` 고착 방지까지([Controls.ts:136·477-527](../src/input/Controls.ts)).
+> - **방향은 세로 전용으로 뒤집혔다**(§5, 2026-08-31) — 원문의 "가로 권장 안내"는 **폐기**다.
+>   안드로이드는 매니페스트 진짜 락, 웹은 가로일 때 안내 오버레이.
+> - **뷰포트·제스처·safe-area·터치 타깃·컴팩트 점수판 전부 구현**(§3·§3.1·§4).
+> - **남은 것(M2)**: 그림자 정적화(`shadowMap.autoUpdate=false`) **미구현**. 햅틱·비가시 시 정지는 완료.
+>
+> 원문 요약(참고용):
+
 - **핵심 막힘**: 터치엔 hover가 없어 "조준 후 차징"이 불가능 — 캔버스를 누르는 순간 곧장 파워 차징이 시작된다([Controls.ts:236](../src/input/Controls.ts)). 발사 인터랙션 모델 재설계가 1순위.
 - **발사안**: 두 후보 **ⓐ 풀백 슬링샷 / ⓑ 상대 드래그+홀드 차징** 보류(§2) — 실플레이 감 본 뒤 확정. ⓑ는 타이밍 압박이 잔존하고 ⓐ는 데스크톱과 손맛이 갈림. 어느 쪽이든 **멀티터치·pointercancel 견고성(§2.4)** 은 필수.
-- **나머지**: 반응형 UI 재배치(고정 px → 충돌·오버플로), 뷰포트/제스처 잠금(줌·당겨서새로고침 차단), safe-area, 가로 권장 안내.
+- **나머지**: 반응형 UI 재배치(고정 px → 충돌·오버플로), 뷰포트/제스처 잠금(줌·당겨서새로고침 차단), safe-area, ~~가로 권장 안내~~ ← §5에서 세로 전용으로 뒤집힘.
 - **단계**: M0(플레이 가능) → M1(레이아웃) → M2(폴리시). M0만으로 "모바일에서 일단 굴러간다" 달성.
 
 ---
@@ -19,7 +34,7 @@
 
 ### 1.1 이미 되는 것
 - **포인터 통합** — 입력 전부 `pointerdown/move/up`. 마우스·터치가 같은 이벤트로 들어옴([Controls.ts:226](../src/input/Controls.ts)).
-- **스핀 드래그 바** — `spinTrack`에 `touchAction:'none'` + 드래그 핸들러가 있어 **터치로 스핀 설정 가능**([Controls.ts:146](../src/input/Controls.ts), [252](../src/input/Controls.ts)). → 로드맵의 "터치엔 스핀 입력 없음"([GAMEPLAY_ROADMAP.md:20](GAMEPLAY_ROADMAP.md)) 메모는 stale.
+- **스핀 드래그 바** — `spinTrack`에 `touchAction:'none'` + 드래그 핸들러가 있어 **터치로 스핀 설정 가능**([Controls.ts:146](../src/input/Controls.ts), [252](../src/input/Controls.ts)). → 로드맵의 "터치엔 스핀 입력 없음"([GAMEPLAY_ROADMAP.md:20](legacy/GAMEPLAY_ROADMAP.md)) 메모는 stale.
 - **해상도 대응** — 풀스크린 + `resize` 핸들러([Engine.ts:90](../src/core/Engine.ts)). `setPixelRatio(min(dpr,2))`, `maxCcdSubsteps=4`(저FPS 터널링 보완)는 모바일을 이미 고려.
 - **저FPS 물리 안전** — `Loop`의 `MAX_FRAME=0.25` 클램프([Loop.ts:52](../src/core/Loop.ts))로 프레임이 크게 벌어져도 스파이럴 없이 최대 15스텝만 진행. 고정 timestep이라 **물리·궤적은 프레임레이트 독립** — 저FPS는 *체감/렌더* 문제지 물리 깨짐이 아니다.
 - **오디오 언락(이미 됨)** — `SoundManager`가 `pointerdown`/`keydown`에서 `AudioContext.resume()`([SoundManager.ts:15](../src/audio/SoundManager.ts)). 모바일 자동재생 정책의 첫 제스처 언락은 **신규 작업 아님**. (단 `new AudioContext()`만 — 구형 iOS 대상이면 `webkitAudioContext` 폴백 한 줄 검토.)
@@ -33,6 +48,19 @@
 | 3 | **뷰포트/제스처 미처리** — `viewport-fit`/safe-area 없음, `touch-action`/`user-scalable` 미설정 → 더블탭 줌·핀치 줌·당겨서새로고침·롱프레스 메뉴가 플레이 방해 | [index.html:5](../index.html) | 높음 |
 | 4 | **방향 미처리** — 레인이 화면을 세로로 가르는 구도라 세로 폰에서 레인이 과도하게 좁음 | [CameraRig.ts:75](../src/camera/CameraRig.ts)(AIMING 뷰) | 중 |
 | 5 | **키보드 의존 잔재** — Q/E 스핀, 조작 안내문이 데스크톱 문구 그대로 | [Controls.ts:258](../src/input/Controls.ts), [Menu.ts:141](../src/ui/Menu.ts) | 중 |
+
+> **현재 상태 — 5개 전부 해소됐다.**
+>
+> | # | 해소 방식 |
+> |---|---|
+> | 1 조준·파워 결합 | ⓑ 상대 조준 — `anchorX`/`anchorAim`에 down 지점을 기록하고 **델타만** 조준에 반영. 위치 편향 제거 |
+> | 2 UI 고정 px | `NARROW_Q = '(max-width: 760px)'` 컴팩트 점수판([Hud.ts:41](../src/ui/Hud.ts)) · 게이지 `clamp(190px, 30vh, 300px)` · BallPicker 제거 |
+> | 3 뷰포트/제스처 | [index.html](../index.html)에 `viewport-fit=cover` + `overscroll-behavior:none`(html·body) + `canvas { touch-action: none }` + user-select/touch-callout 차단 |
+> | 4 방향 | §5 **세로 전용** 확정 + `approachZFor(fov, aspect)`로 세로 프레이밍 유도 |
+> | 5 키보드 잔재 | Q/E → **마우스 휠**로 이동(게이트가 "터치냐"→"휠이 있냐"). 힌트도 기기별 분기 |
+>
+> ⚠️ **#2의 `NARROW_Q`는 주입 CSS의 `@media (max-width:760px)`와 값이 같아야 한다** — 갈리면 알약/시트
+> 가시성과 5칸 청크가 서로 다른 폭에서 전환된다(CLAUDE.md).
 
 ---
 
@@ -72,6 +100,13 @@
 - **스핀 드래그도 같은 고착 위험** — `charging`뿐 아니라 `draggingSpin`도 OS 제스처 중단 시 `pointerup`이 안 와 영구 `true`로 고착된다([Controls.ts:254](../src/input/Controls.ts)에서 set, 해제는 `pointerup`에만 — [244](../src/input/Controls.ts)). **`pointercancel`에서 `charging`·`draggingSpin`을 함께 리셋**해야 완결.
 - **영향 코드**: [Controls.ts](../src/input/Controls.ts)(`isTouch` 분기, anchor/상대 조준 또는 풀백 파워, `isPrimary`/`pointercancel`, 조작 힌트), [constants.ts](../src/game/constants.ts)(`AIM_GAIN`).
 
+> **현재 상태 — 이 절의 주의사항은 전부 반영됐다.**
+> - `AIM_GAIN`은 "신설" 예정이 아니라 **존재한다**([constants.ts](../src/game/constants.ts), 값 1.0). `AIM_RANGE`는 0.08.
+> - 단일 포인터 추적은 `isPrimary`가 아니라 **`activePointerId`** 로 구현됐다 — 첫 포인터의 `pointerId`를
+>   잡아두고 그것만 차징/발사에 반영한다([Controls.ts:146·493-509](../src/input/Controls.ts)). 둘째 손가락은 무시된다.
+> - `pointercancel` 핸들러 있음([Controls.ts:523](../src/input/Controls.ts)) — 해당 포인터면 차징을 **발사 없이** 중단.
+> - 기기 판정은 [device.ts](../src/core/device.ts)의 `isCoarsePointer()`로 분리했고 `Controls.coarse`가 캐시한다.
+
 ---
 
 ## 3. 반응형 UI 재배치
@@ -87,6 +122,19 @@
 
 원칙: 고정 px → `vw`/`clamp()`/`env()` 혼용. 충돌 매트릭스(상단중앙 점수판 ↔ 우상단 볼무게 ↔ 우하단 게이지)를 360/390/414px 폭에서 검증.
 
+> **현재 상태 — 구현 완료.**
+> - **점수판**: `NARROW_Q = '(max-width: 760px)'` + `isNarrowSheet()`로 좁은 화면 5칸 2줄 접기
+>   ([Hud.ts:41](../src/ui/Hud.ts)). `matchMedia` change 리스너로 회전/리사이즈에 재렌더.
+>   시트는 HUD와 결과 모달이 `buildSheet` **한 벌을 공유**한다 — 분기가 필요하면 `SheetOpts`에 인자를 추가할 것.
+> - **safe-area**: `env(safe-area-inset-*)` 반영 — [Hud.ts:54](../src/ui/Hud.ts) · [PinDeck.ts:60](../src/ui/PinDeck.ts) ·
+>   [Menu.ts:160](../src/ui/Menu.ts)(백드롭 패딩으로 비켜 중앙정렬 패널이 노치/홈바에 안 파고들게).
+> - **메뉴 패널**: `100dvh` 사용, `vh` 사용 0건 — 원문 경고대로 갔다([Menu.ts:152](../src/ui/Menu.ts)).
+>   `touch-action: pan-y` + `overflow:auto`도 적용([Menu.ts:187](../src/ui/Menu.ts)).
+> - **게이지**: `clamp(190px, 30vh, 300px)`. ⚠️ 예전엔 coarse에서 `26vh`였는데 **방향에 따라 크기가
+>   뒤집혔다**(세로 812px→211px vs 가로) — `clamp`가 그 수정이다.
+> - ⚠️ **가시성은 클래스로만 다룬다.** 인라인 `style.display`는 미디어 쿼리를 항상 이겨서, 한 곳이라도
+>   인라인으로 쓰면 좁은 화면 분기가 죽는다(CLAUDE.md).
+
 ### 3.1 터치 타깃 크기·조작성 (UI 개선)
 
 가이드라인(검색 검증): **WCAG 2.2 §2.5.8 = 24×24 CSS px(AA 최소)** · **Apple HIG = 44×44pt** · **Material = 48×48dp** · 실무 권장 **44×44**. 현 UI는 마우스 전제라 핵심 컨트롤이 과소 — 터치 시 히트영역을 키워야 한다(시각 두께는 유지하되 투명 패딩으로 확장 가능).
@@ -98,6 +146,17 @@
 | 메뉴 칩/버튼 | padding 9~12px(높이 ~32px)([Menu.ts:260](../src/ui/Menu.ts)) | 높이 **≥44px** · 인접 타깃 간격 ≥8px |
 
 ⚠️ 얇은 스핀 바는 본질적으로 터치에 불리 — **큰 좌/우 스텝 버튼**이나 넓은 아크로 대체도 검토(§2 스핀 흐름과 연동). UI 개선은 M1 레이아웃과 같은 단계.
+
+> **현재 상태 — 구현 완료.** 코드가 이 절을 역참조한다([Menu.ts:51](../src/ui/Menu.ts) 주석).
+> `COARSE` 분기로 터치에서만 `minHeight: '44px'`를 건다 — 볼무게 슬라이더([Menu.ts:336](../src/ui/Menu.ts)) ·
+> 메뉴 버튼/칩([Menu.ts:365](../src/ui/Menu.ts)) · 고스트 버튼(`coarseMinHeight: '44px'`).
+>
+> ⚠️ **`.neon-range`는 더 이상 없다** — 죽은 CSS로 제거됐다(팔레트가 NEON → HOUSE로 바뀔 때).
+> 볼무게 슬라이더는 여전히 `input[type=range]`이지만 `accentColor: HOUSE.turquoise` + `minHeight`로
+> 스타일링한다. 아래 표의 `theme.ts .neon-range` 참조는 **죽은 링크**다.
+>
+> 스핀 바 대체(스텝 버튼·아크)는 **채택하지 않았다** — 데스크톱에서 스핀 주 조작이 휠로 옮겨가며
+> 바가 "정밀 확인용 트랜지언트"로 격하됐고, 터치에서는 바 드래그가 유지된다.
 
 ---
 
@@ -156,6 +215,20 @@ iPhone 15 실측: 공 지점의 레인 폭이 화면 가로의 **7.8%**(세로 3
 - **비가시 시 렌더 정지** — `document.hidden`/`visibilitychange`에 `Loop.stop()`/`start()`([Loop.ts](../src/core/Loop.ts)) 재사용 → 백그라운드 배터리·발열 절감(rAF 기본 스로틀의 명시적 보강). **같은 핸들러에서 `AudioContext.suspend()`/`resume()`도 함께** 걸어 오디오 스레드까지 잠근다([SoundManager.ts](../src/audio/SoundManager.ts) `ctx` 노출 필요 — 현재 private).
 - 물리 dt·결정성은 **불변** — 시각/입력 레이어만 적응.
 
+> **현재 상태 — 3/4 완료, 그림자 정적화만 미구현.**
+>
+> | 항목 | 상태 |
+> |---|---|
+> | 적응형 `pixelRatio` | ✅ `pixelRatioCap(high)` — 저사양만 1.5 상한([Engine.ts:75·175](../src/core/Engine.ts)). 설정 `quality`와 연동 |
+> | `antialias` 판정 | ⚠️ **설계 변경 — 항상 ON이다.** 끄면 거터 벽 같은 고대비 모서리에서 엣지 크롤이 생겨, 저사양 판정은 `pixelRatio`·shadowMap에만 쓴다 |
+> | 저사양 휴리스틱 | ✅ 단 **`deviceMemory ≤ 4GB`만** 본다 — 화면폭 기준을 쓰면 iOS(deviceMemory 미지원) 플래그십이 저사양으로 오판된다 |
+> | 임팩트 햅틱 | ✅ [Boot.ts:490](../src/core/Boot.ts) — `settings.haptics` + `typeof navigator.vibrate === 'function'` feature-detect, 세기도 핀 수 연동(>2핀 30ms / 12ms). iOS는 자동 무시 |
+> | 비가시 시 렌더 정지 | ✅ `visibilitychange` → `Loop.stop()` + `sound.suspend()`([Boot.ts:128](../src/core/Boot.ts)). `SoundManager`가 `suspend()`/`resume()`을 공개 메서드로 노출해 "private 노출 필요" 메모는 해소 |
+> | **그림자 정적화** (`shadowMap.autoUpdate=false`) | ❌ **미구현.** [Engine.ts](../src/core/Engine.ts)는 `shadowMap.enabled`·`type`만 설정한다. 원문대로 조준 상태가 시간 대부분이라 **남은 M2 중 이득이 가장 큰 항목** |
+>
+> ⚠️ 비가시 시 정지의 부작용이 검증을 방해한다 — 오디오 시간까지 멈춰 게인 램프가 얼어붙는다.
+> 브라우저 패널에서 잴 때는 `__sound.resume()`이 먼저다([SOUND.md §7](SOUND.md)).
+
 ---
 
 ## 7. 단계 계획
@@ -163,14 +236,30 @@ iPhone 15 실측: 공 지점의 레인 폭이 화면 가로의 **7.8%**(세로 3
 | 단계 | 범위 | 산출 | 난이도 |
 |---|---|---|---|
 | **M0 — 플레이 가능** | §2 터치 발사 모델(ⓐ/ⓑ 확정) **+ 멀티터치·pointercancel 견고성(§2.4)** + §4 뷰포트/제스처 잠금 + 조작 힌트 모바일화 | 모바일에서 정조준 발사·스핀까지 오발사 없이 정상 동작 | 중 |
-| **M1 — 레이아웃·조작성** | §3 반응형 UI 재배치 + **§3.1 터치 타깃 ≥44px** + safe-area + §5 가로 권장 안내 | 좁은 폰에서 UI 충돌/오버플로 없음 + 컨트롤이 손가락으로 잡힘 | 중 |
+| **M1 — 레이아웃·조작성** | §3 반응형 UI 재배치 + **§3.1 터치 타깃 ≥44px** + safe-area + ~~§5 가로 권장 안내~~ → **세로 안내** | 좁은 폰에서 UI 충돌/오버플로 없음 + 컨트롤이 손가락으로 잡힘 | 중 |
 | **M2 — 폴리시** | §6 성능 적응 품질 + 햅틱 + 방향별 카메라 보정 | 저사양 기기 체감 개선 | 하~중 |
 
 추천 순서: **M0 → M1 → M2.** M0만으로 "모바일에서 일단 된다"가 성립, M1이 보기 좋게, M2가 마무리.
 
+> **현재 상태 (2026-09-02).**
+>
+> | 단계 | 상태 |
+> |---|---|
+> | **M0** | ✅ **완료** — ⓑ 발사 모델 · `activePointerId`/`pointercancel` · 뷰포트/제스처 잠금 · 힌트 기기별 분기 |
+> | **M1** | ✅ **완료** — 컴팩트 점수판(`NARROW_Q`) · 터치 타깃 44px · safe-area · 세로 안내(가로 권장에서 뒤집힘) |
+> | **M2** | ⚠️ **부분** — 햅틱 ✅ · 비가시 정지 ✅ · 적응형 `pixelRatio` ✅ · **그림자 정적화 ❌** · 방향별 카메라 보정은 `approachZFor`로 M1에 흡수 |
+>
+> 남은 것은 §6의 `shadowMap.autoUpdate=false` 하나다.
+
 ---
 
 ## 8. 검증 체크리스트
+
+> **현재 상태 (2026-09-02).** 아래에서 **코드로 확인 가능한 항목은 구현됐다**(§1.2·§3·§4·§6의 현재 상태
+> 블록이 근거). 다만 **실기기 검증 기록은 이 리포에 없다** — 체크박스를 임의로 채우지 않았다.
+> Playwright/Cypress 등 E2E도 **0개**라 아래는 여전히 수동 항목이다.
+>
+> ⚠️ 마지막 항목("가로/세로 모두 플레이 가능")은 §5의 **세로 전용** 확정으로 폐기됐다 — 아래에서 정정했다.
 
 - [ ] 실기기 — iOS Safari / Android Chrome 각 1대 이상
 - [ ] 더블탭 줌·핀치 줌 안 됨 / 당겨서새로고침·오버스크롤 안 됨 / 롱프레스 메뉴 안 뜸
@@ -180,7 +269,8 @@ iPhone 15 실측: 공 지점의 레인 폭이 화면 가로의 **7.8%**(세로 3
 - [ ] 점수판 가독·미오버플로 @ 360 / 390 / 414px 폭 (풀게임 10프레임)
 - [ ] 볼무게 ↔ 점수판 ↔ 게이지 비충돌
 - [ ] 노치 safe-area 반영 (상·하·좌·우 인셋)
-- [ ] 가로/세로 모두 플레이 가능, 세로 안내 1회
+- [ ] ~~가로/세로 모두 플레이 가능, 세로 안내 1회~~ → **세로에서 플레이 가능** · 가로로 돌리면 안내
+  오버레이가 뜨고 **세로로 되돌리면 사라진다**(방향 종속, 1회성 아님) · 안드로이드 APK는 OS 락으로 회전 자체가 없음
 - [ ] FPS ≥ 30 (CCD 보완은 이미 적용)
 
 ---
@@ -202,6 +292,16 @@ iPhone 15 실측: 공 지점의 레인 폭이 화면 가로의 **7.8%**(세로 3
 | [src/core/Loop.ts](../src/core/Loop.ts) | — | — | `visibilitychange` 정지/재개 |
 | [src/audio/SoundManager.ts](../src/audio/SoundManager.ts) | — | — | 비가시 시 `ctx` suspend (private 노출) |
 
+> **현재 상태 — 표에서 정정할 두 줄.**
+> - `src/ui/theme.ts` 행의 `.neon-range`는 **제거된 클래스**다(§3.1). 슬라이더 터치 타깃은
+>   [Menu.ts:336](../src/ui/Menu.ts)에서 `minHeight`로 처리된다.
+> - `SoundManager` 행의 "private 노출 필요"는 **해소됐다** — `suspend()`/`resume()`이 공개 메서드고
+>   [Boot.ts:128](../src/core/Boot.ts)이 `visibilitychange`에서 부른다.
+>
+> 표에 없던 파일도 이 작업에 관여했다: [src/core/device.ts](../src/core/device.ts)(`isCoarsePointer()` 분리) ·
+> [src/ui/PinDeck.ts](../src/ui/PinDeck.ts)(safe-area) · `src-tauri/gen/android/.../AndroidManifest.xml`
+> (`screenOrientation="portrait"` — **git 추적됨**, `/gen/schemas`만 무시).
+
 ---
 
 ## 부록 A — 외부 검증 기록 (웹 검색, 2026-06-14)
@@ -222,6 +322,11 @@ iPhone 15 실측: 공 지점의 레인 폭이 화면 가로의 **7.8%**(세로 3
 ---
 
 ## 부록 B — 문서 정합성 TODO
-- [GAMEPLAY_ROADMAP.md:20](GAMEPLAY_ROADMAP.md) "터치엔 스핀 입력 없음" → 스핀 바로 해소됨(stale). 모바일 착수 확정 시 본 문서로 대체 참조.
-- [GAMEPLAY_ROADMAP.md:108](GAMEPLAY_ROADMAP.md) P3 "터치 스핀 입력"(플릭 안) → 본 문서 §2.3 대안으로 흡수.
-- [PROGRESS.md:100](PROGRESS.md) "모바일 터치 검증" 체크 → §8 체크리스트로 구체화.
+
+> **현재 상태 (2026-09-02).** 아래 3건이 가리키는 `GAMEPLAY_ROADMAP.md`·`PROGRESS.md`는 **`docs/legacy/`로
+> 이동**했다(링크는 갱신함). CLAUDE.md 기준으로 legacy는 *그때의 근거 기록*이고 **현재 상태로는 믿지 않는다** —
+> 따라서 이 TODO 3건은 "legacy를 고친다"가 아니라 **"본 문서가 대체 참조다"로 종결**한다.
+> 특히 `PROGRESS.md`는 2026-07-13에서 멈춰 있다.
+- [GAMEPLAY_ROADMAP.md:20](legacy/GAMEPLAY_ROADMAP.md) "터치엔 스핀 입력 없음" → 스핀 바로 해소됨(stale). 모바일 착수 확정 시 본 문서로 대체 참조.
+- [GAMEPLAY_ROADMAP.md:108](legacy/GAMEPLAY_ROADMAP.md) P3 "터치 스핀 입력"(플릭 안) → 본 문서 §2.3 대안으로 흡수.
+- [PROGRESS.md:100](legacy/PROGRESS.md) "모바일 터치 검증" 체크 → §8 체크리스트로 구체화.

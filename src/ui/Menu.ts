@@ -5,10 +5,11 @@ import { isCoarsePointer } from '../core/device';
 import { SKINS, ACHIEVEMENTS, loadRewards, saveSelectedSkin, unlockedSkinIds, resolveSkin, achievementForSkin, isScreenCustomUnlocked, saveCustomScreen, VIDEO_MARKER, type CustomScreenMedia } from '../game/rewards';
 import { fileToScreenSource, fileToScreenVideo } from './screenMedia';
 import { saveScreenVideo, loadScreenVideo, clearScreenVideo } from '../game/screenStore';
-import type { BallSkin, SkinFinish } from '../game/rewards';
+import { houseBallColor } from '../game/BallSpec';
+import type { BallSkin } from '../game/rewards';
 import type { Settings, Quality } from '../game/settings';
-import { t, getLocale, detectLocale, LOCALES, LOCALE_LABEL, type I18nKey, type LocaleSetting } from '../i18n';
-import { css, HOUSE, PANEL_BG, rgba } from '../ui/theme'; // 디자인 시스템 단일소스(#6) — 로컬 css 복제 제거, 하우스 팔레트 토큰 공유
+import { t, getLocale, LOCALES, LOCALE_LABEL, type I18nKey, type LocaleSetting } from '../i18n';
+import { css, HOUSE, PANEL_BG, rgba, FONT_SLAB_FAMILY } from '../ui/theme'; // 디자인 시스템 단일소스(#6) — 로컬 css 복제 제거, 하우스 팔레트 토큰 공유
 import { buildResultSheets, SHEET_MAX } from './Hud'; // 결과 모달 점수 시트 — HUD와 같은 렌더러(마크 규칙·5칸 접기 공유)
 
 // === UI juice: 마이크로 모션 — 정적 CSS(.menu-panel button 트랜지션 + juicePanelIn/juiceFadeIn 키프레임 +
@@ -55,7 +56,7 @@ const hex6 = (n: number) => `#${n.toString(16).padStart(6, '0')}`;
  * 스킨 마감을 CSS 그라데이션 스와치로 근사 — 시트는 3D 미사용·DOM 전용이라 실제 머티리얼을 흉내만 낸다.
  * 글로우는 인게임 bloom 도입 전이라(docs/legacy/REWARDS.md §11) 시트에서는 헤일로를 살짝 더 줘 마감 구분을 돕는다.
  */
-function skinPreviewStyle(skin: BallSkin): { background: string; shadow: string } {
+function skinPreviewStyle(skin: BallSkin, weightColor?: number): { background: string; shadow: string } {
   if (skin.finish === 'chrome') {
     return {
       background: 'linear-gradient(145deg,#f5f8ff 0%,#aeb6c4 30%,#2a3140 50%,#c9d2e0 70%,#6b7686 100%)',
@@ -63,17 +64,20 @@ function skinPreviewStyle(skin: BallSkin): { background: string; shadow: string 
     };
   }
   if (skin.finish === 'glow' && skin.emissive != null) {
+    // 헤일로 12px/cc → 8px/88: 인게임 발광을 절반으로 내린 것(rewards.ts 톤 재조정)에 맞춘다.
     const e = hex6(skin.emissive);
     const base = hex6(skin.color ?? 0x111111);
     return {
       background: `radial-gradient(circle at 36% 30%,#ffffff,${e} 42%,${base})`,
-      shadow: `0 0 12px ${e}cc,inset -4px -5px 8px rgba(0,0,0,0.45)`,
+      shadow: `0 0 8px ${e}88,inset -4px -5px 8px rgba(0,0,0,0.45)`,
     };
   }
   if (skin.useWeightColor) {
-    // classic — 무게 기반 색은 런타임에 바뀌지만 미리보기는 대표 블루로 고정
+    // 하우스 볼 — 색은 무게가 정한다. 호출부가 현재 슬라이더 무게의 색(houseBallColor)을 넘겨 3D 공과 일치시킨다.
+    // 전엔 대표 블루로 고정돼 있어 16lb를 골라도 스와치는 파란 공이었다.
+    const c = hex6(weightColor ?? houseBallColor(10));
     return {
-      background: 'radial-gradient(circle at 35% 30%,#9fcfff,#4aa3ff 42%,#1c5fa0)',
+      background: `radial-gradient(circle at 35% 30%,#ffffff,${c} 46%,rgba(0,0,0,0.55))`,
       shadow: 'inset -3px -4px 7px rgba(0,0,0,0.45)',
     };
   }
@@ -83,15 +87,6 @@ function skinPreviewStyle(skin: BallSkin): { background: string; shadow: string 
     shadow: 'inset -3px -4px 7px rgba(0,0,0,0.3)',
   };
 }
-
-// ⚠️ 문자열이 아니라 **키** 맵이다 — 모듈 로드 시점엔 로케일이 없다(i18n/index.ts 규칙 2).
-const FINISH_KEY: Record<SkinFinish, I18nKey> = {
-  matte: 'finish.matte',
-  satin: 'finish.satin',
-  metallic: 'finish.metallic',
-  chrome: 'finish.chrome',
-  glow: 'finish.glow',
-};
 
 /**
  * 사운드 on/off 아이콘 (인라인 SVG, currentColor 상속).
@@ -137,7 +132,7 @@ export class MenuUI {
   private rivalKey: string | null = null; // null=혼자 · 그 외=AI 라이벌 key
   private weight: number; // 볼 무게(lb) — 시작 메뉴·일시정지 모달에서 선택. 초기값은 저장된 설정.
   private selectedSkin: string = loadRewards().selectedSkin; // 장착 볼 스킨 (보상)
-  private skinTab: 'skins' | 'achievements' | 'screen' = 'skins'; // 컬렉션 시트 활성 탭 (A안 탭형)
+  private skinTab: 'skins' | 'achievements' = 'skins'; // 컬렉션 시트 활성 탭 (A안 탭형). 전광판은 2026-09-02에 독립 화면(showScreen)으로 나갔다
 
   constructor(
     private readonly onStart: (cfg: MatchConfig) => void,
@@ -192,6 +187,7 @@ export class MenuUI {
       // 100%: 백드롭의 safe-area 패딩 안쪽으로만 차게(노치/홈바 비침). pan-y: 세로 스크롤만(핀치/더블탭 줌 차단). (§3·§4)
       maxHeight: '100%',
       overflowY: 'auto',
+      scrollbarWidth: 'none', // 스크롤바 숨김(Firefox) — 컬렉션처럼 긴 시트에서 패널 옆에 흰 막대가 섰다(2026-09-02). WebKit은 ui.css ::-webkit-scrollbar
       touchAction: 'pan-y',
       boxShadow: '0 18px 60px rgba(0,0,0,0.5)',
     });
@@ -260,6 +256,7 @@ export class MenuUI {
     this.buildMatchupSection(); // 모드 + 상대
     this.buildWeightSection(); // 볼 무게 슬라이더
     this.buildSkinEntry(); // 컬렉션 진입
+    this.appendScreenEntry(() => this.showMenu(), t('menu.back.menu')); // 전광판 꾸미기 진입 (해금 시에만)
     this.buildStartButton(); // 게임 시작
     this.buildStatsFooter(); // 통계 + 조작법
     this.reveal();
@@ -350,6 +347,137 @@ export class MenuUI {
     return wRow;
   }
 
+  /**
+   * 전광판 꾸미기 진입 행 — **core 업적을 전부 깬 뒤에만** 나타난다(히든 보상, rewards.isScreenCustomUnlocked).
+   * 시작 메뉴(컬렉션 아래)와 일시정지(컬렉션 아래) 두 곳. 라벨에 현재 상태(기본·이미지·영상)를 싣는다.
+   * 컬렉션 탭에 넣어뒀던 것을 2026-09-02에 여기로 뺐다 — "컬렉션·하우스 볼"을 눌러 전광판을 바꾸는 건 이상하고,
+   * 탭이 세 개가 되며 영어에서 두 줄로 꺾이기도 했다. 해금 전엔 행 자체가 없어 메뉴 높이는 전과 같다.
+   */
+  private appendScreenEntry(onBack: () => void, backLabel: string): void {
+    if (!isScreenCustomUnlocked(loadRewards().earned)) return;
+    const cur = loadRewards().customScreen;
+    const state = t(!cur ? 'menu.screen.state.default' : cur === VIDEO_MARKER ? 'menu.screen.state.video' : 'menu.screen.state.image');
+    const btn = document.createElement('button');
+    btn.textContent = t('menu.screenEntry', { state });
+    css(btn, {
+      width: '100%',
+      padding: COARSE ? '12px' : '10px',
+      minHeight: COARSE ? '44px' : '',
+      borderRadius: '3px',
+      border: '1px solid rgba(255,255,255,0.18)', // 컬렉션 진입 버튼과 같은 서브틀 스타일
+      background: 'rgba(255,255,255,0.05)',
+      color: HOUSE.text,
+      font: '700 13px/1 system-ui, sans-serif',
+      cursor: 'pointer',
+      marginBottom: '14px',
+    });
+    btn.onclick = () => this.showScreen(onBack, backLabel);
+    this.panel.appendChild(btn);
+  }
+
+  /** 전광판 꾸미기 화면 — 히든 보상. 이미지·GIF·영상을 골라 홀 전광판에 건다(레인 번호 띠는 별도 메시라 그대로 남는다). */
+  private showScreen(onBack: () => void = () => this.showMenu(), backLabel = t('menu.back.menu')) {
+    this.panel.replaceChildren();
+    this.panel.appendChild(this.title(t('menu.tab.screen')));
+    const buildScreenPanel = (): HTMLElement => {
+      const wrap = document.createElement('div');
+      const current = loadRewards().customScreen;
+
+      const isVideo = current === VIDEO_MARKER;
+      const preview = document.createElement('div');
+      css(preview, {
+        width: '100%',
+        aspectRatio: '3 / 1',
+        borderRadius: '3px',
+        border: '1px solid rgba(255,255,255,0.14)',
+        background:
+          current && !isVideo ? `#04060c center/cover no-repeat url(${JSON.stringify(current)})` : 'rgba(255,255,255,0.04)',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        color: HOUSE.faint,
+        font: '600 12px/1 system-ui, sans-serif',
+        marginBottom: '10px',
+      });
+      if (!current) preview.textContent = t('menu.screen.default');
+      if (isVideo) preview.textContent = t('menu.screen.video');
+      wrap.appendChild(preview);
+
+      const status = document.createElement('div');
+      css(status, { font: '500 11px/1.5 system-ui, sans-serif', color: HOUSE.faint, marginBottom: '10px', minHeight: '17px' });
+      status.textContent = t('menu.screen.hint');
+      wrap.appendChild(status);
+      // 영상은 IndexedDB에 있어 동기로 못 읽는다 — 열린 뒤 이름·길이를 채워 넣는다.
+      if (isVideo) {
+        void loadScreenVideo().then((v) => {
+          if (v) status.textContent = t('menu.screen.videoStatus', { name: v.name, dur: v.duration ? ` · ${t('media.seconds', { sec: v.duration })}` : '' });
+        });
+      }
+
+      const input = document.createElement('input');
+      input.type = 'file';
+      input.accept = 'image/*,video/*';
+      css(input, { display: 'none' });
+      input.onchange = async () => {
+        const f = input.files?.[0];
+        input.value = ''; // 같은 파일 재선택도 change가 뜨도록
+        if (!f) return;
+        status.textContent = t('menu.screen.processing');
+        css(status, { color: HOUSE.faint });
+        try {
+          if (f.type.startsWith('video/')) {
+            const vid = await fileToScreenVideo(f);
+            await saveScreenVideo({ blob: vid.blob, name: vid.name, duration: vid.duration });
+            saveCustomScreen(VIDEO_MARKER); // 실물은 IndexedDB, 여기엔 마커만
+            this.onCustomScreen({ kind: 'video', blob: vid.blob });
+          } else {
+            const media = await fileToScreenSource(f);
+            saveCustomScreen(media.src);
+            // 저장 성공 확인 — 쿼터 초과 시 save()가 조용히 실패한다(스토어 정책)
+            if (loadRewards().customScreen !== media.src) {
+              throw new Error(t('menu.screen.noSpace'));
+            }
+            await clearScreenVideo(); // 이미지로 바꿨으면 남은 영상은 지운다(용량 회수)
+            this.onCustomScreen({ kind: 'image', src: media.src });
+          }
+          this.showScreen(onBack, backLabel); // 미리보기 갱신
+        } catch (e) {
+          status.textContent = e instanceof Error ? e.message : t('menu.screen.failed');
+          css(status, { color: '#f87171' });
+        }
+      };
+      wrap.appendChild(input);
+
+      const pick = this.primaryButton(t(current ? 'menu.screen.pickOther' : 'menu.screen.pick'), 'ice', {
+        size: 13,
+        padding: '10px',
+        radius: 3,
+        coarseMinHeight: '44px',
+      });
+      pick.onclick = () => input.click();
+      wrap.appendChild(pick);
+
+      if (current) {
+        const reset = this.ghostButton(t('menu.screen.reset'), { size: 13, coarseMinHeight: '44px' });
+        css(reset, { marginTop: '8px' });
+        reset.onclick = () => {
+          saveCustomScreen(null);
+          void clearScreenVideo();
+          this.onCustomScreen(null);
+          this.showScreen(onBack, backLabel);
+        };
+        wrap.appendChild(reset);
+      }
+      return wrap;
+    };
+    this.panel.appendChild(buildScreenPanel());
+    const back = this.ghostButton(backLabel, { coarseMinHeight: '44px' });
+    css(back, { marginTop: '14px' });
+    back.onclick = onBack;
+    this.panel.appendChild(back);
+    this.reveal();
+  }
+
   /** 컬렉션(볼 스킨) 진입 — 현재 장착 스킨 라벨을 표시하는 서브틀 버튼. */
   private buildSkinEntry(): void {
     // 볼 스킨 진입 (외형 전용 — 시작 버튼 안 밀게 무게 슬라이더 아래 한 줄, docs/legacy/REWARDS.md §10.1)
@@ -373,7 +501,9 @@ export class MenuUI {
 
   /** 게임 시작 버튼 (fire 프라이머리). */
   private buildStartButton(): void {
-    const start = this.primaryButton(t('menu.start'), 'fire', { size: 16, padding: '12px', radius: 10, marginBottom: '14px' });
+    // ice(터쿼이즈) — 일시정지의 '계속하기'와 같은 **진행** 색. 전엔 fire(브릭)였는데 '포기하고 나가기'의
+    // 위험 빨강과 한 팔레트에 두 의미를 실었다(2026-09-02 사용자 지적). radius 3 = 다른 칸들과 같은 인쇄 격자.
+    const start = this.primaryButton(t('menu.start'), 'ice', { size: 16, padding: '12px', radius: 3, marginBottom: '14px' });
     start.onclick = () => this.start();
     this.panel.appendChild(start);
   }
@@ -430,7 +560,7 @@ export class MenuUI {
     const list = document.createElement('div');
     css(list, { display: 'flex', flexDirection: 'column', gap: '7px', marginBottom: '14px' });
     const opts: { value: LocaleSetting; label: string }[] = [
-      { value: 'auto', label: `${t('lang.auto')} · ${LOCALE_LABEL[detectLocale()]}` },
+      { value: 'auto', label: t('lang.auto.short') }, // '자동 · 기기 설정 · 한국어'였다 — 그냥 '자동'(2026-09-02 사용자 요청). 선택되면 본문이 그 언어로 바뀌니 설명이 필요 없다
       ...LOCALES.map((c) => ({ value: c as LocaleSetting, label: LOCALE_LABEL[c] })),
     ];
     for (const o of opts) {
@@ -474,7 +604,7 @@ export class MenuUI {
     }
     const go = () => {
       this.hide();
-      this.onStart({ mode: this.mode, players }); // oilPattern·조준보조 생략 = GameState 기본값(하우스 오일)
+      this.onStart({ mode: this.mode, players }); // 오일·조준보조 옵션은 없다(하우스 오일 하나 — oil.ts)
     };
     // View Transitions로 메뉴→게임 크로스페이드 (지원 브라우저만; 미지원은 즉시). 3D 캔버스는 뒤에 상주.
     const startVT = (document as { startViewTransition?: (cb: () => void) => void }).startViewTransition?.bind(document);
@@ -555,7 +685,7 @@ export class MenuUI {
       const lastAch = ACHIEVEMENTS.find((a) => a.id === fresh[fresh.length - 1]);
       if (lastAch) {
         const skin = resolveSkin(lastAch.reward);
-        const equip = this.primaryButton(t('menu.result.equip', { label: t(skin.labelKey) }), 'gold', { size: 13, padding: '9px', radius: 8, marginTop: '8px' });
+        const equip = this.primaryButton(t('menu.result.equip', { label: t(skin.labelKey) }), 'gold', { size: 13, padding: '9px', radius: 3, marginTop: '8px' });
         equip.onclick = () => {
           this.equipSkin(skin.id);
           equip.textContent = t('menu.result.equipped', { label: t(skin.labelKey) });
@@ -566,11 +696,40 @@ export class MenuUI {
         box.appendChild(equip);
       }
       this.panel.appendChild(box);
+
+      // 전광판 해금 안내 — **이 판으로** core 업적이 다 채워진 순간에만(2026-09-02). 히든 보상이라 컬렉션에
+      // 잠긴 탭조차 안 보여주므로, 여기서 말해주지 않으면 존재를 모른다. 별도 축하 모달은 두지 않았다:
+      // 결과 화면이 이미 그 순간의 모달이고, 모달 위에 모달을 얹으면 '다시 하기'까지 탭이 하나 더 든다.
+      // 대신 이 박스가 업적 행보다 한 단 강하게(테두리 실선·브릭 제목) 서고, 버튼이 전광판 탭으로 바로 연다.
+      // Boot가 recordRewards를 먼저 부르므로 earned에는 fresh가 이미 들어 있다 → 빼서 '전' 상태를 복원한다.
+      const earnedNow = loadRewards().earned;
+      const earnedBefore = earnedNow.filter((id) => !fresh.includes(id));
+      if (isScreenCustomUnlocked(earnedNow) && !isScreenCustomUnlocked(earnedBefore)) {
+        const sbox = document.createElement('div');
+        css(sbox, {
+          borderRadius: '3px',
+          border: `1px solid ${rgba(HOUSE.turquoise, 0.6)}`,
+          background: rgba(HOUSE.turquoise, 0.08),
+          padding: '12px 12px 10px',
+          marginBottom: '14px',
+          textAlign: 'center',
+        });
+        const h = document.createElement('div');
+        h.textContent = t('menu.result.screenUnlock');
+        css(h, { font: '800 14px/1.3 system-ui, sans-serif', color: HOUSE.turquoise, marginBottom: '4px' });
+        const d = document.createElement('div');
+        d.textContent = t('menu.result.screenUnlock.desc');
+        css(d, { font: '500 12px/1.5 system-ui, sans-serif', color: HOUSE.text });
+        const open = this.primaryButton(t('menu.result.screenUnlock.open'), 'ice', { size: 13, padding: '9px', radius: 3, marginTop: '10px' });
+        open.onclick = () => this.showScreen(() => this.showResult(summary, fresh), t('menu.back.result')); // 돌아가면 결과 화면(다시 하기가 살아 있다)
+        sbox.append(h, d, open);
+        this.panel.appendChild(sbox);
+      }
     }
 
     const btnRow = document.createElement('div');
     css(btnRow, { display: 'flex', gap: '8px' });
-    const again = this.primaryButton(t('menu.result.retry'), 'fire', { size: 14, padding: '11px', radius: 10, weight: 700, flex1: true });
+    const again = this.primaryButton(t('menu.result.retry'), 'ice', { size: 14, padding: '11px', radius: 3, weight: 700, flex1: true }); // 시작 버튼과 같은 진행 색
     again.onclick = () => this.start(); // 같은 설정으로 재시작
     const menu = this.ghostButton(t('menu.toMenu'), { flex1: true });
     menu.onclick = () => {
@@ -644,7 +803,7 @@ export class MenuUI {
       padding: COARSE ? '12px' : '10px',
       minHeight: COARSE ? '44px' : '',
       borderRadius: '3px',
-      border: `1px solid ${rgba(HOUSE.mustard, 0.34)}`, // 아일랜드가 쓰던 골드 테두리를 이어받는다
+      border: '1px solid rgba(255,255,255,0.18)', // 시작 메뉴 컬렉션 버튼과 같은 중립 테두리(2026-09-02) — 전엔 골드(아일랜드 잔재)라 '선택됨'으로 읽혔다
       background: 'rgba(255,255,255,0.05)',
       color: HOUSE.text,
       font: '700 13px/1 system-ui, sans-serif',
@@ -653,6 +812,7 @@ export class MenuUI {
     });
     collBtn.onclick = () => this.showSkins(() => this.showPause(cfg), t('menu.back.pause'));
     this.panel.appendChild(collBtn);
+    this.appendScreenEntry(() => this.showPause(cfg), t('menu.back.pause')); // 전광판 꾸미기 진입 (해금 시에만)
 
     // 조작 안내 (입력 환경별)
     const help = document.createElement('div');
@@ -671,12 +831,14 @@ export class MenuUI {
     this.panel.appendChild(help);
 
     // 계속하기 (주 버튼)
-    const resume = this.primaryButton(t('menu.pause.resume'), 'ice', { size: 15, padding: '13px', radius: 11, coarseMinHeight: '48px', marginBottom: '8px' });
+    const resume = this.primaryButton(t('menu.pause.resume'), 'ice', { size: 15, padding: '13px', radius: 3, coarseMinHeight: '48px', marginBottom: '8px' });
     resume.onclick = cfg.onResume;
     this.panel.appendChild(resume);
 
     // 포기 (파괴적, 하단)
-    const quit = this.ghostButton(t('menu.pause.forfeit'), { danger: true, size: 13, coarseMinHeight: '44px' });
+    // 브릭 **채움**(전엔 빨강 테두리 고스트). 시작 버튼이 터쿼이즈로 가면서 브릭은 '되돌릴 수 없는 행동' 하나에만
+    // 쓰인다 — 채워야 위험이 읽힌다(2026-09-02 사용자 요청: 옛 시작 버튼의 채움 느낌을 여기로).
+    const quit = this.primaryButton(t('menu.pause.forfeit'), 'fire', { size: 13, padding: '11px', radius: 3, weight: 700, coarseMinHeight: '44px' });
     quit.onclick = cfg.onForfeit;
     this.panel.appendChild(quit);
 
@@ -708,7 +870,7 @@ export class MenuUI {
       // 자동 칩은 **해석 결과를 안 붙인다.** 예전엔 `자동 · 한국어`로 뭐로 풀리는지 함께 적었는데,
       // 이 칩이 앉아 있는 화면의 모든 라벨(언어·볼 무게·계속하기·사운드)이 이미 그 언어로 렌더된다 —
       // 화면 전체가 가장 직접적으로 말하는 걸 한 번 더 적는 꼴이었다. 자세한 형태
-      // (`자동 · 기기 설정 · 한국어`)는 여유 있는 시작 메뉴 목록(showLangs)이 갖는다.
+      // 시작 메뉴 목록(showLangs)도 같은 '자동'을 쓴다(2026-09-02부터 — 전엔 긴 표기 '자동 · 기기 설정 · 한국어').
       //
       // 폭도 같이 줄지만 **줄바꿈이 없어지는 건 아니다**(실측 375px: 칩 90.3→48.8px, 필요 폭
       // 375.4→333.9px. 행 가용폭이 279px이라 어느 쪽이든 두 줄이고, 나뉘는 모양만 3+2 → 4+1).
@@ -803,13 +965,20 @@ export class MenuUI {
    * 세 곳에서 세 번 다른 목소리로 말하고 있었다. 서체를 맞추는 것만으로 한 벌이 된다.
    * (패널 바탕은 쿨 슬레이트 220° 그대로 둔다 — 방 실측 근거가 있고, 톤은 자형·구조가 진다.)
    *
+   * ⚠️ **한글은 Georgia에 없다.** 폴백을 `serif`로 두면 한글이 시스템 명조(Apple Myungjo 등)로 떨어져
+   *    '일시정지'·'컬렉션'이 낡은 문서처럼 보였다(2026-09-02 사용자 지적). 폴백을 system-ui 산세리프로
+   *    바꿔 **라틴은 슬랩 세리프, 한·중·일은 시스템 산세리프**가 글자 단위로 갈리게 했다.
+   * ⚠️ **숫자도 Georgia에 맡기지 않는다.** Georgia 숫자는 올드스타일이라 '최종 212점'에서 숫자만 작고
+   *    찌그러져 보였다. FONT_SLAB_FAMILY(ui.css @font-face 'HouseSlab')가 unicode-range로 라틴 **문자**에만
+   *    Georgia를 물리고 숫자는 system-ui 라이닝 숫자로 떨어뜨린다. 영어 UI의 글자는 여전히 Georgia다.
+   *
    * ⚠️ 지역명 `t`를 쓰지 않는다 — 모듈 스코프의 i18n `t()`를 가려서, 이 안에서 번역을 부르면 조용히 깨진다.
    */
   private title(text: string): HTMLDivElement {
     const el = document.createElement('div');
     el.textContent = text;
     css(el, {
-      font: '700 26px/1.15 Georgia, "Times New Roman", serif',
+      font: `700 26px/1.15 ${FONT_SLAB_FAMILY}`,
       letterSpacing: '0.01em',
       marginBottom: '18px',
       textAlign: 'center',
@@ -913,7 +1082,7 @@ export class MenuUI {
     opts: {
       size: number; // 폰트 px
       padding: string;
-      radius: number; // borderRadius px
+      radius: number; // borderRadius px — d88e99c의 라운드 정리(패널 3·메뉴 4·칩 3)에서 프라이머리만 10~11로 남아 있던 것을 2026-09-02에 3으로 맞췄다
       weight?: number; // 폰트 굵기 (기본 800)
       flex1?: boolean; // width:100% 대신 flex:1 (버튼 행)
       coarseMinHeight?: string; // 터치 환경 최소 높이
@@ -941,12 +1110,14 @@ export class MenuUI {
   }
 
   /**
-   * 고스트(투명+테두리) 버튼 빌더(#7) — 메뉴로/뒤로/포기 3곳. danger면 빨강 테두리·글자(포기).
-   * 셋 다 padding 11px·radius 10px 공통, size·flex·minHeight만 다름.
+   * 고스트(투명+테두리) 버튼 빌더(#7) — 메뉴로/뒤로 등. 전엔 danger 옵션(빨강 테두리·글자)으로 '포기'도
+   * 여기서 만들었는데, 2026-09-02에 포기가 브릭 채움(primaryButton 'fire')으로 가면서 옵션을 지웠다 —
+   * 그 빨강(#f87171·rgba(239,68,68))은 Tailwind 기본값이라 하우스 팔레트 밖이기도 했다.
+   * padding 11px·radius 3px 공통, size·flex·minHeight만 다름.
    */
   private ghostButton(
     label: string,
-    opts: { flex1?: boolean; size?: number; danger?: boolean; coarseMinHeight?: string } = {},
+    opts: { flex1?: boolean; size?: number; coarseMinHeight?: string } = {},
   ): HTMLButtonElement {
     const b = document.createElement('button');
     b.textContent = label;
@@ -955,9 +1126,9 @@ export class MenuUI {
       padding: '11px',
       minHeight: opts.coarseMinHeight && COARSE ? opts.coarseMinHeight : '',
       borderRadius: '3px',
-      border: `1px solid ${opts.danger ? 'rgba(239,68,68,0.5)' : 'rgba(255,255,255,0.25)'}`,
+      border: '1px solid rgba(255,255,255,0.25)',
       background: 'transparent',
-      color: opts.danger ? '#f87171' : HOUSE.text,
+      color: HOUSE.text,
       font: `700 ${opts.size ?? 14}px/1 system-ui, sans-serif`,
       cursor: 'pointer',
     });
@@ -981,7 +1152,7 @@ export class MenuUI {
   /** 볼 스와치(#7) — skinPreviewStyle 그라데+섀도를 원형에 입힌 미리보기. 히어로 78px·그리드셀 42px 공용. */
   private ballSwatch(skin: BallSkin, size: number, flexNone = false): HTMLSpanElement {
     const el = document.createElement('span');
-    const p = skinPreviewStyle(skin);
+    const p = skinPreviewStyle(skin, houseBallColor(this.weight));
     css(el, {
       width: `${size}px`,
       height: `${size}px`,
@@ -1049,29 +1220,38 @@ export class MenuUI {
     heroNameText.textContent = t(equipped.labelKey);
     heroName.appendChild(heroNameText);
     heroName.appendChild(this.equippedPill());
-    const heroFinish = document.createElement('div');
-    heroFinish.textContent = t('menu.collection.finish', { finish: t(FINISH_KEY[equipped.finish]) });
-    css(heroFinish, { font: '500 11px/1 system-ui, sans-serif', color: HOUSE.faint });
     hero.appendChild(heroBall);
-    hero.appendChild(heroName);
-    hero.appendChild(heroFinish);
+    hero.appendChild(heroName); // 부제('{finish} 마감')는 2026-09-02 제거 — 스와치가 마감을 보여주고, 셀에서도 뺐다(일관)
     this.panel.appendChild(hero);
 
     // 탭 바 — 볼 스킨 / 업적 (진행도 카운트를 탭에 얹어 인-컨텐츠 헤더 제거)
     const tabBar = document.createElement('div');
-    css(tabBar, { display: 'flex', marginBottom: '14px', borderBottom: '1px solid rgba(255,255,255,0.1)' });
-    const mkTab = (label: string, count: string): HTMLButtonElement => {
+    // 탭은 **한 줄**이다(2026-09-02 사용자 요청). 전엔 flex:1 균등폭이라 영어 'Achievements 6/6'(117px)이
+    // 모바일 칸(294/3=98px)을 넘어 두 줄로 꺾였다. 내용폭(flex:auto)+nowrap으로 바꾸면 영어 전체가 249px라
+    // 294px 안에 든다(ko 145 · zh 133 · ja 199 실측). 320px 폰(내용폭 228px)에서만 영어가 넘치는데, 그땐
+    // 꺾이지 않고 가로 스크롤로 빠진다(스크롤바 숨김) — 두 줄보다 낫다.
+    css(tabBar, {
+      display: 'flex',
+      marginBottom: '14px',
+      borderBottom: '1px solid rgba(255,255,255,0.1)',
+      overflowX: 'auto',
+      scrollbarWidth: 'none',
+    });
+    const mkTab = (label: string, count?: string): HTMLButtonElement => {
       // ⚠️ 지역명 `t` 금지 — i18n `t()`를 가린다(title()의 주석 참고).
       const btn = document.createElement('button');
       btn.textContent = label;
-      const c = document.createElement('span');
-      c.textContent = ` ${count}`;
-      css(c, { font: '500 12px/1 system-ui, sans-serif', opacity: '0.7', marginLeft: '4px' });
-      btn.appendChild(c);
+      if (count) {
+        const c = document.createElement('span');
+        c.textContent = ` ${count}`;
+        css(c, { font: '500 12px/1 system-ui, sans-serif', opacity: '0.7', marginLeft: '4px' });
+        btn.appendChild(c);
+      }
       css(btn, {
-        flex: '1',
+        flex: '1 1 auto', // 균등폭 아님 — 긴 라벨(영어)이 제 폭을 갖고 남는 공간만 나눈다
+        whiteSpace: 'nowrap',
         textAlign: 'center',
-        padding: COARSE ? '11px 0' : '9px 0',
+        padding: COARSE ? '11px 4px' : '9px 4px',
         minHeight: COARSE ? '44px' : '',
         background: 'transparent',
         border: 'none',
@@ -1086,11 +1266,8 @@ export class MenuUI {
     const achTabBtn = mkTab(t('menu.tab.achievements'), `${earnedCount}/${ACHIEVEMENTS.length}`);
     tabBar.appendChild(skinTabBtn);
     tabBar.appendChild(achTabBtn);
-    // 전광판 탭은 core 업적을 전부 깨야 나타난다 — 히든이라 잠긴 상태를 아예 안 보여준다.
-    const screenUnlocked = isScreenCustomUnlocked(earned);
-    const screenTabBtn = screenUnlocked ? mkTab(t('menu.tab.screen'), '✦') : null;
-    if (screenTabBtn) tabBar.appendChild(screenTabBtn);
-    if (this.skinTab === 'screen' && !screenUnlocked) this.skinTab = 'skins'; // 해금 초기화 대비
+    // 전광판 탭은 없다(2026-09-02). 컬렉션은 '내 공·업적'인데 전광판 꾸미기가 그 안에 있으면 "컬렉션·하우스 볼"
+    // 버튼을 눌러 전광판을 바꾸는 꼴이라 이상하고, 히든이라 너무 숨겨졌다(사용자 지적). 메뉴의 독립 행(appendScreenEntry)으로.
     this.panel.appendChild(tabBar);
 
     // 탭 내용 — 활성 탭에 따라 갈아끼움(this.skinTab로 재빌드 후에도 탭 유지)
@@ -1131,16 +1308,19 @@ export class MenuUI {
         const labelEl = document.createElement('div');
         labelEl.textContent = t(skin.labelKey);
         css(labelEl, { font: '700 13px/1.2 system-ui, sans-serif', color: isEquipped ? HOUSE.mustard : isUnlocked ? HOUSE.text : HOUSE.faint });
-        const subEl = document.createElement('div');
-        const unlockAch = achievementForSkin(skin.id);
-        subEl.textContent = isUnlocked
-          ? t(FINISH_KEY[skin.finish])
-          : unlockAch ? t(unlockAch.descKey) : t('menu.collection.locked');
-        css(subEl, { font: '500 10px/1.3 system-ui, sans-serif', color: isUnlocked && isEquipped ? '#caa86a' : HOUSE.faint, marginTop: '2px' });
         const textWrap = document.createElement('div');
         css(textWrap, { textAlign: 'center' });
         textWrap.appendChild(labelEl);
-        textWrap.appendChild(subEl);
+        // 부제는 **잠긴 셀에만**(해금 조건). 해금된 셀엔 마감 이름(글로우·새틴·크롬…)을 적었는데 스와치가 이미
+        // 마감을 보여주고 있어 같은 말을 두 번 하는 셈이었다(2026-09-02 사용자 요청으로 제거). 히어로의
+        // '{finish} 마감' 한 줄은 남긴다 — 장착한 공 하나를 설명하는 자리라 중복이 아니다.
+        if (!isUnlocked) {
+          const subEl = document.createElement('div');
+          const unlockAch = achievementForSkin(skin.id);
+          subEl.textContent = unlockAch ? t(unlockAch.descKey) : t('menu.collection.locked');
+          css(subEl, { font: '500 10px/1.3 system-ui, sans-serif', color: HOUSE.faint, marginTop: '2px' });
+          textWrap.appendChild(subEl);
+        }
 
         const cell = document.createElement('button');
         cell.disabled = !isUnlocked;
@@ -1213,104 +1393,12 @@ export class MenuUI {
       return achWrap;
     };
 
-    /** 전광판 커스텀 — 히든 보상. 이미지·GIF를 골라 마퀴 배경으로 깐다. */
-    const buildScreenPanel = (): HTMLElement => {
-      const wrap = document.createElement('div');
-      const current = loadRewards().customScreen;
-
-      const isVideo = current === VIDEO_MARKER;
-      const preview = document.createElement('div');
-      css(preview, {
-        width: '100%',
-        aspectRatio: '3 / 1',
-        borderRadius: '3px',
-        border: '1px solid rgba(255,255,255,0.14)',
-        background:
-          current && !isVideo ? `#04060c center/cover no-repeat url(${JSON.stringify(current)})` : 'rgba(255,255,255,0.04)',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        color: HOUSE.faint,
-        font: '600 12px/1 system-ui, sans-serif',
-        marginBottom: '10px',
-      });
-      if (!current) preview.textContent = t('menu.screen.default');
-      if (isVideo) preview.textContent = t('menu.screen.video');
-      wrap.appendChild(preview);
-
-      const status = document.createElement('div');
-      css(status, { font: '500 11px/1.5 system-ui, sans-serif', color: HOUSE.faint, marginBottom: '10px', minHeight: '17px' });
-      status.textContent = t('menu.screen.hint');
-      wrap.appendChild(status);
-      // 영상은 IndexedDB에 있어 동기로 못 읽는다 — 열린 뒤 이름·길이를 채워 넣는다.
-      if (isVideo) {
-        void loadScreenVideo().then((v) => {
-          if (v) status.textContent = t('menu.screen.videoStatus', { name: v.name, dur: v.duration ? ` · ${t('media.seconds', { sec: v.duration })}` : '' });
-        });
-      }
-
-      const input = document.createElement('input');
-      input.type = 'file';
-      input.accept = 'image/*,video/*';
-      css(input, { display: 'none' });
-      input.onchange = async () => {
-        const f = input.files?.[0];
-        input.value = ''; // 같은 파일 재선택도 change가 뜨도록
-        if (!f) return;
-        status.textContent = t('menu.screen.processing');
-        css(status, { color: HOUSE.faint });
-        try {
-          if (f.type.startsWith('video/')) {
-            const vid = await fileToScreenVideo(f);
-            await saveScreenVideo({ blob: vid.blob, name: vid.name, duration: vid.duration });
-            saveCustomScreen(VIDEO_MARKER); // 실물은 IndexedDB, 여기엔 마커만
-            this.onCustomScreen({ kind: 'video', blob: vid.blob });
-          } else {
-            const media = await fileToScreenSource(f);
-            saveCustomScreen(media.src);
-            // 저장 성공 확인 — 쿼터 초과 시 save()가 조용히 실패한다(스토어 정책)
-            if (loadRewards().customScreen !== media.src) {
-              throw new Error(t('menu.screen.noSpace'));
-            }
-            await clearScreenVideo(); // 이미지로 바꿨으면 남은 영상은 지운다(용량 회수)
-            this.onCustomScreen({ kind: 'image', src: media.src });
-          }
-          this.showSkins(onBack, backLabel); // 미리보기 갱신
-        } catch (e) {
-          status.textContent = e instanceof Error ? e.message : t('menu.screen.failed');
-          css(status, { color: '#f87171' });
-        }
-      };
-      wrap.appendChild(input);
-
-      const pick = this.primaryButton(t(current ? 'menu.screen.pickOther' : 'menu.screen.pick'), 'ice', {
-        size: 13,
-        padding: '10px',
-        radius: 9,
-        coarseMinHeight: '44px',
-      });
-      pick.onclick = () => input.click();
-      wrap.appendChild(pick);
-
-      if (current) {
-        const reset = this.ghostButton(t('menu.screen.reset'), { size: 13, coarseMinHeight: '44px' });
-        css(reset, { marginTop: '8px' });
-        reset.onclick = () => {
-          saveCustomScreen(null);
-          void clearScreenVideo();
-          this.onCustomScreen(null);
-          this.showSkins(onBack, backLabel);
-        };
-        wrap.appendChild(reset);
-      }
-      return wrap;
-    };
 
     let lastRenderedTab: string | null = null;
     const renderTab = () => {
       content.replaceChildren();
       content.appendChild(
-        this.skinTab === 'skins' ? buildSkinGrid() : this.skinTab === 'achievements' ? buildAchList() : buildScreenPanel(),
+        this.skinTab === 'skins' ? buildSkinGrid() : buildAchList(),
       );
       // 페이드는 '실제 탭 전환'에만. 스킨 선택은 showSkins를 새로 호출(새 클로저 → lastRenderedTab=null)하므로
       // 페이드가 안 걸림 → 볼 그리드가 매번 사라졌다 나타나던 깜빡임 제거.
@@ -1321,7 +1409,6 @@ export class MenuUI {
       };
       mark(skinTabBtn, this.skinTab === 'skins');
       mark(achTabBtn, this.skinTab === 'achievements');
-      mark(screenTabBtn, this.skinTab === 'screen');
     };
     skinTabBtn.onclick = () => {
       this.skinTab = 'skins';
@@ -1331,12 +1418,6 @@ export class MenuUI {
       this.skinTab = 'achievements';
       renderTab();
     };
-    if (screenTabBtn) {
-      screenTabBtn.onclick = () => {
-        this.skinTab = 'screen';
-        renderTab();
-      };
-    }
     renderTab();
 
     const back = this.ghostButton(backLabel, { coarseMinHeight: '44px' });

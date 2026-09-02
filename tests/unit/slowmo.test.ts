@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { slowmoScale } from '../src/game/GameState';
-import { SLOWMO_SCALE } from '../src/game/constants';
+import { slowmoScale } from '../../src/game/GameState';
+import { SLOWMO_SCALE } from '../../src/game/constants';
 
 /**
  * 슬로모 배속 이징(#8) — update()에서 순수함수로 추출해 단위테스트 가능해진 지점.

@@ -58,10 +58,14 @@ export const ko = {
   'menu.result.newUnlock': 'NEW · {badge} → {skin}',
   'menu.result.equip': '{label} 장착하기',
   'menu.result.equipped': '✓ {label} 장착됨',
+  'menu.result.screenUnlock': '전광판 해금!',
+  'menu.result.screenUnlock.desc': '업적을 모두 달성했습니다. 이제 홀 전광판에 이미지·GIF·영상을 걸 수 있어요.',
+  'menu.result.screenUnlock.open': '전광판 꾸미기 열기',
   'menu.result.retry': '다시 하기',
 
   // ─── 일시정지 ───
-  'menu.pause.title': '⏸ 일시정지',
+  // '⏸ 일시정지' → '메뉴'(2026-09-02): 게임 중 ☰ 버튼 라벨이 '메뉴'이고 안에 설정·컬렉션·언어가 있다 — 일시정지는 부수 효과지 정체가 아니다.
+  'menu.pause.title': '메뉴',
   'menu.pause.sound': '사운드',
   'menu.pause.haptics': '햅틱',
   'menu.pause.graphics': '그래픽',
@@ -78,16 +82,21 @@ export const ko = {
 
   // ─── 컬렉션 ───
   'menu.collection.title': '컬렉션',
-  'menu.collection.finish': '{finish} 마감',
   'menu.collection.equip': '장착',
   'menu.collection.locked': '잠김',
   'menu.collection.achUnlock': '{desc} · {skin} 해금',
   'menu.tab.skins': '볼 스킨',
   'menu.tab.achievements': '업적',
   'menu.tab.screen': '전광판',
+  'menu.screenEntry': '전광판 · {state} ▸',
+  'menu.screen.state.default': '기본',
+  'menu.screen.state.image': '이미지',
+  'menu.screen.state.video': '영상',
   'menu.back.menu': '← 메뉴로',
   'menu.back.game': '← 게임으로',
-  'menu.back.pause': '← 일시정지',
+  // back.menu와 같은 문구가 됐다(모달 이름이 '메뉴'). 키는 호출부 의미 구분(어느 화면으로 돌아가는지)으로 남긴다.
+  'menu.back.pause': '← 메뉴로',
+  'menu.back.result': '← 결과로',
 
   // ─── 전광판 커스텀 ───
   'menu.screen.default': '기본 · 하우스 그래픽',
@@ -103,8 +112,7 @@ export const ko = {
 
   // ─── 언어 선택 ───
   'menu.section.lang': '언어',
-  'lang.auto': '자동 · 기기 설정',
-  /** 칩용 짧은 표기 — 일시정지 언어 칩은 폭이 좁다(전체 표기는 lang.auto). */
+  /** 언어 선택의 '자동' — 시작 메뉴 목록·일시정지 칩 공용(전엔 목록용 긴 표기 lang.auto가 따로 있었다). */
   'lang.auto.short': '자동',
   'menu.more': '더보기',
 
@@ -118,14 +126,9 @@ export const ko = {
 
 
   // ─── 볼 마감 ───
-  'finish.matte': '무광',
-  'finish.satin': '새틴',
-  'finish.metallic': '메탈릭',
-  'finish.chrome': '크롬',
-  'finish.glow': '글로우',
 
   // ─── 볼 스킨 ───
-  'skin.classic': '클래식',
+  'skin.house': '하우스 볼',
   'skin.satin': '새틴',
   'skin.ember': '엠버',
   'skin.chrome': '크롬',

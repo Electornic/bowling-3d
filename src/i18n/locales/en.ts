@@ -56,9 +56,12 @@ export const en: Record<I18nKey, string> = {
   'menu.result.newUnlock': 'NEW · {badge} → {skin}',
   'menu.result.equip': 'Equip {label}',
   'menu.result.equipped': '✓ {label} equipped',
+  'menu.result.screenUnlock': 'Screen unlocked!',
+  'menu.result.screenUnlock.desc': 'All achievements earned. You can now put an image, GIF or video on the house screen.',
+  'menu.result.screenUnlock.open': 'Open screen settings',
   'menu.result.retry': 'Play again',
 
-  'menu.pause.title': '⏸ Paused',
+  'menu.pause.title': 'Menu',
   'menu.pause.sound': 'Sound',
   'menu.pause.haptics': 'Haptics',
   'menu.pause.graphics': 'Graphics',
@@ -74,16 +77,20 @@ export const en: Record<I18nKey, string> = {
   'menu.quality.perf': 'Performance',
 
   'menu.collection.title': 'Collection',
-  'menu.collection.finish': '{finish} finish',
   'menu.collection.equip': 'Equip',
   'menu.collection.locked': 'Locked',
   'menu.collection.achUnlock': '{desc} · unlocks {skin}',
   'menu.tab.skins': 'Ball skins',
   'menu.tab.achievements': 'Achievements',
   'menu.tab.screen': 'Screen',
+  'menu.screenEntry': 'Screen · {state} ▸',
+  'menu.screen.state.default': 'Default',
+  'menu.screen.state.image': 'Image',
+  'menu.screen.state.video': 'Video',
   'menu.back.menu': '← Menu',
   'menu.back.game': '← Game',
-  'menu.back.pause': '← Paused',
+  'menu.back.pause': '← Menu',
+  'menu.back.result': '← Results',
 
   'menu.screen.default': 'Default · House graphics',
   'menu.screen.video': 'Video',
@@ -97,7 +104,6 @@ export const en: Record<I18nKey, string> = {
   'menu.screen.reset': 'Reset to default',
 
   'menu.section.lang': 'Language',
-  'lang.auto': 'Auto · device setting',
   'lang.auto.short': 'Auto',
   'menu.more': 'More',
 
@@ -109,13 +115,8 @@ export const en: Record<I18nKey, string> = {
   'mode.spare.desc': 'Ten classic leaves in a row (solo)',
 
 
-  'finish.matte': 'Matte',
-  'finish.satin': 'Satin',
-  'finish.metallic': 'Metallic',
-  'finish.chrome': 'Chrome',
-  'finish.glow': 'Glow',
 
-  'skin.classic': 'Classic',
+  'skin.house': 'House ball',
   'skin.satin': 'Satin',
   'skin.ember': 'Ember',
   'skin.chrome': 'Chrome',

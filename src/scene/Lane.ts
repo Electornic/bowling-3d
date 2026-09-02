@@ -13,7 +13,7 @@ import {
   LANE_FRICTION_OIL,
   LANE_FRICTION_DRY,
 } from '../game/constants';
-import { hookFactor, oilEndZ, OIL_PRESETS, type OilPattern } from '../game/oil';
+import { hookFactor, oilEndZ, OIL_END_Z } from '../game/oil';
 import { makeWoodTexture } from './Environment';
 
 /**
@@ -226,10 +226,10 @@ export class Lane {
     );
   }
 
-  /** 오일 광택 시트를 프리셋 endZ에 맞춤 — "어디서 꺾이는지"의 시각 단서 (P3). startMatch에서 호출. */
-  applyOilVisual(pattern: OilPattern) {
+  /** 오일 광택 시트를 새 오일 길이(OIL_END_Z)에 맞춤 — "어디서 꺾이는지"의 시각 단서 (P3). startMatch에서 호출. */
+  applyOilVisual() {
     const startZ = LANE_START_Z;
-    const ez = OIL_PRESETS[pattern].endZ;
+    const ez = OIL_END_Z;
     this.oilMesh.geometry.dispose();
     this.oilMesh.geometry = new THREE.PlaneGeometry(LANE_WIDTH, ez - startZ);
     this.oilMesh.position.set(0, 0.0015, (startZ + ez) / 2);

@@ -110,6 +110,7 @@ export async function boot() {
   let menuPaused = false;
   const applyPause = () => {
     loop.paused = replayPaused || menuPaused;
+    sound.setMachinePaused(loop.paused); // 물리가 멈추면 핀세터 연출도 멈추는데 모터 노드는 돈다 — 같이 뮤트
   };
   replay.setPaused = (p) => {
     replayPaused = p; // 리플레이 재생 중 라이브 물리·sync 정지 (item 2)
@@ -267,21 +268,29 @@ function wireGameEvents(d: {
         const label =
           e.streak >= 4 ? `${e.streak} BAGGER!!` : e.streak === 3 ? 'TURKEY!!' : e.streak === 2 ? 'DOUBLE!' : 'STRIKE!';
         const sub = e.streak >= 2 ? t('boot.onFire', { streak: e.streak }) : t('boot.strike');
-        // 스트라이크 = 풀연출: 짧은 리플레이 → 프리즈에 스틸컷 슬램. 녹화 부족 시 즉시 스틸컷.
-        if (!replay.start(() => stillCut.show('strike', label, sub))) stillCut.show('strike', label, sub);
+        // 스트라이크 = 풀연출: 짧은 리플레이 → 프리즈에 스틸컷 슬램 + PA 차임. 녹화 부족 시 즉시.
+        // 차임은 이벤트 시각이 아니라 **스틸컷이 뜨는 순간**에 — 리플레이 중엔 크래시 재발화가 울리고 있다.
+        const slam = () => {
+          stillCut.show('strike', label, sub);
+          sound.playStrikeChime(e.streak);
+        };
+        if (!replay.start(slam)) slam();
         break;
       }
       case 'spare':
         stillCut.show('spare', 'SPARE!', t('boot.spareCleared')); // 스페어 = 스틸컷만 (리플레이 X)
+        sound.playSpareChime();
         break;
       case 'gutter':
         stillCut.show('gutter', 'GUTTER', t('boot.zeroPins')); // 거터 = 디플레이팅 스틸컷 (축하 X)
+        sound.playGutterChime();
         break;
       case 'splitConverted':
         // 스플릿은 **성공만** 연출한다. '발생' 배너는 핀을 보면 아는 정보를 2구 조준 정면에 2.2초
         // 띄우는 부정 피드백이었고, 라벨도 볼링 용어가 아니라 남은 핀 번호 나열이었다.
         // AI 턴 배너도 걷었다 — 점수판이 현재 차례를 골드 액센트로 이미 표시한다(Hud.renderSheet).
         stillCut.show('split', 'SPLIT CONVERTED!', t('boot.splitConverted', { label: e.label }));
+        sound.playSplitChime();
         break;
       case 'gameOver': {
         replay.cancel(); // 마지막 결정타 리플레이가 결과화면과 겹치지 않게 즉시 접음
@@ -298,9 +307,10 @@ function wireGameEvents(d: {
           },
           loadRewards().earned,
         );
+        const stingLen = sound.playGameOverSting(sm); // 승/무/패·신기록 스팅어 — 결과 모달과 동시
         if (fresh.length) {
           recordRewards(fresh);
-          sound.playUnlock();
+          sound.playUnlock(stingLen); // 스팅어가 끝난 뒤 — 같은 순간이면 둘이 뭉개진다
         }
         menu.showResult(sm, fresh);
         break;
@@ -320,6 +330,8 @@ function exposeDebugGlobals(o: {
   sound: SoundManager;
   controls: Controls;
   stillCut: StillCut;
+  menu: MenuUI;
+  replay: Replay;
 }) {
   const w = window as Window & {
     __ball?: Ball;
@@ -333,8 +345,12 @@ function exposeDebugGlobals(o: {
     /** [DEV] 스틸컷 4종을 눈으로 확인하려면 — 실제로 스트라이크가 날 때까지 던질 수 없다.
         예: `__stillCut.show('strike','STRIKE!','3연속 · ON FIRE')` */
     __stillCut?: StillCut;
+    /** 리플레이 — 숨은 탭엔 onFrame이 안 돌아 `__replay.update(1/60)`로 손수 굴려야 임팩트 재발화·onBall을 볼 수 있다. */
+    __replay?: Replay;
     __unlockAllRewards?: () => void;
     __resetRewards?: () => void;
+    /** [DEV] 결과 화면의 '전광판 해금!' 박스 미리보기 — 실제로는 core 업적을 이 판으로 다 채운 게임오버에서만 뜬다. */
+    __previewScreenUnlock?: () => void;
   };
   w.__ball = o.ball;
   w.__pins = o.pins;
@@ -345,6 +361,7 @@ function exposeDebugGlobals(o: {
   w.__sound = o.sound;
   w.__controls = o.controls;
   w.__stillCut = o.stillCut;
+  w.__replay = o.replay;
   // [DEV] 보상 디버그 — 콘솔에서 호출 후 새로고침
   w.__unlockAllRewards = () => {
     recordRewards(ACHIEVEMENTS.map((a) => a.id));
@@ -355,6 +372,30 @@ function exposeDebugGlobals(o: {
     void clearScreenVideo(); // 영상 실물은 IndexedDB에 따로 있다 — 같이 지워야 용량이 회수된다
     o.environment.setCustomScreen(null); // 화면은 즉시 기본으로 (새로고침 없이도 확인 가능)
     console.log('[rewards] 초기화 완료 — 새로고침하세요');
+  };
+  // [DEV] 전광판 해금 안내 미리보기 — Boot의 gameOver 경로를 그대로 흉내 낸다: core 업적을 '마지막 하나 빼고'
+  // 저장해 둔 뒤, 그 하나를 fresh로 recordRewards → showResult. 결과 화면은 loadRewards().earned에서 fresh를
+  // 빼 '전' 상태를 복원해 판정하므로 이 순서가 실제와 같아야 박스가 뜬다. ⚠️ 보상 저장을 전부 해금 상태로
+  // 바꾼다 — 확인 뒤 __resetRewards()로 되돌릴 것.
+  w.__previewScreenUnlock = () => {
+    const core = ACHIEVEMENTS.filter((a) => a.tier === 'core').map((a) => a.id);
+    const last = core[core.length - 1];
+    resetRewards();
+    recordRewards(core.slice(0, -1));
+    const fresh = [last];
+    recordRewards(fresh);
+    o.menu.showResult(
+      {
+        mode: 'full',
+        frames: 10,
+        winner: 0,
+        newBest: false,
+        best: 212,
+        players: [{ name: 'YOU', ai: false, score: 212, rolls: Array.from({ length: 10 }, () => [10]) }],
+      },
+      fresh,
+    );
+    console.log('[rewards] 전광판 해금 안내 미리보기 — 보상이 전부 해금됐다. 끝나면 __resetRewards()');
   };
 }
 
@@ -463,7 +504,15 @@ function buildScene(engine: Engine): {
     if (settings.haptics && typeof navigator.vibrate === 'function') navigator.vibrate(standing > 2 ? 30 : 12);
   };
   // 공 굴림 럼블 — 매 스텝 공 속도로 지속 저역음 (임팩트 직전 긴장감)
-  game.onRoll = (v, inGutter) => sound.setRoll(v, inGutter);
+  game.onRoll = (v, inGutter, timeScale) => sound.setRoll(v, inGutter, timeScale); // timeScale = 슬로모 동기(피치·LPF)
+  game.onThrow = (power) => sound.playRelease(power); // 릴리스 팝 + 착지 둥 — 사람·AI 공통
+  // 리플레이 사운드 — 리플레이는 물리를 얼려 위 두 훅이 안 불린다. 같은 SoundManager 경로로 다시 울린다(Replay 주석).
+  replay.onImpact = () => sound.playRackCrash(game.impactStanding);
+  replay.onBall = (v, inGutter, timeScale) => sound.setRoll(v, inGutter, timeScale);
+  // 핀세터 기계음 — 플레이 레인은 PinSet 단계 큐, 옆 레인은 Environment가 같은 어휘로 cx와 함께 보낸다(cues.ts)
+  pins.onCycle = (cue) => sound.machineCue(cue);
+  environment.onAmbMachine = (cue, lane) => sound.machineCue(cue, lane);
+  environment.onAmbBall = (cue, lane) => sound.ambBallCue(cue, lane); // 옆 레인 굴림·크래시 — 같은 거리 감쇠 경로
 
   // boot()이 실제 구현을 꽂는다 — 일시정지 모달 개폐를 Loop.paused로 전달한다.
   const pauseHook = { set: (_paused: boolean) => {} };
@@ -510,7 +559,7 @@ function buildScene(engine: Engine): {
   engine.camera.position.set(0, 1.12, -2.7);
   engine.camera.lookAt(0, -0.05, 7.5);
 
-  exposeDebugGlobals({ ball, pins, engine, environment, game, cameraRig, sound, controls, stillCut });
+  exposeDebugGlobals({ ball, pins, engine, environment, game, cameraRig, sound, controls, stillCut, menu, replay });
 
   return { game, controls, cameraRig, environment, sound, exitBtn, pauseHook, replay };
 }

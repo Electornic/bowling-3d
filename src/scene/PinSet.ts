@@ -14,6 +14,7 @@ import {
   PIN_FALL_ANGLE,
 } from '../game/constants';
 import { PIN_NUMBERS } from '../game/splits';
+import type { MachineCue, MachinePhase } from '../audio/cues';
 import { HOUSE } from '../ui/theme';
 
 const UP_COS_FALL = Math.cos(PIN_FALL_ANGLE); // ≈0.707 — 상수는 constants.ts가 갖는다(여기서 재구현 금지)
@@ -36,6 +37,9 @@ const CY_SWEEP = 2.55;
 const CY_RETURN = 3.0;
 const CY_SET = 3.6;
 const CY_END = 4.05;
+// 단계 큐(사운드) — 위 타임라인을 단계 이름·길이로 읽은 것. update()가 t가 경계를 넘는 스텝에 한 번 쏜다.
+const CY_PHASES: readonly MachinePhase[] = ['guard', 'grip', 'lift', 'sweep', 'return', 'set', 'raise'];
+const CY_DURS = [CY_GUARD, CY_GRIP - CY_GUARD, CY_LIFT - CY_GRIP, CY_SWEEP - CY_LIFT, CY_RETURN - CY_SWEEP, CY_SET - CY_RETURN, CY_END - CY_SET];
 const BAR_Y_UP = 1.2; // 스윕 바 대기 높이(마스킹 뒤)
 // 레이크 블레이드의 내림 높이(중심 y)와 두께. 지금 값은 바가 y 0.09~0.23을 차지한다.
 //
@@ -155,6 +159,9 @@ export class PinSet {
 
   // 핀세터 사이클 — cycleT < 0 이면 유휴. runCycle()로 시작, update(dt)가 굴리고, finishCycle()이 확정.
   private cycleT = -1;
+  private cyclePhase = -1; // 마지막으로 큐를 쏜 단계 인덱스(CY_PHASES). runCycle이 -1로 되돌린다
+  /** 핀세터 단계 전환 큐 — Boot가 SoundManager.machineCue에 잇는다(cues.ts). 연출 상태와 같은 스텝에 온다. */
+  onCycle?: (cue: MachineCue) => void;
   private cycleSweep: Pin[] = []; // 이번 사이클에 치울 데드우드
   private cycleRack = false; // rack 모드면 ②③(집기·들기)을 건너뛴다 — 집을 핀이 없다
   private readonly cyclePushed = new Set<Pin>(); // 스윕이 이미 밀어낸 핀(중복 가속 방지)
@@ -312,6 +319,7 @@ export class PinSet {
       this.cycleFrom.set(p, { x: tr.x, z: tr.z, q: new THREE.Quaternion(rt.x, rt.y, rt.z, rt.w) });
     }
     this.cycleT = 0;
+    this.cyclePhase = -1; // 첫 update가 'guard'를 쏜다
   }
 
   /** 사이클 진행 중인가 — 투구 직전 가드용 */
@@ -323,9 +331,11 @@ export class PinSet {
    * 사이클을 즉시 최종 상태로 확정. 연출 도중 다음 투구가 시작되면 반드시 이걸 먼저 불러야
    * standingCount()가 연출 중간값을 읽지 않는다.
    */
-  finishCycle() {
+  finishCycle(cut = true) {
     if (this.cycleT < 0) return;
     this.cycleT = -1;
+    this.cyclePhase = -1;
+    this.onCycle?.({ phase: 'done', dur: 0, pins: 0, cut }); // 외부에서 끊으면 cut — 모터만 멎고 귀환 '쿵'은 없다
     for (const p of this.cycleSweep) p.stash();
     for (const p of this.cyclePlace) p.reset(); // rack이면 sweep과 겹치는데, reset이 뒤라 결과는 '세워짐'
     this.cycleSweep = [];
@@ -347,13 +357,22 @@ export class PinSet {
     // rack(스트라이크·2구 후)은 집어 올릴 핀이 없다. 그런데도 ②③을 돌면 테이블이 **빈손으로**
     // 내려갔다 올라오는 헛동작 0.85초가 생긴다 — 실제 기계는 그 경우 레이크가 쓸고 새 랙이
     // 내려오는 게 전부다. 가드 이후 구간을 통째로 건너뛰어 3.05초로 줄인다.
-    const t = this.cycleT + (this.cycleRack && this.cycleT > CY_GUARD ? CY_LIFT - CY_GUARD : 0);
+    // ⚠️ `>=`다. `>`였을 때 cycleT가 정확히 CY_GUARD(33/60 = 0.55)에 떨어지는 스텝에 시프트가 안 걸려 t=0.55가
+    // ② 분기로 한 스텝 새어 들어갔다 — 화면엔 안 보였지만(rack은 테이블이 CY_RETURN부터 보인다) 단계 큐가
+    // rack에서 'grip'을 한 번 쏴 사운드가 '테이블 하강' 활주를 헛시작했다(2026-09-02 실측).
+    const t = this.cycleT + (this.cycleRack && this.cycleT >= CY_GUARD ? CY_LIFT - CY_GUARD : 0);
     const bar = this.sweepBar;
     const tbl = this.pinTable;
     // 테이블 가시성은 **여기 한 줄에서만** 정한다. 구간마다 흩어서 대입했더니 앞 사이클 상태가
     // 새어 rack에서도 0.54초에 나타났다(실측). respot은 ②부터, rack은 ⑥부터 — rack은 ②③을
     // 건너뛰므로 그 전에는 애초에 존재하지 않는다.
     tbl.visible = this.cycleRack ? t >= CY_RETURN : t >= CY_GUARD;
+    // 단계 큐 — 경계를 넘은 스텝에 한 번. rack은 t가 GUARD→LIFT로 점프하므로 grip·lift 큐가 자연히 빠진다.
+    const ph = t < CY_GUARD ? 0 : t < CY_GRIP ? 1 : t < CY_LIFT ? 2 : t < CY_SWEEP ? 3 : t < CY_RETURN ? 4 : t < CY_SET ? 5 : t < CY_END ? 6 : 7;
+    if (ph !== this.cyclePhase && ph < CY_PHASES.length) {
+      this.cyclePhase = ph;
+      this.onCycle?.({ phase: CY_PHASES[ph], dur: CY_DURS[ph], pins: ph >= 5 ? this.cyclePlace.length : 0 });
+    }
     const spotY = PIN_HEIGHT / 2;
     /** 물린 핀을 테이블에 붙여 함께 움직인다 — '기계가 든다'로 읽히게 하는 부분 */
     const carry = (tableY: number, pins: Pin[]) => {
@@ -438,7 +457,7 @@ export class PinSet {
       bar.position.set(0, lerp(BAR_Y_DOWN, BAR_Y_UP, k), BAR_Z0);
       for (const p of this.cyclePlace) p.hold(spotY);
     } else {
-      this.finishCycle();
+      this.finishCycle(false); // 자연 종료 — 기계가 제자리로 돌아온 '쿵'을 낸다
     }
   }
 
@@ -479,6 +498,7 @@ export class PinSet {
 
   /** 핀 전체를 똑바로 다시 세움 (BETWEEN_FRAMES) */
   resetAll() {
+    this.finishCycle(); // 돌던 사이클이 있으면 먼저 끊는다 — 안 그러면 다음 스텝에 연출이 이어지고 기계음이 남는다
     for (const p of this.pins) p.reset();
   }
 

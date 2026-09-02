@@ -55,9 +55,12 @@ export const zh: Record<I18nKey, string> = {
   'menu.result.newUnlock': 'NEW · {badge} → {skin}',
   'menu.result.equip': '装备{label}',
   'menu.result.equipped': '✓ 已装备{label}',
+  'menu.result.screenUnlock': '大屏已解锁！',
+  'menu.result.screenUnlock.desc': '已达成全部成就。现在可以在球馆大屏上放图片、GIF 或视频。',
+  'menu.result.screenUnlock.open': '打开大屏设置',
   'menu.result.retry': '再来一局',
 
-  'menu.pause.title': '⏸ 已暂停',
+  'menu.pause.title': '菜单',
   'menu.pause.sound': '音效',
   'menu.pause.haptics': '振动',
   'menu.pause.graphics': '画质',
@@ -73,16 +76,20 @@ export const zh: Record<I18nKey, string> = {
   'menu.quality.perf': '性能',
 
   'menu.collection.title': '收藏',
-  'menu.collection.finish': '{finish}表面',
   'menu.collection.equip': '装备',
   'menu.collection.locked': '未解锁',
   'menu.collection.achUnlock': '{desc} · 解锁{skin}',
   'menu.tab.skins': '球体皮肤',
   'menu.tab.achievements': '成就',
   'menu.tab.screen': '大屏',
+  'menu.screenEntry': '大屏 · {state} ▸',
+  'menu.screen.state.default': '默认',
+  'menu.screen.state.image': '图片',
+  'menu.screen.state.video': '视频',
   'menu.back.menu': '← 返回菜单',
   'menu.back.game': '← 返回游戏',
-  'menu.back.pause': '← 暂停',
+  'menu.back.pause': '← 返回菜单',
+  'menu.back.result': '← 返回结果',
 
   'menu.screen.default': '默认 · 球馆图形',
   'menu.screen.video': '视频',
@@ -96,7 +103,6 @@ export const zh: Record<I18nKey, string> = {
   'menu.screen.reset': '恢复默认',
 
   'menu.section.lang': '语言',
-  'lang.auto': '自动 · 跟随系统',
   'lang.auto.short': '自动',
   'menu.more': '更多',
 
@@ -108,13 +114,8 @@ export const zh: Record<I18nKey, string> = {
   'mode.spare.desc': '连续处理 10 组经典余瓶（单人）',
 
 
-  'finish.matte': '哑光',
-  'finish.satin': '缎面',
-  'finish.metallic': '金属',
-  'finish.chrome': '镀铬',
-  'finish.glow': '发光',
 
-  'skin.classic': '经典',
+  'skin.house': '公用球',
   'skin.satin': '缎面',
   'skin.ember': '炽焰',
   'skin.chrome': '镀铬',

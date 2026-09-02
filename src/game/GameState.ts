@@ -6,6 +6,7 @@ import {
   LANE_WIDTH,
   BALL_RADIUS,
   GUTTER_WIDTH,
+  GUTTER_DEPTH,
   PIN_DECK_END,
   SETTLE_TIMEOUT,
   SLOWMO_SCALE,
@@ -16,7 +17,7 @@ import { makeBallSpec, type BallSpec } from './BallSpec';
 import { computeAiThrow, type AiProfile } from './ai';
 import { detectSplit } from './splits';
 import { recordGame } from './Stats';
-import { resetOil, advanceOilDrying, type OilPattern } from './oil';
+import { resetOil, advanceOilDrying } from './oil';
 import { CLASSIC_SKIN, RIVAL_SKINS, type BallSkin } from './rewards';
 
 /**
@@ -40,21 +41,7 @@ export interface MatchPlayerConfig {
 export interface MatchConfig {
   mode: GameMode;
   players: MatchPlayerConfig[]; // [0] = 사람 (스페어 챌린지는 솔로만)
-  /**
-   * 오일 패턴 (기본 'house'). ⚠️ **메뉴에선 안 고른다** — 선택 UI가 둘 다 사라졌다.
-   *
-   * 원래 시작 메뉴에 '레인 난이도'로 **오일 패턴 + 조준 보조 두 축**이 있었다. 오일 축을 먼저 걷었는데,
-   * 오일은 난이도가 아니라 **최적 전략이 이동하는** 축이라 단조 사다리에 안 맞기 때문이다 — sim-carry
-   * 스트라이크 윈도우가 하우스 직구4/훅7 vs 숏 직구6/훅3이라 '어려움=숏'이 직구 플레이어에겐 오히려
-   * 넓어졌다(AI 매치 sim도 프리셋 간 ±10점). (docs/legacy/OIL_META_AND_AUTO.md §1.2·§1.5·§2.8)
-   * 남은 조준 보조 축도 2026-09-02에 걷었다 — 3단이 예측선 길이 하나만 바꾸는 축이라 설정으로 둘
-   * 값이 없었고, 길이를 '보통과 어려움 사이'로 고정했다(Controls.updateAimArrow의 endZ 주석).
-   *
-   * ⚠️ 오일 *시스템*은 그대로 살아 있다 — 하우스 고정 + 풀게임 레인 마름(advanceOilDrying)이 계속
-   * 돌고 AI hookDriftFor(endZ)도 그걸 따라간다. 프리셋도 sim·테스트·후속(데일리 시드)용으로 남는다.
-   * 걷어낸 건 **선택 UI뿐**이다.
-   */
-  oilPattern?: OilPattern;
+  // 오일 패턴 선택은 없다 — 하우스 하나(oil.ts 주석). 예전 `oilPattern?` 옵션과 프리셋 3종은 2026-09-02에 걷었다.
 }
 
 interface PlayerState {
@@ -113,6 +100,11 @@ export const SPARE_LEAVES: number[][] = [
   [7, 10], // 피날레
 ];
 
+/** 거터 골 바닥에 앉은 공의 중심 y (= 골 윗면 −GUTTER_DEPTH + 반지름). settleGutterPerch의 기준. */
+const GUTTER_SEAT_Y = BALL_RADIUS - GUTTER_DEPTH;
+/** '앉았다'로 볼 여유. 얹힌 공은 레인면 위(y≈BALL_RADIUS=0.109)라 앉은 값(0.061)과 4.8cm 벌어진다 — 그 중간. */
+const SEAT_EPS = 0.024;
+
 const AI_THINK_TIME = 0.9; // AI 투구 전 대기 (s, 시뮬 시간)
 const AI_FAST_FORWARD = 1; // AI 턴 ROLLING/SETTLING 빨리감기 배속 (1=실시간, 공 굴림을 그대로 봄. 빨리감기 원하면 2~3)
 
@@ -138,12 +130,19 @@ export class GameState {
   /** 투구당 1회 핀 임팩트 사운드 (Boot에서 SoundManager 연결). 인자 = 던질 때 서 있던 핀 수. */
   onPinImpact?: (standingCount: number) => void;
   /** 공 굴림 지속음 세기 (Boot에서 SoundManager.setRoll 연결). speed=공 속도(m/s), inGutter=거터 홈 진입. */
-  onRoll?: (speed: number, inGutter: boolean) => void;
+  /** 릴리스 — throwBall 순간 1회(사람·AI 공통). power 0~1로 사운드가 착지 '둥'의 세기를 정한다. */
+  onThrow?: (power: number) => void;
+  /** 굴림 럼블. timeScale = 그 스텝의 Loop.timeScale(슬로모 0.32~1) — 사운드가 피치·톤을 화면 배속에 맞춘다. */
+  onRoll?: (speed: number, inGutter: boolean, timeScale: number) => void;
 
   private players: PlayerState[] = [];
   private settleTimer = 0;
   private gutterSettled = false; // 이번 투구에서 거터 perch 보정을 1회 적용했는가 (재스냅 방지)
   private standingAtThrow = 10;
+  /** 이번 투구가 시작될 때 서 있던 핀 수 — 리플레이가 크래시를 다시 울릴 때 같은 세기를 쓴다. */
+  get impactStanding(): number {
+    return this.standingAtThrow;
+  }
   private aiWait = 0;
   private pendingSplit: string | null = null;
   private humanSpec: BallSpec = makeBallSpec(10);
@@ -213,9 +212,8 @@ export class GameState {
     this.pendingSplit = null;
     this.slowmoTimer = 0;
     this.slowmoUsed = false;
-    const oilPattern = config.oilPattern ?? 'house';
-    resetOil(oilPattern); // 오일 프리셋 적용 + 마름 초기화 (P3)
-    this.lane.applyOilVisual(oilPattern); // 광택 시트 길이를 프리셋에 맞춤 (읽기 단서)
+    resetOil(); // 오일 새로 깔기 = 마름 초기화 (P3)
+    this.lane.applyOilVisual(); // 광택 시트 길이를 오일 길이에 맞춤 (읽기 단서)
     if (this.mode === 'spare') this.pins.setLayout(SPARE_LEAVES[0]);
     else this.pins.resetAll();
     this.standingAtThrow = this.pins.standingCount();
@@ -262,6 +260,7 @@ export class GameState {
     this.pins.finishCycle();
     this.standingAtThrow = this.pins.standingCount();
     this.ballObj.launch(aim, power, spin);
+    this.onThrow?.(power); // 릴리스 트랜지언트 — 굴림 럼블은 0에서 페이드인이라 이게 없으면 '던진' 순간이 없다
     this.state = 'ROLLING';
     this.settleTimer = 0;
     this.slowmoUsed = false;
@@ -317,9 +316,11 @@ export class GameState {
     this.lane.updateFriction(this.ballObj.body.translation().z);
 
     // 굴림 럼블 오디오 + 임팩트(사운드·슬로모) + 시간 배속 — 각각 헬퍼로 분리(#8).
-    this.updateRollAudio();
+    this.latchLaneExit(); // 레인 이탈 래치 (상태 분기보다 앞 — 그 이유는 메서드 주석)
     this.notifyImpact(); // 핀이 움직였는지로 임팩트 판정 (고정 z 트리거 폐기 — 그 주석 참고)
-    this.setTimeScale?.(this.computeTimeScale(dt)); // AI 빨리감기(P1.5) vs 임팩트 슬로모(P2, 우선)
+    const timeScale = this.computeTimeScale(dt); // AI 빨리감기(P1.5) vs 임팩트 슬로모(P2, 우선)
+    this.setTimeScale?.(timeScale);
+    this.updateRollAudio(timeScale); // notifyImpact 뒤 — 슬로모가 걸린 그 스텝부터 굴림음도 같이 늘어진다
 
     const ai = this.currentPlayer?.ai;
     if (this.state === 'AIMING') {
@@ -341,10 +342,7 @@ export class GameState {
       this.ballObj.applySpinForce(dt); // 훅 측면력 (도안 §4.1)
       const t = this.ballObj.body.translation();
       const inGutter = Math.abs(t.x) > LANE_WIDTH / 2 - BALL_RADIUS;
-      // 공 중심이 레인을 완전히 벗어나면 그 투구 내내 핀과의 충돌을 끈다(래치 — 다시 안 켠다).
-      // 튕겨 돌아와도 마찬가지다: USBC상 공이 레인을 벗어난 뒤의 핀폴은 어차피 인정되지 않는다.
-      // ballObj.reset()이 다음 투구에서 되돌린다.
-      if (Math.abs(t.x) > LANE_WIDTH / 2) this.ballObj.setPinCollision(false);
+      // 레인 이탈 래치는 여기 두지 않는다 — latchLaneExit() 주석 참고 (상태 분기 밖에서 돈다).
       // 핀존 통과 / 거터 / 레인 밖 낙하 (도안 §4.2 전환 조건)
       if (t.z > PIN_DECK_END || inGutter || t.y < -2) {
         this.state = 'SETTLING';
@@ -361,15 +359,36 @@ export class GameState {
     }
   }
 
+  /**
+   * 레인 이탈 래치 — 공 중심이 레인 폭을 벗어나면 그 투구 내내 핀 충돌을 끈다(다시 안 켠다).
+   * `ballObj.reset()`이 다음 투구에서 되돌린다. USBC상 공이 레인을 벗어난 뒤의 핀폴은 인정되지
+   * 않으므로 규칙과도 일치한다. 무엇을 막는지는 `Ball.setPinCollision` 주석 참고 — 규격 깊이
+   * 거터(47.6mm)는 얕아서 홈에 앉은 공이 코너 핀(7·10)에 11.6mm 파고든다.
+   *
+   * ⚠️ **상태 분기 안에 두지 말 것** (2026-09-02, 이 자리로 옮긴 이유).
+   * 예전엔 ROLLING 분기 안에 있었는데, SETTLING 전환 문턱(`|x| > LANE_WIDTH/2 − BALL_RADIUS` = 0.416)이
+   * 래치 문턱(`|x| > LANE_WIDTH/2` = 0.525)보다 **앞**이라 공이 0.416에서 SETTLING으로 빠져나간 뒤
+   * 0.525를 넘어도 이 코드가 더는 안 돌았다. 두 문턱을 한 스텝(1/60s)에 건너뛰려면 횡속 6.5 m/s가
+   * 필요한데 실제 훅은 1~2 m/s대라 **사실상 한 번도 발동하지 않았다.**
+   * 실측(`GUTTER_SIM=1`, 플레이어 조준 범위 ±AIM_RANGE 안): 거터 홈까지 빠진 60투구 중 래치 발동 0 ·
+   * 무효 핀폴 58투구 / **113핀**. 이 자리로 옮기니 **0핀**, 레인에 남은 투구 79개는 핀폴 전부 동일(오탐 0).
+   */
+  private latchLaneExit() {
+    const t = this.ballObj.body.translation();
+    // z 가드: 핀덱을 지난 뒤(피트 안)엔 새로 잠그지 않는다. 거기선 이미 핀폴이 끝났고, 잠그면
+    // 피트로 굴러떨어지는 핀이 공을 통과해 버린다. 레인에서 이미 걸린 래치는 그대로 유지된다(래치니까).
+    if (t.z <= PIN_DECK_END && Math.abs(t.x) > LANE_WIDTH / 2) this.ballObj.setPinCollision(false);
+  }
+
   /** 공 굴림 럼블 오디오 — 레인 위 굴림/안착 중 공 속도로 지속 저역음, 그 외 0. (#8 update()에서 추출) */
-  private updateRollAudio(): void {
+  private updateRollAudio(timeScale: number): void {
     if (!this.onRoll) return;
     const rolling = this.state === 'ROLLING' || this.state === 'SETTLING';
     const tr = this.ballObj.body.translation();
     const onLane = tr.z < PIN_DECK_END; // 핀덱 뒤로 넘어가면(핀 충돌·핏 진입) 굴림음 차단
     const inGutter = Math.abs(tr.x) > LANE_WIDTH / 2; // 레인 끝을 넘어 거터 홈 → 홀로우 음색
     const rv = this.ballObj.body.linvel();
-    this.onRoll(rolling && onLane ? Math.hypot(rv.x, rv.y, rv.z) : 0, inGutter);
+    this.onRoll(rolling && onLane ? Math.hypot(rv.x, rv.y, rv.z) : 0, inGutter, timeScale);
   }
 
   /**
@@ -405,15 +424,20 @@ export class GameState {
     if (this.gutterSettled) return;
     const b = this.ballObj.body;
     const t = b.translation();
-    // 공 중심이 레인 끝(±LANE_WIDTH/2)을 넘었는데 아직 골(y≈-0.02)에 안 떨어졌으면, 공이 거터 홈으로
-    // 빠지지 못하고 레인 끝 날카로운 모서리에 얹혀 그 위를 타고 가는 상태다(거터 홈이 공 반지름보다 얕아
-    // 생기는 perch). 이때 거터 골로 떨궈 넣고, 현실 볼링처럼 핀 쪽 끝까지 굴러가 '빠지도록' 전진 속도를
-    // 부여한다(골 마찰 0.08 기준 뒤끝 도달 속도, 정산은 z>핀덱에서 자연히 일어남).
-    if (Math.abs(t.x) < LANE_WIDTH / 2 || t.y <= -0.01 || t.z > PIN_DECK_END) return;
+    // 공 중심이 레인 끝(±LANE_WIDTH/2)을 넘었는데 아직 골에 안 앉았으면, 공이 거터 홈으로 빠지지 못하고
+    // 레인 끝 날카로운 모서리에 얹혀 그 위를 타고 가는 상태다(거터 홈이 공 반지름보다 얕아 생기는 perch).
+    // 이때 거터 골로 떨궈 넣고, 현실 볼링처럼 핀 쪽 끝까지 굴러가 '빠지도록' 전진 속도를 부여한다
+    // (골 마찰 0.08 기준 뒤끝 도달 속도, 정산은 z>핀덱에서 자연히 일어남).
+    //
+    // "골에 앉았다"의 기준은 GUTTER_SEAT_Y다. 예전엔 상수 없이 `t.y <= -0.01`과 `y = -0.13 + BALL_RADIUS`를
+    // 하드코딩하고 있었는데, 그 −0.13은 Lane.ts가 규격 깊이 GUTTER_DEPTH(0.0476)로 옮기기 전의 옛 거터
+    // 깊이였다. 그대로 두면 ① 앉은 공 중심이 실제로는 +0.061인데 가드가 −0.01이라 **이미 골에 잘 앉은
+    // 공까지 매번 보정**하고 ② 그 보정이 공을 골 바닥보다 8.2cm 아래로 처박아 한 프레임 파묻혔다 튀어나온다.
+    if (Math.abs(t.x) < LANE_WIDTH / 2 || t.y <= GUTTER_SEAT_Y + SEAT_EPS || t.z > PIN_DECK_END) return;
     this.gutterSettled = true;
     const side = Math.sign(t.x);
     const roll = Math.min(8, Math.sqrt(2 * 0.785 * (PIN_DECK_END + 1 - t.z + 0.5)));
-    b.setTranslation({ x: side * (LANE_WIDTH / 2 + GUTTER_WIDTH / 2), y: -0.13 + BALL_RADIUS, z: t.z }, true);
+    b.setTranslation({ x: side * (LANE_WIDTH / 2 + GUTTER_WIDTH / 2), y: GUTTER_SEAT_Y, z: t.z }, true);
     b.setLinvel({ x: 0, y: 0, z: roll }, true);
     b.setAngvel({ x: roll / BALL_RADIUS, y: 0, z: 0 }, true);
   }

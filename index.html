@@ -41,10 +41,59 @@
       /* 하우스 사인 — 마스킹 유닛의 로고타입·밑줄 스우시·태그라인 3단을 그대로 옮겼다 */
       #boot-name { font: 700 clamp(26px, 7vw, 38px)/1 Georgia, 'Times New Roman', serif; letter-spacing: 0.02em; }
       #boot-rule { display: block; margin: 7px auto 0; width: min(300px, 70vw); }
-      #boot-tag { margin-top: 7px; color: #e0a12b; font: 700 11px/1 Georgia, 'Times New Roman', serif; letter-spacing: 0.34em; }
-      /* 핀 랙 — 진행률이 곧 '핀이 세워지는 수'다. 실제 하우스의 개장 신호가 이것이다. */
-      #boot-rack { display: block; margin: 22px auto 0; width: min(230px, 58vw); }
-      #boot-rack use { transition: opacity 0.22s ease; }
+      /* 태그라인 + 핀 랙 + 공을 **한 SVG 좌표계**에 둔다. 공이 랙을 뚫고 태그라인까지 올라가 'IT UP'을
+         밀어내야 해서(아래 시퀀스 주석) HTML 텍스트와 SVG를 가로지르면 좌표 변환이 뷰포트마다 달라진다.
+         대가: 태그라인이 랙과 함께 스케일된다(320px 세로에서 7px대). 하우스 사인 3단 구성은 유지.
+         viewBox는 태그라인+랙(-34~138)만. 공은 그 아래 overflow 영역에서 굴러 들어온다 — 시퀀스 **중간엔 레이아웃이
+         움직이지 않는다**(높이 전이는 마지막 접힘 한 번뿐). preserveAspectRatio="xMidYMin slice"라 접혀도 스케일은 폭이
+         정하고 내용은 위에 붙는다. 40vh 상한: 320px 세로(하우스 블록 272px 한계)에서 넘치지 않게. */
+      #boot-rack { display: block; margin: 5px auto 0; width: min(230px, 58vw, 40vh); overflow: visible;
+        height: calc(min(230px, 58vw, 40vh) * 0.86);
+        transition: height 0.4s cubic-bezier(0.4, 0, 0.2, 1) 0.15s; }
+      /* 스트라이크 뒤: 태그라인 높이만 남기고 접어 READY가 'STRIKE●' 밑으로 올라온다. */
+      #boot-rack.struck { height: calc(min(230px, 58vw, 40vh) * 0.14); }
+      #boot-rack text { font: 700 11px Georgia, 'Times New Roman', serif; letter-spacing: 0.34em; fill: #e0a12b; }
+      #boot-rack .pin { opacity: 1; transition: opacity 0.22s ease; transform-box: fill-box; transform-origin: 50% 50%; }
+      #boot-ball, #boot-ball-in { transform-box: fill-box; transform-origin: center; }
+      #boot-ball { opacity: 0; }
+      #boot-ball-in { transform: scale(1); }
+      #boot-itup { transform-box: fill-box; transform-origin: center; }
+
+      /* ── 스트라이크 시퀀스(.rolling) — 공의 세로 이동 1.8s 곡선 하나가 시계다. 나머지 딜레이는 전부 그 곡선에서
+         "공이 그 y에 도달하는 시각"으로 계산한 값(cubic-bezier(0.3,0.5,0.6,1.0), y 262→-21):
+           헤드핀 0.46s · 2열 0.59s · 3열 0.73s · 4열 0.9s · 랙 위 1.24s · 'IT UP' 1.43s · 정지 1.8s
+         곡선 선택 근거: (0.2,0.6,0.3,1)은 글자 접촉 시 속도가 평균의 29%라 공이 거의 멈춘 뒤 글자가 따로 움직여
+         **컷이 갈렸다**. 지금 곡선은 43%가 남아 밀치는 힘이 이어진다(빨리 들어와 핀을 치고, 글자를 밀며 멈춘다).
+         경로는 직선 하나(마크업 주석)라 방향 전환이 없고, 'IT UP'은 그 직선의 연장 방향으로 튄다(운동량이 넘어간 것처럼).
+         원근 축소는 약하게(1→0.72→0.5). 마침표 0.3(r≈6.9) — 글자 옆에서 점이 아니라 **공**으로 읽혀야 한다. E와 7유닛 띈다.
+         접촉 시각은 공 **앞 가장자리**가 닿는 순간(중심 y + r)으로 잰다 — 중심 기준이면 12유닛(≈0.1s) 늦게 반응한다.
+         레퍼런스: ollivere.co — 공룡이 'Nonsense'를 물고 가 'Great Design. No'만 남는 구조.
+         여기선 공이 'IT UP'을 밀어내 'STRIKE'만 남고, 공 자체가 문장의 마침표가 된다. */
+      #boot-rack.rolling #boot-ball { animation: boot-y 1.8s cubic-bezier(0.3, 0.5, 0.6, 1.0) forwards, boot-in 0.25s ease-out forwards; }
+      #boot-rack.rolling #boot-ball-in { animation: boot-x 1.8s linear forwards; }
+      @keyframes boot-y { from { transform: translate(0, 0); } to { transform: translate(56px, -283px); } }  /* 직선: (62,262)→(118,-21) */
+      @keyframes boot-in { from { opacity: 0; } to { opacity: 1; } }
+      @keyframes boot-x {                                   /* 원근(크기)만. 시각 = 위 표와 같은 시계 */
+        0%    { transform: scale(1); }
+        26%   { transform: scale(0.72); }
+        69%   { transform: scale(0.5); }
+        79%   { transform: scale(0.4); }
+        100%  { transform: scale(0.3); }
+      }
+      /* 핀: 공이 그 줄에 닿는 시각에 위·바깥으로 밀려 구르며 사라진다. 투명해지기 시작하는 건 움직인 뒤(0.12s). */
+      #boot-rack.rolling .pin { opacity: 0; transform: translate(var(--kx), var(--ky)) rotate(var(--kr));
+        transition: transform 0.55s cubic-bezier(0.2, 0.6, 0.4, 1) 0.46s, opacity 0.35s ease-in 0.58s; }
+      #boot-rack.rolling .pin[data-pin="2"], #boot-rack.rolling .pin[data-pin="3"] { transition-delay: 0.59s, 0.71s; }
+      #boot-rack.rolling .pin[data-pin="4"], #boot-rack.rolling .pin[data-pin="5"], #boot-rack.rolling .pin[data-pin="6"] { transition-delay: 0.73s, 0.85s; }
+      #boot-rack.rolling .pin[data-pin="7"], #boot-rack.rolling .pin[data-pin="8"], #boot-rack.rolling .pin[data-pin="9"], #boot-rack.rolling .pin[data-pin="10"] { transition-delay: 0.9s, 1.02s; }
+      /* 'IT UP': 공이 닿는 순간 공의 진행 방향(직선의 연장, 살짝 우상향)으로 튄다. ease-out — 충격은 처음이 가장 빠르다. */
+      #boot-rack.rolling #boot-itup { opacity: 0; transform: translate(10px, -46px) rotate(8deg);
+        transition: transform 0.5s cubic-bezier(0.1, 0.6, 0.3, 1) 1.43s, opacity 0.4s ease-in 1.51s; }
+      /* 스킵(롤 중 탭)·reduced-motion·임팩트 확정: 애니메이션 없이 최종 상태. .rolling 뒤에 선언해 이긴다. */
+      #boot-rack.struck #boot-ball { opacity: 1; animation: none; transform: translate(56px, -283px); }
+      #boot-rack.struck #boot-ball-in { animation: none; transform: scale(0.3); }
+      #boot-rack.struck .pin { transition: none; opacity: 0; transform: translate(var(--kx), var(--ky)) rotate(var(--kr)); }
+      #boot-rack.struck #boot-itup { transition: none; opacity: 0; transform: translate(10px, -46px) rotate(8deg); }
       #boot-count { margin-top: 15px; color: #e0a12b; font: 600 12px/1 ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: 0.2em; }
       #boot-err { margin-top: 10px; display: none; color: #c8102e; font: 600 12px/1.5 system-ui, sans-serif; }
       #boot-tap {
@@ -55,7 +104,7 @@
       @keyframes boot-pulse { 50% { opacity: 0.4; } }
       @media (prefers-reduced-motion: reduce) {
         #boot-tap { animation: none; }
-        #boot-rack use { transition: none; }
+        #boot-rack, #boot-rack .pin { transition: none; }
       }
     </style>
   </head>
@@ -66,8 +115,7 @@
         <svg id="boot-rule" viewBox="0 0 300 12" aria-hidden="true">
           <path d="M4 6 Q150 13 296 4" fill="none" stroke="#3aa8a0" stroke-width="4" stroke-linecap="round" />
         </svg>
-        <div id="boot-tag">STRIKE IT UP</div>
-        <svg id="boot-rack" viewBox="0 0 200 140" aria-hidden="true">
+        <svg id="boot-rack" viewBox="0 -34 200 172" preserveAspectRatio="xMidYMin slice" aria-hidden="true">
           <defs>
             <symbol id="bp" viewBox="0 0 40 120">
               <path d="M20 2c7 0 11 8 11 15 0 6-4 9-4 14 0 7 8 16 8 44 0 26-6 43-15 43S5 101 5 75c0-28 8-37 8-44 0-5-4-8-4-14C9 10 13 2 20 2z" fill="#ebe4d6" />
@@ -75,18 +123,38 @@
               <rect x="6" y="56" width="28" height="7" rx="2" fill="#c8102e" />
             </symbol>
           </defs>
+          <!-- 태그라인 STRIKE IT UP — 두 <text>로 나눈다. 'IT UP'은 공이 밀어내고 'STRIKE'만 남는다(CSS 시퀀스 주석).
+               anchor end/start로 100 근처에서 갈라 한 줄로 읽히게 한다. -->
+          <text id="boot-strike" x="108" y="-18" text-anchor="end">STRIKE</text>
+          <text id="boot-itup" x="114" y="-18">IT UP</text>
           <!-- 뒤→앞 순서로 그린다(앞 핀이 뒤 핀을 가려 깊이가 생긴다).
-               data-pin은 **실제 핀 번호** — 공개는 1→10(앞→뒤)이라 그리기 순서와 다르다. -->
-          <use data-pin="7" href="#bp" x="44" y="0" width="16" height="48" />
-          <use data-pin="8" href="#bp" x="76" y="0" width="16" height="48" />
-          <use data-pin="9" href="#bp" x="108" y="0" width="16" height="48" />
-          <use data-pin="10" href="#bp" x="140" y="0" width="16" height="48" />
-          <use data-pin="4" href="#bp" x="60" y="30" width="16" height="48" />
-          <use data-pin="5" href="#bp" x="92" y="30" width="16" height="48" />
-          <use data-pin="6" href="#bp" x="124" y="30" width="16" height="48" />
-          <use data-pin="2" href="#bp" x="76" y="60" width="16" height="48" />
-          <use data-pin="3" href="#bp" x="108" y="60" width="16" height="48" />
-          <use data-pin="1" href="#bp" x="92" y="90" width="16" height="48" />
+               data-pin은 **실제 핀 번호** — 공개는 1→10(앞→뒤)이라 그리기 순서와 다르다.
+               --kx/--ky/--kr = 공이 밀어내는 방향·회전. 공이 앞-가운데서 위로 뚫으니 핀은 **위·바깥**으로 튀며
+               구르다 사라진다(제자리에서 쓰러지는 게 아니라 치워진다 — 뒷줄은 출발점이 높아 이동량이 작다). -->
+          <g class="pin" data-pin="7" style="--kx:-40px; --ky:-85px; --kr:-130deg"><use href="#bp" x="44" y="0" width="16" height="48" /></g>
+          <g class="pin" data-pin="8" style="--kx:-14px; --ky:-90px; --kr:-160deg"><use href="#bp" x="76" y="0" width="16" height="48" /></g>
+          <g class="pin" data-pin="9" style="--kx:14px; --ky:-90px; --kr:160deg"><use href="#bp" x="108" y="0" width="16" height="48" /></g>
+          <g class="pin" data-pin="10" style="--kx:40px; --ky:-85px; --kr:130deg"><use href="#bp" x="140" y="0" width="16" height="48" /></g>
+          <g class="pin" data-pin="4" style="--kx:-30px; --ky:-95px; --kr:-150deg"><use href="#bp" x="60" y="30" width="16" height="48" /></g>
+          <g class="pin" data-pin="5" style="--kx:2px; --ky:-100px; --kr:190deg"><use href="#bp" x="92" y="30" width="16" height="48" /></g>
+          <g class="pin" data-pin="6" style="--kx:30px; --ky:-95px; --kr:150deg"><use href="#bp" x="124" y="30" width="16" height="48" /></g>
+          <g class="pin" data-pin="2" style="--kx:-16px; --ky:-105px; --kr:-170deg"><use href="#bp" x="76" y="60" width="16" height="48" /></g>
+          <g class="pin" data-pin="3" style="--kx:18px; --ky:-105px; --kr:170deg"><use href="#bp" x="108" y="60" width="16" height="48" /></g>
+          <g class="pin" data-pin="1" style="--kx:6px; --ky:-110px; --kr:200deg"><use href="#bp" x="92" y="90" width="16" height="48" /></g>
+          <!-- 공 — 핀 뒤(DOM 마지막)에 그려 가장 앞에 온다. 팔레트의 터쿼이즈, 손가락 구멍 셋.
+               두 겹 그룹: 바깥(#boot-ball)은 **직선 이동, 감속 곡선 하나**로 움직인다 — 키프레임을 여러 개 두면
+               구간마다 이징이 초기화돼 속도가 뚝뚝 끊긴다("세 컷을 이어붙인 느낌"의 원인). 원근(크기)은
+               안쪽(#boot-ball-in)이 linear로 따로 맡아 이동 속도에 간섭하지 않는다.
+               경로는 **직선 하나**(2026-09-02): 좌측 아래(62,262) → 1·2번 핀 사이 포켓(≈90,122) → E 오른쪽 여백(118,-21).
+               훅 곡선을 넣었을 땐 "우하단에서 좌상향으로 가다 휙 튼다"고 읽혔다 — 짧은 거리에선 곡률이 방향 전환으로 보인다.
+               랙이 다 서기 전엔 없다. 준비되면 랙 아래에서 **굴러 들어오며** 나타난다(움직이면서 페이드인).
+               레인은 그리지 않는다(2026-09-02 결정): 공·핀만으로 읽히고 남는 게 적을수록 'STRIKE●'가 깨끗하다. -->
+          <g id="boot-ball"><g id="boot-ball-in">
+            <circle cx="62" cy="262" r="23" fill="#3aa8a0" />
+            <circle cx="55.5" cy="253.5" r="3.2" fill="#241a15" opacity="0.6" />
+            <circle cx="66.5" cy="253" r="3.2" fill="#241a15" opacity="0.6" />
+            <circle cx="61.5" cy="262.5" r="3.2" fill="#241a15" opacity="0.6" />
+          </g></g>
         </svg>
         <div id="boot-count">0 / 10</div>
         <div id="boot-err"></div>
@@ -95,12 +163,20 @@
     </div>
 
     <!--
-      부팅 연출 = **핀 랙 세팅**. 모듈(/src/main.ts)은 defer라 이 인라인 스크립트가 먼저 실행되어
-      window.__loaderReady / __loaderError를 정의해 둔다.
-        · boot() 성공 → __loaderReady(onDismiss): 'READY' + 'TAP TO START', 탭하면 페이드아웃 후 제거.
+      부팅 연출 = **핀 랙 세팅 → 스트라이크 → 'STRIKE'만 남는다**. 모듈(/src/main.ts)은 defer라 이 인라인
+      스크립트가 먼저 실행되어 window.__loaderReady / __loaderError를 정의해 둔다.
+        · 핀 10개가 서는 동안(≈1.9s)은 랙만 보인다. 진행률 = 선 핀 수. 공·레인은 아직 없다.
+        · 랙 완료 AND boot() 성공(__loaderReady) → 공이 아래에서 굴러 들어와(1.8s, 감속 곡선 하나) 랙을 뚫으며 핀을 위로 밀어 날려버리고,
+          그대로 태그라인까지 올라가 'IT UP'을 밀어낸다. 남는 건 'STRIKE' 한 단어 + 그 뒤 마침표로 멈춘 공.
+          그 순간 'READY' + 'TAP TO START'. 탭하면 페이드아웃 후 제거.
         · boot() 실패 → __loaderError(msg): 브릭색 ERROR 줄 + 'TAP TO RETRY'(탭=새로고침), 세팅 중단.
-      'READY'는 실제 엔진 준비 완료 후에만 찍는다(거짓 ready 방지) — 그 전엔 '· · ·' 대기.
-      세팅 도중 탭은 빨리감기(스킵). prefers-reduced-motion이면 애니메이션 생략하고 바로 표시.
+      스트라이크는 실제 엔진 준비 완료 후에만 친다('READY'와 같은 원칙 — 거짓 ready 방지) — 그 전엔 '· · ·' 대기.
+      세팅 도중 탭은 빨리감기(스킵), 롤 도중 탭은 최종 상태로 스킵. prefers-reduced-motion이면 전부 생략하고
+      바로 최종 상태. 걷힌 뒤 3D 홀엔 새 랙이 서 있으니 "핀세터가 다시 놓았다"로 이어진다.
+      레퍼런스: ollivere.co(공룡이 'Nonsense'를 물고 가 'Great Design. No'만 남는 히어로) — 일러스트가
+      타이포그래피를 물리적으로 치워 남은 글이 새 의미를 갖는 구조를 그대로 가져왔다.
+      ⚠️ 롤 시간(1.8s)은 **순증**이다 — 이 머신(dev·캐시)에선 엔진이 250ms 안에 준비돼 랙(1.9s)보다 훨씬
+         빠르므로 첫 화면이 그만큼 길어진다. 그래도 넣기로 했다(2026-09-02 사용자 결정).
 
       ⚠️ 여기 있던 것은 **가짜 터미널**이었다(`> booting strike.os` / `loading physics... OK` /
          `racking pins [||||||||||] 10/10` / `oiling lane... OK`). 볼링 게임이 부팅 로그를 보여줄
@@ -117,12 +193,16 @@
         var L = document.getElementById('loading');
 
         // 핀 10개를 **번호순(1→10 = 앞→뒤)**으로 세운다. DOM은 뒤→앞(가림 순서)이라 정렬이 필요하다.
-        var pins = [].slice.call(document.querySelectorAll('#boot-rack use'));
+        var pins = [].slice.call(document.querySelectorAll('#boot-rack .pin'));
         pins.sort(function (a, b) { return +a.getAttribute('data-pin') - +b.getAttribute('data-pin'); });
         for (var pi = 0; pi < pins.length; pi++) pins[pi].style.opacity = '0.12'; // 유령 랙 — 어디에 설지 미리 보인다
 
+        var rack = document.getElementById('boot-rack');
+        var ballEl = document.getElementById('boot-ball');
+
         var bootLinesDone = false, engineReady = false, dismissed = false, failed = false, fastForward = false;
-        var awaitingReady = false; // 랙은 다 섰는데 엔진이 아직 준비 안 됨 → '· · ·' 대기 중
+        var awaitingReady = false; // 랙은 다 섰는데 엔진이 아직 준비 안 됨 → '· · ·' 대기 중(공은 어프로치에 놓여 있다)
+        var rolling = false, struck = false; // 공이 굴러가는 중 / 임팩트 완료(= 진짜 준비 완료 신호)
         var onDismiss = null;
         var reduce = false;
         try { reduce = matchMedia('(prefers-reduced-motion: reduce)').matches; } catch (e) {}
@@ -138,19 +218,38 @@
           setTimeout(setPin, 175);
         }
 
-        // ── 랙 완료 후: 엔진이 준비됐으면 'READY', 아니면 '· · ·'로 대기 ──
+        // ── 랙 완료 후: 엔진이 준비됐으면 공이 출발, 아니면 '· · ·'로 대기 ──
+        // 공은 **랙 완료 AND 엔진 준비** 둘 다 충족된 뒤에만 출발한다. 스트라이크가 '준비됨'으로
+        // 읽히므로 엔진이 아직이면 굴리지 않는다(거짓 ready 방지 원칙을 그대로 잇는다).
         function proceedToFinal() {
           if (failed) return;
-          if (engineReady) showReady();
+          if (engineReady) startRoll();
           else { awaitingReady = true; showWaiting(); }
         }
         function showWaiting() {
           countEl.textContent = '· · ·';
         }
-        function showReady() {
+        // ── 투구: 1.8s 시퀀스(CSS .rolling — 공의 세로 곡선 하나가 시계, 핀·'IT UP'은 도달 시각에 맞춰 밀림) → 임팩트.
+        //    animationend가 숨은 탭에서 늦을 수 있어 타이머로도 받는다. ──
+        function startRoll() {
           awaitingReady = false;
+          if (rolling || struck || dismissed || failed) return;
+          if (reduce) { impact(); return; }               // 최종 상태로 점프
+          rolling = true;
+          for (var i = 0; i < pins.length; i++) pins[i].style.opacity = ''; // 인라인 해제 → 이후 opacity는 CSS(.rolling)가 쥔다
+          countEl.textContent = '';                         // 공이 이 줄 위를 지나 들어온다 — 비워서 겹치지 않게(READY는 임팩트에)
+          rack.classList.add('rolling');
+          ballEl.addEventListener('animationend', function (e) { if (e.animationName === 'boot-y') impact(); });
+          setTimeout(impact, 2100);
+        }
+        // ── 임팩트(확정): .struck = 애니메이션 없는 최종 상태. 자연 종료면 값이 같아 점프가 없고,
+        //    롤 중 탭이면 여기로 와서 즉시 최종 상태가 된다(스킵). 이 순간이 곧 'READY'. ──
+        function impact() {
+          if (struck || dismissed || failed) return;
+          struck = true; rolling = false;
+          rack.classList.add('struck');
           countEl.textContent = 'READY';
-          if (!dismissed && !failed) tapEl.style.display = 'block';
+          tapEl.style.display = 'block';
         }
 
         // ── 스킵(빨리감기): 핀 10개 즉시 세우고 마지막 단계로 ──
@@ -177,7 +276,7 @@
 
         // ── 종료(시작): 페이드아웃 후 제거 + 부팅음 ──
         function dismiss() {
-          if (dismissed || failed || !engineReady || !bootLinesDone) return;
+          if (dismissed || failed || !engineReady || !bootLinesDone || !struck) return;
           dismissed = true;
           playBootChime();
           L.classList.add('done');
@@ -219,10 +318,12 @@
           } catch (e) {}
         }
 
-        // ── 입력: 실패면 새로고침, 타이핑 중이면 스킵, 준비 완료면 시작 ──
+        // ── 입력: 실패면 새로고침, 랙 세팅 중이면 스킵, 롤 중이면 임팩트로 스킵, 스트라이크 뒤면 시작 ──
+        // 엔진 대기('· · ·') 중의 탭은 아무것도 안 한다 — 전과 같다.
         function onTap() {
           if (failed) { location.reload(); return; }
           if (!bootLinesDone) skip();
+          else if (rolling) impact();
           else dismiss();
         }
         L.addEventListener('pointerdown', onTap);
@@ -235,7 +336,7 @@
           onDismiss = cb || null;
           engineReady = true;
           if (failed) return;
-          if (bootLinesDone && awaitingReady) showReady(); // 'initializing' 대기 중이었으면 ready로 전환
+          if (bootLinesDone && awaitingReady) startRoll(); // '· · ·' 대기 중이었으면 이제 공이 출발
         };
         window.__loaderError = function (msg) { showError(msg); }; // 부팅 실패
 

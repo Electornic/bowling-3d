@@ -8,13 +8,16 @@
  * 화면에 존재하지 않는다. 개수는 씬이 말하지만(그래서 Hud 상태줄은 개수를 안 적는다)
  * **조합은 못 말한다.** 2구 조준의 실제 판단 입력은 조합이다.
  *
- * 표시 조건은 **리브가 있을 때만**(`standing < 10`) — 1구 풀랙에선 정보량이 0이라
- * 상시 노출의 비용만 진다. 스페어 챌린지는 매 라운드가 리브라 자동으로 상시가 된다.
+ * **매치 중엔 상시 노출**한다(2026-09-02, 사용자 요청). 전엔 리브가 있을 때만(`standing < 10`)
+ * 보였다 — "1구 풀랙은 정보량 0"이라는 판단이었는데, 실제 채점 모니터의 핀 표시가 상시인 것처럼
+ * 자리가 고정돼 있어야 눈이 습관적으로 찾아간다. 켜졌다 꺼졌다 하는 편이 오히려 시선 비용이 크다.
  *
- * ⚠️ 마스크를 믿을 수 있는 시점이 좁다. `PinSet` 사이클 중 `standingMask()`는 중간값이고
+ * ⚠️ 마스크를 믿을 수 있는 시점은 여전히 좁다. `PinSet` 사이클 중 `standingMask()`는 중간값이고
  * (GameState.update의 `wasCycling` 주석), `refreshHud()`는 상태 전이 + 사이클 종료에만 불린다.
- * 그래서 AIMING이고 사이클이 멎었을 때만 그린다 — 그 창이 정확히 "확정된 마스크"의 창이다.
- * 프레임 단위 갱신은 필요하지도, 가능하지도 않다.
+ * 그래서 **그리는 건** AIMING이고 사이클이 멎었을 때만이다 — 그 창이 정확히 "확정된 마스크"의 창이다.
+ * 그 밖의 시점(ROLLING·SETTLING·핀세터 가동)엔 **마지막으로 확정된 그림을 그대로 둔다**
+ * (= 투구 직전에 서 있던 핀). 프레임 단위 갱신은 필요하지도, 가능하지도 않다.
+ * 확정된 그림이 아직 하나도 없으면 숨긴다(빈 삼각형이 먼저 번쩍이지 않게).
  */
 import { PIN_ROWS } from '../game/constants';
 import { PIN_NUMBERS } from '../game/splits';
@@ -40,8 +43,9 @@ export const DISPLAY_ROWS: readonly (readonly number[])[] = (() => {
   return rows.reverse();
 })();
 
-const DOT = 'clamp(14px, 3.8vw, 17px)';
-const DOT_FS = 'clamp(8px, 2.2vw, 10px)';
+// 2026-09-02 확대(14~17 → 18~22): 상시 노출로 바뀌며 '읽는' 요소가 됐다 — 6px 핀은 봤을 때만 켜지는 표시엔 맞았지만 상시엔 작다.
+const DOT = 'clamp(18px, 4.6vw, 22px)';
+const DOT_FS = 'clamp(10px, 2.7vw, 12px)';
 
 function ensurePinDeckStyles(): void {
   if (document.getElementById('hud-pindeck-css')) return;
@@ -55,11 +59,11 @@ function ensurePinDeckStyles(): void {
   /* ☰ 메뉴 버튼(top 8, 높이 40) 바로 아래 8px — 같은 좌측 정렬선을 공유한다. */
   top:calc(56px + env(safe-area-inset-top));
   left:calc(var(--col-edge, 0px) + 8px + env(safe-area-inset-left));
-  display:flex; flex-direction:column; align-items:center; gap:3px;
-  padding:7px 9px; box-sizing:border-box;
+  display:flex; flex-direction:column; align-items:center; gap:4px;
+  padding:8px 10px; box-sizing:border-box;
 }
 #hud-pindeck.is-hidden{ display:none; }
-#hud-pindeck .pd-row{ display:flex; gap:3px; }
+#hud-pindeck .pd-row{ display:flex; gap:4px; }
 #hud-pindeck .pd-dot{
   width:${DOT}; height:${DOT}; border-radius:50%;
   display:grid; place-items:center;
@@ -115,13 +119,19 @@ export class PinDeck {
   }
 
   /**
-   * @param standing `PinSet.standingMask()` (인덱스별). 없으면 숨긴다.
-   * @param show 표시할 창인가 — 호출부가 "AIMING이고 사이클이 멎었고 리브가 있다"를 판정한다.
+   * @param standing 확정된 `PinSet.standingMask()` (인덱스별). 호출부가 "AIMING이고 사이클이
+   *   멎었다"를 판정해 그때만 넘긴다. 없으면 **마지막 그림을 유지**한다(다시 그리지 않는다).
+   * @param show 매치 중인가. false면 숨기고 그림도 버린다(다음 매치가 이전 랙을 잠깐 보이지 않게).
    */
   update(standing: boolean[] | undefined, show: boolean): void {
-    if (!show || !standing) {
+    if (!show) {
       this.root.classList.add('is-hidden');
       this.sig = '';
+      return;
+    }
+    if (!standing) {
+      // 미확정 시점 — 확정된 그림이 있으면 그대로 보이고, 없으면 아직 숨긴다.
+      this.root.classList.toggle('is-hidden', this.sig === '');
       return;
     }
     this.root.classList.remove('is-hidden');

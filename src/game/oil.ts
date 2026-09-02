@@ -14,35 +14,25 @@
  * 덕분에 sim-carry.mjs의 --oilEnd / --hookRamp 만으로 프리셋·마름을 그대로 검증할 수 있다.
  */
 
-export type OilPattern = 'house' | 'short' | 'long';
-
 /**
- * ⚠️ 프리셋은 더 이상 **메뉴에서 선택되지 않는다** — 실사용은 하우스 고정(GameState 기본값)이다.
- * 오일은 난이도가 아니라 최적 전략이 이동하는 축이라(숏은 직구가 오히려 쉬워진다) 난이도 사다리에
- * 안 맞아 UI를 걷었다. 상세·근거: docs/legacy/OIL_META_AND_AUTO.md §2.8.
- * 프리셋 3종은 sim-carry / ai-match-sim 검증축과 후속(데일리 시드 챌린지)용으로 남긴다.
- * **마름(advanceOilDrying)은 그대로 살아 있다** — 하우스 기준으로 풀게임 내내 훅이 앞당겨진다.
+ * 오일 패턴은 **하우스 하나**다 (2026-09-02 사용자 결정 — "한 가지 케이스로 간다").
+ *
+ * 예전엔 house/short/long 프리셋 3종이 있었지만 메뉴에서 고를 수 없었고(오일은 난이도가 아니라 최적 전략이
+ * 이동하는 축이라 사다리에 안 맞아 UI를 걷었다 — docs/legacy/OIL_META_AND_AUTO.md §2.8), sim·테스트용으로만
+ * 남아 있었다. 쓰지 않는 축을 캘리브레이션마다 같이 재는 비용만 들어 걷어냈다. 다른 길이를 재보려면
+ * `sim-carry.mjs --oilEnd` 또는 헤드리스 sim의 override로 충분하다.
+ *
+ * endZ 11.9 m(39 ft) = 실제 하우스 샷의 오일 길이 중앙(38~42 ft — arXiv 2210.06753 §2.2·Kegel 카탈로그).
+ * 재매핑 전 10.5 m(34 ft)는 실제로는 숏 패턴이었다. 마름(OIL_DRY_MAX 1.5)까지 가면 34 ft로 그 자리에 닿는다.
+ * ramp 3.5는 스냅 날카로움 — 브레이크 뒤 3.5 m에 걸쳐 마찰이 다 산다.
+ * **마름(advanceOilDrying)은 그대로 살아 있다** — 풀게임 내내 훅이 앞당겨진다.
  */
-
-/**
- * 오일 프리셋 — 훅이 "꺾이기 시작하는 지점"(endZ)을 옮겨 라인 읽기를 강요한다. house가 기준.
- * 같은 (aim·spin·power)라도 브레이크 지점이 달라 최적 라인이 이동 → 플레이어가 다시 조준해야 함.
- *   house : endZ 10.5 — 기존 상수와 정확히 동일 (거동 보존 기준점). 훅이 최적해인 친화적 패턴.
- *   short : endZ 9.5  — 일찍 깨짐 → 풀스핀이 과훅(포켓 넘김)이라 스핀을 덜거나 더 직진/바깥 조준.
- *   long  : endZ 12.5 — 늦게 깨짐 → 스키드 길어 훅이 약하고 늦음, 직진 강요·포켓각 만들기 어려움.
- * sim-carry --oilEnd 로 스캔 확정(하우스 직구4/훅7 → short 직구6/훅3, long 직구4/훅3·진입각↓).
- * ramp는 3.5 고정(스냅 날카로움 동일) — endZ만 움직여 효과를 격리·검증 단순화.
- */
-export const OIL_PRESETS: Record<OilPattern, { endZ: number; ramp: number }> = {
-  house: { endZ: 10.5, ramp: 3.5 },
-  short: { endZ: 9.5, ramp: 3.5 },
-  long: { endZ: 12.5, ramp: 3.5 },
-};
+export const OIL_END_Z = 11.9;
+export const OIL_RAMP = 3.5;
 
 // 현재 유효 오일 geometry (가변). 기본 = house. resetOil / advanceOilDrying 이 갱신한다.
-let endZ = OIL_PRESETS.house.endZ;
-let ramp = OIL_PRESETS.house.ramp;
-let baseEndZ = OIL_PRESETS.house.endZ; // 마름 누적 기준 (프리셋 원점 — advanceOilDrying이 여기서 뺀다)
+let endZ = OIL_END_Z;
+let baseEndZ = OIL_END_Z; // 마름 누적 기준 (advanceOilDrying이 여기서 뺀다)
 
 // --- 레인 전환(오일 마름, Step 3) ---
 // 프레임이 진행되며 오일이 닳아 드라이 존이 앞으로 확장 → 훅이 더 일찍 산다. full 모드에서만 체감.
@@ -59,16 +49,14 @@ export function oilEndZ(): number {
  * 가변 endZ/ramp를 읽는다 (구 constants.hookFactor 대체 — 시그니처·수식 동일).
  */
 export function hookFactor(z: number): number {
-  const t = Math.min(1, Math.max(0, (z - endZ) / ramp));
+  const t = Math.min(1, Math.max(0, (z - endZ) / OIL_RAMP));
   return t * t * (3 - 2 * t);
 }
 
-/** 매치 시작 — 프리셋 적용 + 마름 초기화. startMatch의 리셋 체크리스트에서 호출. */
-export function resetOil(pattern: OilPattern): void {
-  const p = OIL_PRESETS[pattern];
-  baseEndZ = p.endZ;
-  endZ = p.endZ;
-  ramp = p.ramp;
+/** 매치 시작 — 마름 초기화(오일을 새로 깐다). startMatch의 리셋 체크리스트에서 호출. */
+export function resetOil(): void {
+  baseEndZ = OIL_END_Z;
+  endZ = OIL_END_Z;
 }
 
 /**

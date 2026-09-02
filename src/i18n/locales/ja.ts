@@ -54,9 +54,12 @@ export const ja: Record<I18nKey, string> = {
   'menu.result.newUnlock': 'NEW・{badge} → {skin}',
   'menu.result.equip': '{label}を装備する',
   'menu.result.equipped': '✓ {label} 装備中',
+  'menu.result.screenUnlock': 'スクリーン解放！',
+  'menu.result.screenUnlock.desc': '実績をすべて達成しました。ホールのスクリーンに画像・GIF・動画を飾れます。',
+  'menu.result.screenUnlock.open': 'スクリーン設定を開く',
   'menu.result.retry': 'もう一度',
 
-  'menu.pause.title': '⏸ 一時停止',
+  'menu.pause.title': 'メニュー',
   'menu.pause.sound': 'サウンド',
   'menu.pause.haptics': '振動',
   'menu.pause.graphics': 'グラフィック',
@@ -72,16 +75,20 @@ export const ja: Record<I18nKey, string> = {
   'menu.quality.perf': 'パフォーマンス',
 
   'menu.collection.title': 'コレクション',
-  'menu.collection.finish': '{finish}仕上げ',
   'menu.collection.equip': '装備',
   'menu.collection.locked': 'ロック中',
   'menu.collection.achUnlock': '{desc}・{skin} 解放',
   'menu.tab.skins': 'ボールスキン',
   'menu.tab.achievements': '実績',
   'menu.tab.screen': 'スクリーン',
+  'menu.screenEntry': 'スクリーン・{state} ▸',
+  'menu.screen.state.default': '標準',
+  'menu.screen.state.image': '画像',
+  'menu.screen.state.video': '動画',
   'menu.back.menu': '← メニューへ',
   'menu.back.game': '← ゲームへ',
-  'menu.back.pause': '← 一時停止',
+  'menu.back.pause': '← メニューへ',
+  'menu.back.result': '← 結果へ',
 
   'menu.screen.default': 'デフォルト・ハウスグラフィック',
   'menu.screen.video': '動画',
@@ -95,7 +102,6 @@ export const ja: Record<I18nKey, string> = {
   'menu.screen.reset': 'デフォルトに戻す',
 
   'menu.section.lang': '言語',
-  'lang.auto': '自動・端末の設定',
   'lang.auto.short': '自動',
   'menu.more': 'その他',
 
@@ -107,13 +113,8 @@ export const ja: Record<I18nKey, string> = {
   'mode.spare.desc': 'クラシックリーブ10連続処理（ソロ）',
 
 
-  'finish.matte': 'マット',
-  'finish.satin': 'サテン',
-  'finish.metallic': 'メタリック',
-  'finish.chrome': 'クローム',
-  'finish.glow': 'グロー',
 
-  'skin.classic': 'クラシック',
+  'skin.house': 'ハウスボール',
   'skin.satin': 'サテン',
   'skin.ember': 'エンバー',
   'skin.chrome': 'クローム',

@@ -19,11 +19,13 @@ import {
   PIN_SPACING,
   ROW_GAP,
   PIN_HEIGHT,
+  PIN_FALL_ANGLE,
   PIN_PROFILE,
   PIN_STRIPES,
   BALL_RADIUS,
   BALL_START_Z,
 } from '../game/constants';
+import type { MachineCue, MachineLane, AmbBallCue } from '../audio/cues';
 import { HOUSE, rgba } from '../ui/theme'; // 하우스 팔레트 단일소스(#5) — 씬 머티리얼·캔버스가 theme.ts와 같은 상수 공유(드리프트 0)
 
 const LANE_START_Z = -2; // Lane.ts와 동일
@@ -233,6 +235,16 @@ const AMB_SWEEP_T = 1.0; // 레이크 전진 (CY_LIFT→CY_SWEEP)
 const AMB_SET_T = 0.45; // 레이크 복귀 (CY_SWEEP→CY_RETURN)
 const AMB_RACK_T = 0.6; // 새 랙 하강 (CY_RETURN→CY_SET)
 const AMB_LIFT_T = 0.45; // 테이블·레이크가 기계 안으로 (CY_SET→CY_END)
+// 리스팟(1구 뒤 잔존 핀이 있을 때) 전용 구간 — 역시 PinSet과 같다(CY_GUARD→CY_GRIP 0.6 · CY_GRIP→CY_LIFT 0.4).
+// 가드 0.55 → 집기 0.60 → 들기 0.40 → 스윕 1.00 → 복귀 0.45 → 놓기 0.60 → 종료 0.45 = 4.05s (플레이 레인과 동일).
+const AMB_GRIP_T = 0.6; // 테이블 하강 — 선 핀 머리 위에 붙는다
+const AMB_HOIST_T = 0.4; // 테이블이 선 핀을 들고 상승 (데드우드만 레이크에 남는다)
+/**
+ * 2구 대기(초). 1구 사이 간격(AMB_GAP_*)보다 짧다 — 볼 리턴에서 공을 받아 바로 다시 선다.
+ * 1구 사이 6~14s에는 상대 차례·잡담이 들어 있고, 2구 사이엔 그게 없다.
+ */
+const AMB_GAP2_MIN = 4;
+const AMB_GAP2_MAX = 9;
 const AMB_GAP_MIN = 6; // [튜닝] 다음 투구까지 대기(초). 너무 잦으면 산만해진다 — 주 노브
 /**
  * courtesy 상한(초). 상대가 계속 안 던지면 실제 볼링장에서도 그냥 간다 —
@@ -242,6 +254,13 @@ const AMB_COURTESY_MAX = 8;
 const AMB_GAP_MAX = 14;
 /** 랙 하강 시작 높이. 개구부(PIN_BAY_TOP 0.6) 위에서 시작해 캐노피에 가려 있다가 내려온다. */
 const AMB_SET_LIFT = 0.62;
+/**
+ * 리스팟 때 선 핀을 들어 올리는 높이. 새 랙(AMB_SET_LIFT)과 달리 **개구부(0.6) 아래**에 둔다 —
+ * 핀 밑동이 0.44에 떠 있는 게 보여야 "치우고 새로 놓는다"가 아니라 "들었다가 제자리에 놓는다"로
+ * 읽힌다(플레이 레인도 TABLE_Y_LIFT에서 핀이 보인다). 레이크 블레이드 상단(0.16+0.07=0.23) 위로
+ * 21cm 여유라 스윕이 그 아래를 지난다.
+ */
+const AMB_RESPOT_LIFT = 0.45;
 /** 공이 핀덱을 **통과해** 사라지는 z. 예전엔 핀 앞(0.16m)에서 숨겼지만 이제 실제로 쳐야 한다. */
 const AMB_BALL_END_Z = PIN_DECK_END + 0.55;
 /**
@@ -270,10 +289,26 @@ const AMB_RAKE_Y_UP = 1.2;
 const AMB_RAKE_Y_DOWN = 0.16;
 const AMB_RAKE_Z0 = HEADPIN_Z - 0.45; // 가드 위치(볼러 쪽) = 쓸기 시작점
 const AMB_RAKE_Z1 = LANE_END_Z + 0.3; // 쓸기 끝 — 베이 뒷벽(20.55~20.65) 뒤라 핀·레이크 모두 은폐
+// 레이크 콜라이더 — 블레이드 중심(AMB_RAKE_Y_DOWN 0.16) 기준으로 바닥(−0.01) 5mm 위까지 내려오는 상자.
+// 반높이·오프셋은 [−0.005, 0.23]을 만들도록 유도된 값(생성부 주석 참고).
+const AMB_RAKE_COL_HH = (0.23 - -0.005) / 2; // 0.1175
+const AMB_RAKE_COL_DY = (0.23 + -0.005) / 2 - AMB_RAKE_Y_DOWN; // −0.0475
+/**
+ * 리스팟에서 데드우드를 다음 새 랙까지 치워 두는 높이 — 레인 바닥 아래(안 보임, 아래에 아무것도 없다).
+ * 레이크가 뒷벽 뒤로 밀어낸 것으로 끝이 아니다. 실측 두 가지가 2구 동안 데드우드를 다시 보이게 했다:
+ *  ① 뒷벽 물리 콜라이더(AMB_SWEEP_END_Z)에 튕겨 베이 안(z 19.6~20.5)으로 굴러 되돌아온다.
+ *  ② 레이크 시작점(헤드핀 앞 0.45m)보다 앞으로 튄 핀은 물리로는 닿을 수 없다(데드우드 21개 중 3개가
+ *     0.9~9.8m 앞에 누워 있었다. 플레이 레인은 z 비교로 '뒤에 있는 핀 전부'를 밀어 같은 문제가 없다).
+ * 예전 사이클은 매번 새 랙이라 'set' 끝의 전원 순간이동이 둘 다 덮었다. 리스팟은 데드우드를 그대로 두고
+ * 2구를 던지므로, 레이크가 복귀한 시점(보이는 데드우드가 없어야 하는 시점)에 전부 여기로 내리고
+ * sleep시킨다 — 다음 새 랙 'set'이 깨워 랙 위치로 올린다.
+ */
+const AMB_DEAD_Y = -3;
 /** 핀 테이블 밑면이 핀 꼭대기보다 이만큼 위 — 테이블이 핀을 '물고' 내려오는 것처럼 보이게. */
 const AMB_TABLE_OFF = PIN_HEIGHT + 0.03;
 
-type AmbPhase = 'idle' | 'roll' | 'settle' | 'hold' | 'guard' | 'sweep' | 'set' | 'rack' | 'lift';
+// grip·hoist는 리스팟(1구 뒤 잔존 핀)에서만 지난다 — rack(스트라이크·2구 뒤)은 guard → sweep로 건너뛴다.
+type AmbPhase = 'idle' | 'roll' | 'settle' | 'hold' | 'guard' | 'grip' | 'hoist' | 'sweep' | 'set' | 'rack' | 'lift';
 
 interface AmbPin {
   mesh: THREE.Mesh;
@@ -281,6 +316,10 @@ interface AmbPin {
   body: RAPIER.RigidBody;
   /** 직립 스폿. y는 항상 AMB_PIN_CY — 콜라이더가 cylinder라 강체 원점이 몸통 **중심**이다. */
   home: { x: number; z: number };
+  /** 이번 리스팟에서 테이블이 들어 올리는 핀(1구 뒤 서 있던 핀). 2구의 조준 목표이기도 하다. */
+  held: boolean;
+  /** 집힌 순간의 실제 포즈 — 들면서 home·직립으로 보간한다(PinSet.cycleFrom과 같은 이유: 한 프레임에 튀지 않게). */
+  from: { x: number; z: number; q: THREE.Quaternion };
 }
 
 interface AmbientLane {
@@ -307,6 +346,12 @@ interface AmbientLane {
   /** courtesy로 막힌 동안 뽑아두는 디싱크 지연 — 인접 두 레인이 해제 프레임에 동시 출발하는 것 방지 */
   desync: number;
   pocketX: number; // 이번 투구가 들어간 포켓(레인 중앙 대비) — 공이 실제로 들어가는 자리
+  /** 프레임 내 몇 구인가. 1구 뒤 잔존 핀이 있으면 2구, 2구 뒤(또는 스트라이크)는 새 랙 — 10프레임 보너스 구는 재현하지 않는다. */
+  ballNo: 1 | 2;
+  /** 이번 투구의 크래시 큐를 이미 보냈는가 — 핀이 처음 움직인 스텝에 한 번(roll 시작에 리셋). */
+  hit: boolean;
+  /** 이번 기계 사이클이 리스팟인가(선 핀은 들어 올려 제자리에, 데드우드만 쓸어냄). false = 새 랙. */
+  respot: boolean;
 }
 
 /**
@@ -426,6 +471,13 @@ function makeAmbTable(cx: number): THREE.Mesh {
 
 /** smoothstep — 기계 동작은 등속이면 순간 출발·순간 정지로 보인다(플레이 레인과 같은 처리). */
 const smooth = (u: number) => u * u * (3 - 2 * u);
+// 집기→들기 반환점 전용(PinSet과 동일). 양쪽 다 smoothstep이면 경계에서 속도가 0으로 죽어 테이블이
+// 핀 머리에서 '딱 멈췄다' 올라간다. 하강은 가속만, 상승은 감속만으로 두면 멈춤 없는 반전으로 읽힌다.
+const easeIn = (u: number) => u * u;
+const easeOut = (u: number) => 1 - (1 - u) * (1 - u);
+const UP_COS_FALL = Math.cos(PIN_FALL_ANGLE); // 서 있음 판정 — 플레이 레인 PinSet.isStanding과 같은 상수
+const Q_SCRATCH = new THREE.Quaternion(); // 리스팟 자세 보간 스크래치(무할당)
+const Q_IDENTITY = new THREE.Quaternion();
 
 /**
  * 결정적 의사난수 (레인별 시드) — 새로고침마다 달라지면 눈으로 검증이 안 된다.
@@ -643,12 +695,34 @@ function buildHallSurfaces(engine: Engine) {
   engine.addVisual(downs);
 }
 
-/** 핀 뒤 애니메이션 전광판 — 캔버스를 붙인 평면. 컨텍스트·텍스처는 호출부가 들고 매 프레임 그린다. */
+/** 전광판(마스킹 유닛 앞면) 전체 폭·높이. 3:1 — 아랫단은 개구부 상단(PIN_BAY_TOP), 윗단은 마스킹 월 상단 바로 아래. */
+const SCREEN_W = HALL_HALF_W * 2;
+const SCREEN_H = SCREEN_W / 3;
+/** 하단 레인 번호 띠가 전광판 높이에서 차지하는 비율 — 62종 카탈로그가 전부 달고 있던 구조 요소(drawHousePanel 주석). */
+const LANE_BAND_FRAC = 0.13;
+const LANE_BAND_H = SCREEN_H * LANE_BAND_FRAC;
+/** 아트 캔버스 — 폭 768은 예전 3:1 캔버스(768×256)에서 이어받고, 높이는 띠를 뺀 비율에 맞춘다(왜곡 0). */
+const SCREEN_ART_PX_W = 768;
+const SCREEN_ART_PX_H = Math.round(SCREEN_ART_PX_W * ((SCREEN_H - LANE_BAND_H) / SCREEN_W)); // 223
+
+/**
+ * 핀 뒤 전광판 — 캔버스를 붙인 평면. 컨텍스트·텍스처는 호출부가 들고 (커스텀 미디어일 때만) 매 프레임 그린다.
+ *
+ * **레인 번호 띠는 별도 평면**이다(2026-09-02). 전엔 한 캔버스(768×256) 아래 13%에 같이 그렸는데 두 문제가 있었다:
+ *  ① 텍셀 밀도가 미터당 87px, 숫자 하나가 19px라 **가까이(임팩트·리플레이)에서 뭉개졌다**. 캔버스 전체를 키우면
+ *     커스텀 GIF·영상의 24fps 재업로드 비용이 그대로 4배가 된다 — 띠만 고해상(2048px, 미터당 231px)으로 빼면 공짜다.
+ *  ② 커스텀 전광판(히든 보상)이 캔버스를 통째로 덮어 **띠가 사라졌다**. 띠는 하우스의 구조물이라 사용자 이미지와
+ *     무관하게 남아야 한다(사용자 요청). 별도 메시면 커스텀 코드를 건드리지 않고도 자동으로 남는다.
+ * 기하는 전과 같다: 아랫단 PIN_BAY_TOP, 윗단 3.55, 폭 홀 전폭. 띠(0.6~0.98) 위에 아트(0.98~3.55).
+ */
 function buildScreen(engine: Engine): { ctx: CanvasRenderingContext2D; tex: THREE.CanvasTexture } {
-  // --- 핀 뒤 애니메이션 전광판 (절차적, 에셋 0) ---
+  const screenZ = PIN_BAY_FRONT_Z - 0.03; // 캐노피 앞면 바로 앞
+  const scrBottom = PIN_BAY_TOP;
+
+  // --- 아트 영역(절차적 하우스 패널 또는 커스텀 미디어) ---
   const sc = document.createElement('canvas');
-  sc.width = 768;
-  sc.height = 256;
+  sc.width = SCREEN_ART_PX_W;
+  sc.height = SCREEN_ART_PX_H;
   const ctx = sc.getContext('2d')!;
   const tex = new THREE.CanvasTexture(sc);
   tex.colorSpace = THREE.SRGBColorSpace;
@@ -656,27 +730,69 @@ function buildScreen(engine: Engine): { ctx: CanvasRenderingContext2D; tex: THRE
   // 전광판은 **마스킹 유닛(캐노피) 앞면**에 붙인다 — 개구부 바로 위부터 시작.
   // 예전엔 뒤쪽 마스킹 월(z≈20.69)에 있어서 캐노피 위로만 보였고, 그 사이 캐노피 앞면이
   // 높이 1.35m짜리 시커먼 띠로 남았다. 실제 볼링장도 마스킹 유닛 면이 디스플레이다.
-  // 아래로는 네온 트림 바로 위(PIN_BAY_TOP+0.28)까지만 내려온다 — 개구부는 안 가린다.
-  // 화면을 마스킹 유닛에 **꽉 채운다** — 위아래 검은 띠를 없애는 게 목적이다.
-  //  · 폭: 홀 전폭(양옆 벽까지)
-  //  · 아랫단: 정확히 개구부 상단(PIN_BAY_TOP) — 핀 베이와 맞닿아 틈이 없다
-  //  · 윗단: 3:1 비율로 따라오면 3.55, 마스킹 월 상단(3.6) 바로 아래
-  // 베젤(검은 테)은 제거했다. 전광판이 뒤쪽 마스킹 월에 있던 시절의 액자인데,
-  // 캐노피 앞면으로 옮긴 뒤로는 화면 위아래로 0.15씩 삐져나온 **검은 띠**로만 보였다.
-  // (아래쪽은 캐노피 면 0.6~0.73까지 겹쳐 0.28짜리 띠가 됐다.)
-  const scrW = HALL_HALF_W * 2;
-  const scrH = scrW * (256 / 768);
-  const scrBottom = PIN_BAY_TOP;
-  const screenY = scrBottom + scrH / 2;
-  const screenZ = PIN_BAY_FRONT_Z - 0.03; // 캐노피 앞면 바로 앞
-  const screen = new THREE.Mesh(
-    new THREE.PlaneGeometry(scrW, scrH),
+  // 베젤(검은 테)은 제거했다 — 캐노피 앞면으로 옮긴 뒤로는 위아래 검은 띠로만 보였다.
+  const artH = SCREEN_H - LANE_BAND_H;
+  const art = new THREE.Mesh(
+    new THREE.PlaneGeometry(SCREEN_W, artH),
     new THREE.MeshBasicMaterial({ map: tex, toneMapped: false }),
   );
-  screen.position.set(0, screenY, screenZ);
-  screen.rotation.y = Math.PI; // 플레이어(−z)를 향함
-  engine.addVisual(screen);
+  art.position.set(0, scrBottom + LANE_BAND_H + artH / 2, screenZ);
+  art.rotation.y = Math.PI; // 플레이어(−z)를 향함
+  engine.addVisual(art);
+
+  // --- 하단 레인 번호 띠(정적, 고해상) ---
+  const bc = document.createElement('canvas');
+  bc.width = 2048;
+  bc.height = Math.round(2048 * (LANE_BAND_H / SCREEN_W)); // ≈89 — 미터당 231px
+  drawLaneBand(bc.getContext('2d')!, bc.width, bc.height);
+  const btex = new THREE.CanvasTexture(bc);
+  btex.colorSpace = THREE.SRGBColorSpace;
+  btex.anisotropy = 8; // 아주 낮은 띠라 원경에서 빗각 — 숫자가 어른거리지 않게
+  const band = new THREE.Mesh(
+    new THREE.PlaneGeometry(SCREEN_W, LANE_BAND_H),
+    new THREE.MeshBasicMaterial({ map: btex, toneMapped: false }),
+  );
+  band.position.set(0, scrBottom + LANE_BAND_H / 2, screenZ);
+  band.rotation.y = Math.PI;
+  engine.addVisual(band);
   return { ctx, tex };
+}
+
+/**
+ * 레인 번호 띠 — 다크 바탕 + 번호 1~5 + 사이사이 브릭 다이아(실물 띠의 구분자).
+ * 번호 x는 실제 레인 중심에서 유도 — 텍스처 폭이 홀 전폭(HALL_HALF_W*2)에 대응한다.
+ * 크기는 전부 띠 높이에서 유도해 캔버스 해상도를 바꿔도 같은 그림이 나온다(전엔 19px 하드코딩).
+ */
+function drawLaneBand(ctx: CanvasRenderingContext2D, W: number, H: number) {
+  ctx.fillStyle = '#150e0a';
+  ctx.fillRect(0, 0, W, H);
+  ctx.fillStyle = rgba(HOUSE.cream, 0.16);
+  ctx.fillRect(0, 0, W, Math.max(1, H * 0.045)); // 상단 규선 — 아트와의 경계
+  const laneStep = (LANE_UNIT / (HALL_HALF_W * 2)) * W;
+  const mid = H / 2;
+  const fontPx = Math.round(H * 0.57); // 예전 19px/33px 비율 유지
+  const dia = H * 0.12;
+  ctx.save();
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  for (let i = 0; i < 5; i++) {
+    const x = W / 2 + (i - 2) * laneStep;
+    ctx.font = `700 ${fontPx}px Georgia, "Times New Roman", serif`;
+    ctx.fillStyle = HOUSE.cream;
+    ctx.fillText(String(i + 1), x, mid + H * 0.03);
+    if (i < 4) {
+      const dx = x + laneStep / 2;
+      ctx.fillStyle = HOUSE.brick;
+      ctx.beginPath();
+      ctx.moveTo(dx, mid - dia);
+      ctx.lineTo(dx + dia, mid);
+      ctx.lineTo(dx, mid + dia);
+      ctx.lineTo(dx - dia, mid);
+      ctx.closePath();
+      ctx.fill();
+    }
+  }
+  ctx.restore();
 }
 
 /** 옆벽 그래픽 밴드 — 핀 실루엣이 반복되는 가로 밴드 + 돌출 프레임. */
@@ -774,6 +890,55 @@ export class Environment {
   private gifTimer: number | null = null;
   // 옆 레인 앰비언트 (배경 게임). 물리 없음 — 캔드 연출.
   private readonly ambient: AmbientLane[] = [];
+  /** 옆 레인 기계 큐 — PinSet.onCycle과 같은 어휘(cues.ts). Boot가 SoundManager.machineCue에 잇는다(거리 감쇠는 cx로). */
+  onAmbMachine?: (cue: MachineCue, lane: MachineLane) => void;
+  /** 옆 레인 공 큐(굴림 시작·크래시·정지) — cues.ts AmbBallCue. 같은 lane 키를 쓴다. */
+  onAmbBall?: (cue: AmbBallCue, lane: MachineLane) => void;
+
+  private ambLane(L: AmbientLane): MachineLane {
+    return { key: `amb${L.cx.toFixed(2)}`, cx: L.cx };
+  }
+
+  /** 핀이 처음 움직인 스텝에 크래시 큐 — GameState.notifyImpact와 같은 기준(|v| > 0.5 m/s). 세기 = 그 순간 서 있던 핀 수. */
+  private checkAmbHit(L: AmbientLane) {
+    if (L.hit || !this.onAmbBall) return;
+    let moving = false;
+    for (const p of L.pins) {
+      const v = p.body.linvel();
+      if (v.x * v.x + v.y * v.y + v.z * v.z > 0.25) { moving = true; break; }
+    }
+    if (!moving) return;
+    L.hit = true;
+    let standing = 0;
+    for (const p of L.pins) if (this.isAmbStanding(L, p)) standing++;
+    // 실측 90s에 18크래시 중 2건이 standing 0이었다(데크에 누운 데드우드를 2구가 건드린 경우) — 핀이 움직였다면
+    // 최소 하나는 맞은 것이니 1로 올린다. 크래시 세기의 바닥(크랙 0.85·바디 0.325)이라 '가벼운 톡'이 된다.
+    this.onAmbBall({ kind: 'crash', pins: Math.max(1, standing) }, this.ambLane(L));
+  }
+
+  /**
+   * 앰비언트 단계 전환의 단일 지점. 기계 단계(guard~lift)만 사운드 큐로 번역한다 — 이름이 PinSet과 다른 셋을 맞춘다:
+   * hoist→lift · set(레이크 복귀)→return · rack(테이블 하강)→set. lift→idle이 done. roll·settle·hold는 기계가 아니라 뺀다.
+   * 길이는 AMB_*_T 상수(PinSet CY_*와 정합).
+   */
+  private setAmbPhase(L: AmbientLane, next: AmbPhase) {
+    const prev = L.phase;
+    L.phase = next;
+    if (!this.onAmbMachine || prev === next) return;
+    const lane = this.ambLane(L);
+    const held = L.pins.reduce((n, p) => n + (p.held ? 1 : 0), 0);
+    switch (next) {
+      case 'guard': this.onAmbMachine({ phase: 'guard', dur: AMB_GUARD_T, pins: 0 }, lane); break;
+      case 'grip': this.onAmbMachine({ phase: 'grip', dur: AMB_GRIP_T, pins: 0 }, lane); break;
+      case 'hoist': this.onAmbMachine({ phase: 'lift', dur: AMB_HOIST_T, pins: 0 }, lane); break;
+      case 'sweep': this.onAmbMachine({ phase: 'sweep', dur: AMB_SWEEP_T, pins: 0 }, lane); break;
+      case 'set': this.onAmbMachine({ phase: 'return', dur: AMB_SET_T, pins: 0 }, lane); break;
+      case 'rack': this.onAmbMachine({ phase: 'set', dur: AMB_RACK_T, pins: L.respot ? held : 10 }, lane); break;
+      case 'lift': this.onAmbMachine({ phase: 'raise', dur: AMB_LIFT_T, pins: L.respot ? held : 10 }, lane); break;
+      case 'idle': if (prev === 'lift') this.onAmbMachine({ phase: 'done', dur: 0, pins: 0, cut: false }, lane); break;
+      default: break;
+    }
+  }
   // 커스텀 비디오 (§2차). 이미지/GIF와 배타 — 하나만 켜진다.
   private videoEl: HTMLVideoElement | null = null;
   private videoUrl: string | null = null;
@@ -843,7 +1008,7 @@ export class Environment {
               body,
             );
             engine.add({ mesh: pin, body }); // addVisual이 아니다 — 보간 대상으로 등록
-            pins.push({ mesh: pin, body, home: { x: hx, z: hz } });
+            pins.push({ mesh: pin, body, home: { x: hx, z: hz }, held: false, from: { x: hx, z: hz, q: new THREE.Quaternion() } });
           }
         }
         const ball = new THREE.Mesh(ambBallGeo, ambBallMat);
@@ -867,8 +1032,17 @@ export class Environment {
         const rakeBody = engine.world.createRigidBody(
           RAPIER.RigidBodyDesc.kinematicPositionBased().setTranslation(cx, AMB_RAKE_Y_UP, AMB_RAKE_Z0),
         );
+        // ⚠️ 콜라이더는 보이는 블레이드(y 0.09~0.23)보다 **바닥까지** 내려온다(y −0.005~0.23).
+        //    블레이드 치수 그대로(반높이 0.07)였을 땐 누운 핀(배 꼭대기 0.11, 목은 더 낮다)의 밑을 지나쳐
+        //    데드우드가 데크에 남았다 — 예전엔 rack 'set' 끝의 전원 순간이동이 그걸 덮어 안 보였는데,
+        //    리스팟은 데드우드만 치우고 2구를 던지므로 남은 핀이 그대로 보인다(실측: 2구 대기 중 데크에
+        //    누운 핀 1~2개). 보이지 않는 아랫부분이 밀어도 눈엔 블레이드가 밀고 가는 것으로 읽힌다.
         engine.world.createCollider(
-          RAPIER.ColliderDesc.cuboid((LANE_WIDTH + 2 * GUTTER_WIDTH + 0.06) / 2, 0.07, 0.04),
+          RAPIER.ColliderDesc.cuboid((LANE_WIDTH + 2 * GUTTER_WIDTH + 0.06) / 2, AMB_RAKE_COL_HH, 0.04).setTranslation(
+            0,
+            AMB_RAKE_COL_DY,
+            0,
+          ),
           rakeBody,
         );
         const table = makeAmbTable(cx);
@@ -894,6 +1068,9 @@ export class Environment {
           desync: 0,
           pocketX: 0,
           ballLive: false,
+          ballNo: 1,
+          respot: false,
+          hit: false,
         });
       }
       // 레인 사이 캐핑 보드 — 실제 볼링장은 레인들이 한 평면으로 붙어 있고 솟은 칸막이가 없다.
@@ -961,7 +1138,13 @@ export class Environment {
 
   /**
    * 옆 레인 앰비언트 사이클 — 핀 10개가 **다이나믹 강체**, 공·레이크가 키네마틱:
-   *   idle → roll → settle → hold → guard → sweep → set → rack → lift → idle
+   *   idle → roll → settle → hold → guard → [grip → hoist] → sweep → set → rack → lift → idle
+   *
+   * 볼링 규칙을 따른다(2026-09-02). hold 끝에서 서 있는 핀을 세어 1구 뒤 잔존 핀이 있으면
+   * **리스팟**(grip·hoist를 지나 선 핀을 들고, 레이크가 데드우드만 쓸고, 제자리에 놓는다 → 2구),
+   * 스트라이크거나 2구 뒤면 **새 랙**(grip·hoist 건너뜀 — 예전 사이클 그대로). 2구는 잔존 핀의
+   * x 평균을 노린다. 10프레임 보너스 구는 재현하지 않는다. 예전엔 매 투구가 새 랙이어서 9개를
+   * 남겨도 곧장 10개가 다시 섰다(사용자 지적).
    *
    * 사이클 **타이밍**은 전부 예전 캔드 버전 그대로다(투구 3~4s · 기계 구간은 PinSet의 CY_*와 정합 ·
    * 간격 6~14s · lane courtesy). 바뀐 건 **넘어짐을 누가 계산하느냐**뿐이다.
@@ -1002,14 +1185,32 @@ export class Environment {
             L.rollT = AMB_ROLL_MIN + L.rng() * (AMB_ROLL_MAX - AMB_ROLL_MIN);
             L.holdT = AMB_HOLD_MIN + L.rng() * (AMB_HOLD_MAX - AMB_HOLD_MIN);
             L.entryX = (L.rng() - 0.5) * 0.34;
-            // 포켓(1-3 또는 1-2 사이). 정중앙으로 수렴하면 매 투구가 똑같아 보인다.
-            L.pocketX = (L.rng() < 0.5 ? -1 : 1) * (0.045 + L.rng() * 0.03);
+            if (L.ballNo === 1) {
+              // 포켓(1-3 또는 1-2 사이). 정중앙으로 수렴하면 매 투구가 똑같아 보인다.
+              L.pocketX = (L.rng() < 0.5 ? -1 : 1) * (0.045 + L.rng() * 0.03);
+            } else {
+              // 2구 — 남은 핀을 노린다. 잔존 핀(held) 스폿의 x 평균 ± 약간의 흔들림. 포켓으로 다시
+              // 던지면 헤드핀이 없는 랙에서 공이 빈 데크를 지나가 '스페어 시도'로 읽히지 않는다.
+              // 7-10 같은 스플릿은 평균이 가운데라 둘 다 못 맞히는데, 그게 실제와 같다.
+              let sx = 0;
+              let n = 0;
+              for (const p of L.pins) {
+                if (!p.held) continue;
+                sx += p.home.x - L.cx;
+                n++;
+              }
+              const lim = LANE_WIDTH / 2 - BALL_RADIUS - 0.02;
+              L.pocketX = THREE.MathUtils.clamp((n ? sx / n : 0) + (L.rng() - 0.5) * 0.05, -lim, lim);
+            }
             // ⚠️ 위치를 먼저 잡고(순간이동) 보이게 한다 — 순서가 반대거나 다음 물리 스텝을 기다리면
             //    한 프레임 동안 공이 주차 위치에 번쩍인다.
             this.placeAmbBall(L, 0, true);
             L.ball.visible = true;
-            L.phase = 'roll';
+            this.setAmbPhase(L, 'roll');
             L.t = 0;
+            L.hit = false;
+            // 굴림 럼블 — 캔드 경로는 z 등속이라 평균 속도가 곧 속도다(releaseAmbBall의 vz와 같은 식)
+            this.onAmbBall?.({ kind: 'roll', speed: (AMB_BALL_END_Z - BALL_START_Z) / L.rollT }, this.ambLane(L));
           }
           break;
         case 'roll': {
@@ -1022,9 +1223,11 @@ export class Environment {
           } else if (L.ballBody.translation().z > PIN_DECK_END + 0.35) {
             this.parkAmbBall(L); // 데크를 지났다 = 피트로 굴러간 셈
           }
+          if (L.ballLive) this.checkAmbHit(L); // 물리에 넘어간 뒤에만 — 캔드 구간엔 핀이 움직일 일이 없다
           if (u >= 1) {
-            L.phase = 'settle';
+            this.setAmbPhase(L, 'settle');
             L.t = 0;
+            if (!L.hit) this.onAmbBall?.({ kind: 'stop' }, this.ambLane(L)); // 빗나감 — 크래시 없이 굴림만 끊는다
           }
           break;
         }
@@ -1033,17 +1236,29 @@ export class Environment {
           // 예전 'fall'은 핀마다 (축·각도·이동거리·지연)을 뽑아 0.5초 동안 보간했고, 그게
           // 회전 시간축 역전·핀끼리 관통·바닥 관통 셋의 공통 원인이었다.
           if (L.ballLive && L.ballBody.translation().z > PIN_DECK_END + 0.35) this.parkAmbBall(L);
+          this.checkAmbHit(L); // 느린 공은 settle에 들어와서야 핀에 닿는다 — 주 레인 SETTLING 허용과 같은 이유
           if (L.t >= AMB_SETTLE_T) {
             if (L.ballLive) this.parkAmbBall(L); // 아직 굴러가도 여기서 끝 — 곧 레이크가 내려온다
-            L.phase = 'hold';
+            this.setAmbPhase(L, 'hold');
             L.t = 0;
           }
           break;
         case 'hold':
           if (L.t >= L.holdT) {
+            // 여기서 이번 기계 사이클의 종류를 정한다 — 옆 레인도 볼링 규칙을 따른다.
+            // 1구 뒤 서 있는 핀이 있으면 **리스팟**(선 핀을 들어 올려 데드우드만 쓸고 제자리에 놓는다 →
+            // 같은 볼러의 2구), 스트라이크거나 2구 뒤면 **새 랙**. 10프레임 보너스 구는 재현하지 않는다
+            // (배경에서 '한 볼러가 세 번'을 읽어낼 사람은 없고, 프레임 경계도 없다).
+            // 예전엔 매 투구가 새 랙이었다 — 9개를 남겨도 곧장 10개가 다시 서는 걸 사용자가 지적했다.
+            let standing = 0;
+            for (const p of L.pins) {
+              p.held = L.ballNo === 1 && this.isAmbStanding(L, p);
+              if (p.held) standing++;
+            }
+            L.respot = standing > 0;
             L.rake.visible = true; // 기계 노출 시작 (주차 중엔 그리지 않는다)
             L.table.visible = true;
-            L.phase = 'guard';
+            this.setAmbPhase(L, 'guard');
             L.t = 0;
           }
           break;
@@ -1052,7 +1267,49 @@ export class Environment {
           L.rake.position.set(L.cx, THREE.MathUtils.lerp(AMB_RAKE_Y_UP, AMB_RAKE_Y_DOWN, smooth(u)), AMB_RAKE_Z0);
           this.syncAmbRake(L);
           if (u >= 1) {
-            L.phase = 'sweep';
+            // 새 랙은 집을 핀이 없다 — 집기·들기를 건너뛴다(PinSet도 rack 모드에서 ②③을 건너뛴다.
+            // 빈손으로 내려갔다 올라오는 헛동작 1초가 생기기 때문).
+            this.setAmbPhase(L, L.respot ? 'grip' : 'sweep');
+            L.t = 0;
+          }
+          break;
+        }
+        case 'grip': {
+          // 테이블 하강 — 선 핀 머리 위(AMB_TABLE_OFF)까지. 핀은 아직 물리 소유(그대로 서 있다).
+          const u = Math.min(1, L.t / AMB_GRIP_T);
+          L.table.position.y = THREE.MathUtils.lerp(AMB_SET_LIFT, 0, easeIn(u)) + AMB_TABLE_OFF;
+          if (u >= 1) {
+            // 잡는 순간의 실제 포즈를 기억한다 — 들면서 home·직립으로 펴야 기울어 있던 핀이 튀지 않는다.
+            for (const p of L.pins) {
+              if (!p.held) continue;
+              const tr = p.body.translation();
+              const rt = p.body.rotation();
+              p.from.x = tr.x;
+              p.from.z = tr.z;
+              p.from.q.set(rt.x, rt.y, rt.z, rt.w);
+            }
+            this.setAmbPhase(L, 'hoist');
+            L.t = 0;
+          }
+          break;
+        }
+        case 'hoist': {
+          // 테이블이 선 핀을 들고 상승. 데드우드는 데크에 남아 레이크 몫이 된다.
+          const u = Math.min(1, L.t / AMB_HOIST_T);
+          const k = easeOut(u);
+          const base = AMB_RESPOT_LIFT * k;
+          L.table.position.y = base + AMB_TABLE_OFF;
+          for (const p of L.pins) {
+            if (!p.held) continue;
+            Q_SCRATCH.copy(p.from.q).slerp(Q_IDENTITY, k);
+            this.holdAmbPin(p, AMB_PIN_CY + base, {
+              x: THREE.MathUtils.lerp(p.from.x, p.home.x, k),
+              z: THREE.MathUtils.lerp(p.from.z, p.home.z, k),
+              q: Q_SCRATCH,
+            });
+          }
+          if (u >= 1) {
+            this.setAmbPhase(L, 'sweep');
             L.t = 0;
           }
           break;
@@ -1063,9 +1320,11 @@ export class Environment {
           L.rake.position.set(L.cx, AMB_RAKE_Y_DOWN, rz);
           // 핀을 손으로 밀던 코드가 통째로 사라졌다 — 블레이드 콜라이더가 밀고, 서 있던 핀은
           // 밀리면서 알아서 눕는다('26cm에 걸쳐 눕힌다' 같은 특수 처리가 필요 없어졌다).
+          // 리스팟이면 들린 핀은 블레이드 위(밑동 0.44 > 블레이드 상단 0.23)에 고정돼 있어 스윕을 피한다.
           this.syncAmbRake(L);
+          this.carryHeldPins(L);
           if (u >= 1) {
-            L.phase = 'set';
+            this.setAmbPhase(L, 'set');
             L.t = 0;
           }
           break;
@@ -1075,26 +1334,38 @@ export class Environment {
           const u = Math.min(1, L.t / AMB_SET_T);
           L.rake.position.set(L.cx, AMB_RAKE_Y_DOWN, THREE.MathUtils.lerp(AMB_RAKE_Z1, AMB_RAKE_Z0, smooth(u)));
           this.syncAmbRake(L);
+          this.carryHeldPins(L);
           if (u >= 1) {
-            // 쓸려간 핀은 베이 뒷벽 뒤(AMB_SWEEP_END_Z)에 있고, 랙 시작 높이는 개구부(0.6) 위라
+            // 새 랙: 쓸려간 핀은 베이 뒷벽 뒤(AMB_SWEEP_END_Z)에 있고, 랙 시작 높이는 개구부(0.6) 위라
             // 캐노피에 가린다 — 순간이동이 안 보이는 구간이 둘 다 확보돼 있다.
-            for (const p of L.pins) this.holdAmbPin(p, AMB_PIN_CY + AMB_SET_LIFT);
-            L.phase = 'rack';
+            // 리스팟: 들린 핀은 이미 테이블에 붙어 있으니 옮길 게 없다. 데드우드는 이 시점에 전부 뒷벽 뒤에
+            // 있어야 하므로(= 안 보임) 레인 아래로 내려 잠재운다 — 뒷벽에 튕겨 되돌아오는 것과 레이크 앞으로
+            // 튄 낙오 핀 둘 다 여기서 끝난다(AMB_DEAD_Y 주석). 낙오 핀은 보이는 자리에서 사라지지만, 그대로
+            // 두면 다음 새 랙 'set'에서 어차피 캐노피 속으로 순간이동한다 — 사라지는 시점만 당기는 셈이다.
+            if (!L.respot) for (const p of L.pins) this.holdAmbPin(p, AMB_PIN_CY + AMB_SET_LIFT);
+            else
+              for (const p of L.pins) {
+                if (p.held) continue;
+                this.holdAmbPin(p, AMB_DEAD_Y);
+                p.body.sleep(); // 아래에 바닥이 없다 — 깨어 있으면 영원히 낙하한다
+              }
+            this.setAmbPhase(L, 'rack');
             L.t = 0;
           }
           break;
         }
         case 'rack': {
-          // 테이블이 핀 위에 붙어 함께 내려온다 — 이게 '기계가 놓는다'로 읽히게 하는 부분
+          // 테이블이 핀 위에 붙어 함께 내려온다 — 이게 '기계가 놓는다'로 읽히게 하는 부분.
+          // 리스팟은 들었던 높이(AMB_RESPOT_LIFT)에서 들었던 핀만, 새 랙은 캐노피 뒤(AMB_SET_LIFT)에서 10개 전부.
           const u = Math.min(1, L.t / AMB_RACK_T);
-          const base = AMB_SET_LIFT * (1 - smooth(u));
-          for (const p of L.pins) this.holdAmbPin(p, AMB_PIN_CY + base);
+          const base = (L.respot ? AMB_RESPOT_LIFT : AMB_SET_LIFT) * (1 - smooth(u));
+          for (const p of L.pins) if (!L.respot || p.held) this.holdAmbPin(p, AMB_PIN_CY + base);
           L.table.position.y = base + AMB_TABLE_OFF;
           if (u >= 1) {
             // 마지막으로 정확히 스폿에 내려놓고 **손을 뗀다** — 이후로는 물리가 소유한다.
             // 속도 0으로 바닥에 딱 놓이므로 Rapier가 곧 sleep 시킨다(대기 중 비용 ≈ 0).
-            for (const p of L.pins) this.holdAmbPin(p, AMB_PIN_CY);
-            L.phase = 'lift';
+            for (const p of L.pins) if (!L.respot || p.held) this.holdAmbPin(p, AMB_PIN_CY);
+            this.setAmbPhase(L, 'lift');
             L.t = 0;
           }
           break;
@@ -1109,9 +1380,13 @@ export class Environment {
           if (u >= 1) {
             L.rake.visible = false; // 기계가 안으로 들어갔다 — 이제 그릴 필요 없다
             L.table.visible = false;
-            L.phase = 'idle';
+            this.setAmbPhase(L, 'idle');
             L.t = 0;
-            L.wait = AMB_GAP_MIN + L.rng() * (AMB_GAP_MAX - AMB_GAP_MIN);
+            // 리스팟이었으면 같은 볼러의 2구 — 짧게 기다린다. 새 랙이면 다음 프레임(다음 볼러).
+            L.ballNo = L.respot ? 2 : 1;
+            L.wait = L.respot
+              ? AMB_GAP2_MIN + L.rng() * (AMB_GAP2_MAX - AMB_GAP2_MIN)
+              : AMB_GAP_MIN + L.rng() * (AMB_GAP_MAX - AMB_GAP_MIN);
           }
           break;
         }
@@ -1153,11 +1428,32 @@ export class Environment {
    * 다이나믹 바디를 키네마틱으로 바꾸는 대신 매 프레임 위치·자세·속도를 덮어써 중력이 누적되지
    * 않게 하는 방식 — 플레이 레인 `Pin.hold()`와 **같은 처리**다(기계가 둘이면 안 된다).
    */
-  private holdAmbPin(p: AmbPin, y: number) {
-    p.body.setTranslation({ x: p.home.x, y, z: p.home.z }, true);
-    p.body.setRotation(AMB_UPRIGHT, true);
+  private holdAmbPin(p: AmbPin, y: number, pose?: { x: number; z: number; q: RAPIER.Rotation }) {
+    p.body.setTranslation({ x: pose ? pose.x : p.home.x, y, z: pose ? pose.z : p.home.z }, true);
+    p.body.setRotation(pose ? pose.q : AMB_UPRIGHT, true);
     p.body.setLinvel(ZERO3, true);
     p.body.setAngvel(ZERO3, true);
+  }
+
+  /** 리스팟 스윕·복귀 동안 들린 핀을 테이블 높이에 붙잡아 둔다(새 랙 사이클이면 아무것도 안 한다). */
+  private carryHeldPins(L: AmbientLane) {
+    if (!L.respot) return;
+    for (const p of L.pins) if (p.held) this.holdAmbPin(p, AMB_PIN_CY + AMB_RESPOT_LIFT);
+  }
+
+  /**
+   * 옆 레인 핀이 서 있는가 — PinSet.isStanding과 같은 규칙(기울기 < PIN_FALL_ANGLE · 데크 위 · 레인 폭 안).
+   * 레인 밖(거터·킥백에 기대 선 핀)과 피트로 넘어간 핀은 자세와 무관하게 쓰러짐으로 친다 —
+   * 그런 핀을 '서 있다'고 들어 올리면 테이블이 거터 위에서 핀을 집는 그림이 된다.
+   * ⚠️ 정지한 뒤(hold 끝) 한 번만 부른다. 굴러가는 중간값은 믿을 수 없다.
+   */
+  private isAmbStanding(L: AmbientLane, p: AmbPin): boolean {
+    const tr = p.body.translation();
+    if (Math.abs(tr.x - L.cx) > LANE_WIDTH / 2) return false;
+    if (tr.z > PIN_DECK_END + 0.05) return false;
+    const q = p.body.rotation();
+    const upY = 1 - 2 * (q.x * q.x + q.z * q.z); // 회전된 (0,1,0)의 y성분 = cos(기울기)
+    return upY > UP_COS_FALL && tr.y > AMB_FLOOR_TOP + PIN_HEIGHT * 0.25;
   }
 
   /**
@@ -1232,7 +1528,8 @@ export class Environment {
    *  ③ 슬랩 로고타입 + 태그라인 — 실물은 하우스 이름을 크게 **한 번** 앉힌다.
    *     구 마퀴(`★ NEON LANES ★ STRIKE IT UP ★` 80px/s 스크롤)의 문구를 여기로 옮겼다:
    *     이름을 판에 박는 것 자체는 정석이고(TROPIC LANES·DIAMOND LOUNGE 등) 틀린 건 티커였다.
-   *  ④ **하단 레인 번호 띠** — 62종 전부가 달고 있던 구조 요소인데 우리엔 없었다.
+   *  ④ **하단 레인 번호 띠** — 62종 전부가 달고 있던 구조 요소인데 우리엔 없었다. (2026-09-02부터 별도
+   *     고해상 평면 `drawLaneBand` — 이 캔버스엔 없다. 커스텀 미디어가 덮어도 남고, 가까이서도 안 뭉개진다.)
    *     번호 위치는 실제 레인 중심에서 유도한다(LANE_UNIT ↔ 텍스처 폭).
    *
    * 애니메이션이 없다 — 인쇄된 패널이라 움직일 이유가 없고, 그래서 `update()`가 커스텀 미디어가
@@ -1250,8 +1547,8 @@ export class Environment {
     ctx.fillStyle = vg;
     ctx.fillRect(0, 0, W, H);
 
-    const bandH = Math.round(H * 0.13); // 하단 레인 번호 띠
-    const artH = H - bandH;
+    // 레인 번호 띠(구 ④)는 별도 평면으로 나갔다(buildScreen 주석) — 여기선 캔버스 전체가 아트다.
+    const artH = H;
 
     // ── ① 반복 핀 실루엣 (아트 영역 전폭) ──
     // 교대 알파로 리듬 — 전부 같은 농도면 울타리처럼 보인다(makePosterTexture와 같은 이유).
@@ -1318,36 +1615,6 @@ export class Environment {
     ctx.fillText('S T R I K E   I T   U P', cx, nameY + 52);
     ctx.restore();
 
-    // ── ④ 하단 레인 번호 띠 ──
-    ctx.fillStyle = '#150e0a';
-    ctx.fillRect(0, artH, W, bandH);
-    ctx.fillStyle = rgba(HOUSE.cream, 0.16);
-    ctx.fillRect(0, artH, W, 1.5);
-    // 번호 x는 실제 레인 중심에서 유도 — 텍스처 폭이 홀 전폭(HALL_HALF_W*2)에 대응한다.
-    const laneStep = (LANE_UNIT / (HALL_HALF_W * 2)) * W;
-    ctx.save();
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    const bandMid = artH + bandH / 2;
-    for (let i = 0; i < 5; i++) {
-      const x = W / 2 + (i - 2) * laneStep;
-      ctx.font = '700 19px Georgia, "Times New Roman", serif';
-      ctx.fillStyle = HOUSE.cream;
-      ctx.fillText(String(i + 1), x, bandMid + 1);
-      if (i < 4) {
-        // 번호 사이 브릭 다이아 — 실물 띠의 구분자
-        const dx = x + laneStep / 2;
-        ctx.fillStyle = HOUSE.brick;
-        ctx.beginPath();
-        ctx.moveTo(dx, bandMid - 4);
-        ctx.lineTo(dx + 4, bandMid);
-        ctx.lineTo(dx, bandMid + 4);
-        ctx.lineTo(dx - 4, bandMid);
-        ctx.closePath();
-        ctx.fill();
-      }
-    }
-    ctx.restore();
   }
 
   /**

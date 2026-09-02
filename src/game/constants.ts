@@ -105,7 +105,11 @@ export const LANE_FRICTION_OIL = 0.015; // 오일 존 (직진 스키드 — 슬�
 export const LANE_FRICTION_DRY = 0.14; // 드라이 존 (Rapier 자체 마찰도 훅에 가세)
 export const BALL_FRICTION = 0.1;
 export const SLIP_EPS = 0.05; // 이하면 롤링으로 간주
-export const SPIN_RATE = 14; // 발사 스핀 ωz = spin·SPIN_RATE (rad/s) — 훅 연료. 풀스핀 미드파워 총휨 ~61cm
+// 발사 스핀 ωz = spin·SPIN_RATE (rad/s) — 훅 연료. 실척도 재매핑(2026-09-02)에서 **그대로 둔 값**이다:
+// 골드 띠에서 스핀 0.25 ≈ 6~7보드(스트로커) · 0.5 ≈ 10~12보드(트위너) · 1.0 ≈ 16~20보드(크랭커), 진입각 2~5°로
+// 실제 볼러 유형 분포와 맞는다. 측면 회전수(134 rpm)는 실제(250~430)보다 낮지만 그건 마찰 계수가 그만큼 크기
+// 때문이고, 둘의 곱(훅)이 관측값이다. 올리면 훅·진입각이 실제를 넘는다(스윕 실측: 20 rad/s → 23~26보드·7°).
+export const SPIN_RATE = 14;
 // 약스핀 저역 부스트 (docs/legacy/SPIN_FEEL_AND_AI_LADDER.md ①): 발사 각속도에 |spin|^SPIN_POW.
 // 1.0이 고정점이라 풀스핀·전 가드(−30cm·윈도우 4/31·7/31·65cm) 불변, 저/미드 스핀만 훅↑.
 // sim-carry --spinPow 0.7 검증: 저스핀 막판스냅 −2.8→−4.1cm(+40%), 풀스핀·윈도우 베이스라인 동일.
@@ -114,9 +118,60 @@ export const SPIN_POW = 0.7;
 export function effectiveSpin(spin: number): number {
   return Math.sign(spin) * Math.pow(Math.abs(spin), SPIN_POW);
 }
-export const ROLL_RATIO = 0.75; // 발사 시 진행방향 굴림 비율 (1=노슬립, 낮을수록 스키드↑=훅 연료↑)
-export const MIN_SPEED = 5;
-export const MAX_SPEED = 12;
+// --- 2026-09-02 실척도 재매핑 (근거: 레퍼런스 조사 + tests/ball-motion-sim.test.ts 실측, 커밋 본문) ---
+// 목표는 **관측 가능한 궤적 수치**를 실제 볼링에 맞추는 것이다: 릴리스/핀 도달 속도, 레인 감속, 소요 시간,
+// 스키드 끝(순수 롤 시작), 애펙스(브레이크포인트), 진입각, 훅 총량(보드). 내부 회전수(rpm)는 맞추지 않는다 —
+// 이 마찰 모델에서 실제 레브(순수 롤의 30~85%, 즉 ROLL_RATIO 0.3~0.85)를 그대로 넣으면 스키드가 핀을
+// 지나고 감속이 실제의 2배가 되며, SPIN_RATE를 실제 측면 rpm(≈26 rad/s)으로 올리면 훅 23~31보드·진입각
+// 7~8.5°로 실제(4~6°)를 벗어난다(스윕 실측). 관측값이 맞으면 그게 "실제처럼"이다.
+//
+// 발사 시 진행방향 굴림 비율 (1=노슬립). 0.75 → 0.85: 앞방향 슬립이 25%→15%로 줄어 드라이 존의 마찰 브레이크
+// (주입 마찰이 슬립 방향으로 걸리므로 **직구도** 감속한다)가 절반이 됐다 — 골드 띠 감속 1.5~1.8 → 0.8~1.2 m/s
+// (실제 2~3 mph = 0.9~1.3). 스키드 끝도 52~57 ft → 48~53 ft(실제 롤 구간 ~마지막 15 ft). 훅 연료는 준 만큼
+// 감속이 줄어 속도가 유지돼 총 훅은 오히려 조금 늘었다(풀스핀 골드 띠 15~17 → 16~20보드).
+export const ROLL_RATIO = 0.85;
+// 파워 0→1 릴리스 속도. 5~12(11~27 mph)는 하단이 실제 최저(14 mph)보다 느리고 상단이 PBA 파워형(22 mph)을
+// 넘었다. 6.5~10.5(14.5~23.5 mph, 10 lb ×0.928 → 13.5~21.8)면 골드 띠 0.6~0.9가 18.5~21 mph에 앉아
+// USBC 최적(릴리스 21 → 핀 17 mph, ±1)과 맞는다. 실측 골드 띠 중앙(0.75): 릴리스 19.7 → 핀 17.6 mph, 2.15 s.
+export const MIN_SPEED = 6.5;
+export const MAX_SPEED = 10.5;
+// 공 강체 감쇠 — Ball.ts와 헤드리스 sim(tests/helpers/headless.ts)·조준선 적분(predict.ts)이 공유한다.
+// 선형 감쇠는 **0**이다: 레인 감속은 마찰(슬립)에서 다 나온다. 예전 0.05는 2초 굴림에 ~10%를 따로 깎아
+// 감속이 실제의 2배(4.6 mph)였다. 공기저항 수준(0.01 이하)이면 넣어도 되지만 관측 범위 안에서 의미가 없다.
+export const BALL_LINEAR_DAMPING = 0;
+export const BALL_ANGULAR_DAMPING = 0.1;
+/** 파워(0..1) → 릴리스 속도(m/s). 무게 보정(BallSpec.maxSpeedScale)은 호출부가 넘긴다. */
+export function launchSpeed(power: number, speedScale = 1): number {
+  return (MIN_SPEED + power * (MAX_SPEED - MIN_SPEED)) * speedScale;
+}
+/**
+ * 발사 초기 상태 — 선속도(vx, vz)와 각속도(wx, wz). **Ball.launch · predict.ts · 헤드리스 sim의 단일 소스.**
+ * 굴림축을 진행 방향에 정렬(ω = n̂×v/R · ROLL_RATIO)해 대각 투구의 가짜 슬립을 없애고,
+ * 거기에 스핀(ωz)을 더해 의도된 측면 슬립만 훅으로 작용시킨다(도안 §8).
+ */
+export function launchState(aim: number, power: number, spin: number, speedScale = 1) {
+  return launchStateWith(aim, power, spin, speedScale, LAUNCH_TUNING);
+}
+/** 발사식이 읽는 튠 상수 묶음 — 헤드리스 sim이 레버 스윕용으로 일부를 덮어쓴다(게임 코드는 항상 LAUNCH_TUNING). */
+export interface LaunchTuning {
+  minSpeed: number;
+  maxSpeed: number;
+  rollRatio: number;
+  spinRate: number;
+}
+export const LAUNCH_TUNING: LaunchTuning = { minSpeed: MIN_SPEED, maxSpeed: MAX_SPEED, rollRatio: ROLL_RATIO, spinRate: SPIN_RATE };
+export function launchStateWith(aim: number, power: number, spin: number, speedScale: number, k: LaunchTuning) {
+  const speed = (k.minSpeed + power * (k.maxSpeed - k.minSpeed)) * speedScale;
+  const len = Math.hypot(aim, 1);
+  const vx = (aim / len) * speed;
+  const vz = (1 / len) * speed;
+  return {
+    vx,
+    vz,
+    wx: (vz / BALL_RADIUS) * k.rollRatio,
+    wz: -(vx / BALL_RADIUS) * k.rollRatio + effectiveSpin(spin) * k.spinRate,
+  };
+}
 // 마우스 화면폭 전체 → aim ±AIM_RANGE. 레인은 ±1.6°밖에 안 되므로(0.525/18.3)
 // 1.0이면 화면 4%만 벗어나도 거터행 — ±4.6°로 눌러야 조준이 가능하다.
 export const AIM_RANGE = 0.08;

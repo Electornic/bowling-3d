@@ -4,7 +4,7 @@ import type { Engine } from '../core/Engine';
 import type { Ball } from './Ball';
 import type { PinSet } from './PinSet';
 import type { GameStateName } from '../game/GameState';
-import { HEADPIN_Z, CAM_APPROACH_Z, PIN_DECK_END } from '../game/constants';
+import { HEADPIN_Z, CAM_APPROACH_Z, PIN_DECK_END, LANE_WIDTH } from '../game/constants';
 import { APPROACH_POS } from '../camera/CameraRig'; // 리플레이 카메라 높이 = 라이브 체이스 높이 (아래 REPLAY_CAM_Y 주석)
 
 const OBJ_COUNT = 11; // 공 1 + 핀 10
@@ -78,6 +78,13 @@ export class Replay {
   active = false;
   /** Loop.paused 토글 주입 (Boot가 배선). */
   setPaused?: (paused: boolean) => void;
+  /**
+   * 리플레이 사운드 (Boot가 배선). 리플레이는 물리를 얼리고 메시만 몰기 때문에 GameState의 onRoll·onPinImpact가
+   * 한 번도 안 불린다 — 그대로 두면 스트라이크 리플레이가 **무음으로 다시 부딪히는** 연출이 된다(2026-09-02까지 그랬다).
+   * onImpact = 핀이 처음 움직인 스냅을 재생이 지나는 순간 1회 · onBall = 매 프레임 스냅 간 이동으로 잰 공 속도.
+   */
+  onImpact?: () => void;
+  onBall?: (speed: number, inGutter: boolean, timeScale: number) => void;
 
   private snaps: Float32Array[] = [];
   private lastState: GameStateName | '' = '';
@@ -86,6 +93,8 @@ export class Replay {
   private cutoff = 0; // 공이 레일을 벗어나는 시각(sim s) — 여기까지 재생하고 프리즈
   private frozen = false;
   private onFreeze?: () => void; // cutoff(프리즈) 도달 시 1회 — Boot가 스틸컷을 띄운다
+  private hitTime = 0; // 핀이 처음 움직인 시각(sim s) — 크래시 재발화 지점. start()가 스냅에서 찾는다
+  private impactFired = false;
 
   private readonly _q0 = new THREE.Quaternion();
   private readonly _q1 = new THREE.Quaternion();
@@ -170,6 +179,16 @@ export class Replay {
     this.cutoff = this.pinSettleTime(impact);
     // 짧은 리플레이 — 임팩트 직전 REPLAY_WINDOW 구간부터 시작(풀 레인 주행 스킵).
     this.playTime = Math.max(0, impact * SNAP_DT - REPLAY_WINDOW);
+    // 크래시 재발화 시점은 위 impact(공이 레일을 벗어남)가 아니라 **핀이 처음 움직인 스냅**이다 — 둘 사이가
+    // 공 속도 8 m/s 기준 0.2s쯤 벌어져 impact에 맞추면 소리가 그만큼 늦다. GameState.notifyImpact와 같은 기준.
+    this.hitTime = impact * SNAP_DT;
+    for (let i = 1; i <= impact; i++) {
+      if (this.pinMovement(this.snaps[i - 1], this.snaps[i]) > PIN_STILL_EPS) {
+        this.hitTime = i * SNAP_DT;
+        break;
+      }
+    }
+    this.impactFired = this.hitTime < this.playTime; // 재생 창 앞이면(비정상) 다시 안 울린다
     this.skipLayer.style.display = 'block';
     this.setPaused?.(true);
     return true;
@@ -211,8 +230,13 @@ export class Replay {
   update(dt: number) {
     if (!this.active) return;
     this.playTime += dt * PLAYBACK_SPEED;
+    if (!this.impactFired && this.playTime >= this.hitTime) {
+      this.impactFired = true;
+      this.onImpact?.(); // 크래시 재발화 — 라이브와 같은 세기(Boot가 game.impactStanding을 넘긴다)
+    }
     if (!this.frozen && this.playTime >= this.cutoff) {
       this.frozen = true;
+      this.onBall?.(0, false, 1); // 프리즈 = 정지화면. 굴림음도 여기서 끊는다
       this.onFreeze?.(); // 프리즈 순간 스틸컷 슬램
     }
     if (this.playTime >= this.cutoff + END_HOLD) {
@@ -220,6 +244,23 @@ export class Replay {
       return;
     }
     this.applyFrame(Math.min(this.playTime, this.cutoff)); // cutoff 이후 END_HOLD 동안 프리즈
+    if (!this.frozen) this.emitBallAudio(this.playTime);
+  }
+
+  /** 재생 시각 t의 공 속도(스냅 간 이동 / SNAP_DT)를 onBall로. 라이브 updateRollAudio와 같은 게이트(레인 위·거터). */
+  private emitBallAudio(t: number) {
+    if (!this.onBall) return;
+    const last = this.snaps.length - 1;
+    const i = Math.min(Math.floor(t / SNAP_DT), last - 1);
+    if (i < 0) return;
+    const s0 = this.snaps[i];
+    const s1 = this.snaps[i + 1];
+    const dx = s1[0] - s0[0];
+    const dy = s1[1] - s0[1];
+    const dz = s1[2] - s0[2];
+    const onLane = s1[2] < PIN_DECK_END;
+    const inGutter = Math.abs(s1[0]) > LANE_WIDTH / 2;
+    this.onBall(onLane ? Math.sqrt(dx * dx + dy * dy + dz * dz) / SNAP_DT : 0, inGutter, PLAYBACK_SPEED);
   }
 
   private applyFrame(t: number) {
@@ -301,6 +342,7 @@ export class Replay {
       this.frozen = true;
       this.onFreeze?.(); // 스킵/취소(프리즈 도달 전 종료) 시에도 스틸컷은 띄운다
     }
+    this.onBall?.(0, false, 1); // 스킵으로 끝나도 굴림음이 남지 않게 (라이브는 AIMING이라 다음 스텝에 0을 다시 준다)
     this.skipLayer.style.display = 'none';
     this.engine.snapToBodies(); // 메시·보간을 라이브(리셋된 랙)로 즉시 일치 → 점프 없는 복귀
     this.setPaused?.(false);

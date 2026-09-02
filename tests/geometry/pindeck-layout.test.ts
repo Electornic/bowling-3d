@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { PIN_ROWS, PIN_SPACING, ROW_GAP, HEADPIN_Z } from '../src/game/constants';
-import { PIN_NUMBERS } from '../src/game/splits';
-import { DISPLAY_ROWS } from '../src/ui/PinDeck';
+import { PIN_ROWS, PIN_SPACING, ROW_GAP, HEADPIN_Z } from '../../src/game/constants';
+import { PIN_NUMBERS } from '../../src/game/splits';
+import { DISPLAY_ROWS } from '../../src/ui/PinDeck';
 
 /**
  * 남은 핀 인디케이터(PinDeck)의 **좌우·앞뒤가 실제 씬과 같은 방향을 가리키는지**.

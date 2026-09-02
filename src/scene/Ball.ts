@@ -5,15 +5,13 @@ import { getRapier } from '../core/Boot';
 import {
   BALL_RADIUS,
   BALL_START_Z,
-  MIN_SPEED,
-  MAX_SPEED,
   SLIP_EPS,
   FRICTION_K,
   REF_MASS,
-  SPIN_RATE,
-  effectiveSpin,
-  ROLL_RATIO,
   BALL_FRICTION,
+  BALL_LINEAR_DAMPING,
+  BALL_ANGULAR_DAMPING,
+  launchState,
   BALL_GROUPS_ALL,
   BALL_GROUPS_NO_PINS,
 } from '../game/constants';
@@ -105,8 +103,8 @@ export class Ball {
       RAPIER.RigidBodyDesc.dynamic()
         .setTranslation(0, BALL_RADIUS, BALL_START_Z)
         .setCcdEnabled(true)
-        .setLinearDamping(0.05)
-        .setAngularDamping(0.1),
+        .setLinearDamping(BALL_LINEAR_DAMPING)
+        .setAngularDamping(BALL_ANGULAR_DAMPING),
     );
     this.collider = engine.world.createCollider(
       RAPIER.ColliderDesc.ball(BALL_RADIUS)
@@ -171,21 +169,10 @@ export class Ball {
 
   /** aim ∈ [-1,1] 횡방향, power ∈ [0,1], spin ∈ [-1,1] 좌/우 훅. 도안 §8 발사 변환. */
   launch(aim: number, power: number, spin = 0) {
-    const speed = (MIN_SPEED + power * (MAX_SPEED - MIN_SPEED)) * this.spec.maxSpeedScale;
-    const len = Math.hypot(aim, 1);
-    const vx = (aim / len) * speed;
-    const vz = (1 / len) * speed;
-    this.body.setLinvel({ x: vx, y: 0, z: vz }, true);
-    // 굴림축을 진행 방향에 정렬(ω = n̂×v/R · ROLL_RATIO) — 대각 투구의 가짜 슬립 제거.
-    // 거기에 스핀(ωz)을 더해 의도된 측면 슬립만 훅으로 작용.
-    this.body.setAngvel(
-      {
-        x: (vz / BALL_RADIUS) * ROLL_RATIO,
-        y: 0,
-        z: -(vx / BALL_RADIUS) * ROLL_RATIO + effectiveSpin(spin) * SPIN_RATE,
-      },
-      true,
-    );
+    // 속도·각속도 식은 constants.launchState 한 곳 — 조준선(predict.ts)·헤드리스 sim과 같은 함수다.
+    const s = launchState(aim, power, spin, this.spec.maxSpeedScale);
+    this.body.setLinvel({ x: s.vx, y: 0, z: s.vz }, true);
+    this.body.setAngvel({ x: s.wx, y: 0, z: s.wz }, true);
   }
 
   /**

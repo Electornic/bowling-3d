@@ -106,7 +106,8 @@ export interface HudView {
   resetting?: boolean; // 핀세터 가동 중 (조준 불가) — 상태 라벨이 이걸 우선한다
   /**
    * `PinSet.standingMask()` (인덱스별). 남은 핀 인디케이터({@link PinDeck})만 쓴다.
-   * ⚠️ 사이클 중엔 중간값이라 못 믿는다 — 그래서 PinDeck은 AIMING·사이클 정지에서만 그린다.
+   * ⚠️ 사이클 중엔 중간값이라 못 믿는다 — 그래서 PinDeck은 AIMING·사이클 정지에서만 **다시 그리고**,
+   *    그 밖엔 마지막 확정 그림을 유지한다(상시 노출).
    */
   standing?: boolean[];
   players: HudPlayerView[];
@@ -296,11 +297,11 @@ export class Hud {
       this.sheets.appendChild(this.renderSheet(d, p, i === d.current, i));
     });
 
-    // 남은 핀 인디케이터 — **리브가 있을 때만.** 1구 풀랙은 정보량이 0이라(항상 10개) 상시
-    // 노출의 비용만 진다. 창을 AIMING·사이클 정지로 좁히는 이유는 그때만 마스크가 확정값이기
-    // 때문이다(PinDeck 헤더 주석·GameState.update의 wasCycling 갱신).
-    const leave = !!d.standing && d.standing.some((s) => !s);
-    this.pinDeck.update(d.standing, leave && d.state === 'AIMING' && !d.resetting);
+    // 남은 핀 인디케이터 — **매치 중 상시.** 마스크는 AIMING·사이클 정지에서만 확정값이므로
+    // (PinDeck 헤더 주석·GameState.update의 wasCycling 갱신) 그때만 넘겨 다시 그리고, 그 밖의
+    // 시점엔 undefined를 넘겨 마지막 확정 그림을 유지시킨다. 전엔 리브가 있을 때만 보였다.
+    const trusted = d.state === 'AIMING' && !d.resetting;
+    this.pinDeck.update(trusted ? d.standing : undefined, true);
 
     const cur = d.players[d.current];
     if (d.state === 'GAME_OVER') {

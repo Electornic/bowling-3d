@@ -10,6 +10,23 @@
  * 알파 합성은 relative color syntax(rgb(from var(--x) r g b / a))로 토큰 하나에서 파생 — 값 복제 0.
  */
 
+/* === 하우스 슬랩 세리프 — 라틴 **문자에만** Georgia (theme.ts FONT_SLAB이 소비) === */
+/* Georgia의 숫자는 올드스타일(소문자 높이로 들쭉날쭉)이라 '최종 212점'처럼 산세리프 한글 옆에 서면
+   숫자만 작고 찌그러져 보였다(2026-09-02 사용자 지적). unicode-range로 라틴 글자·기본 구두점만 Georgia에
+   맡기고 숫자·한글·기호는 다음 폰트(system-ui)로 떨어뜨린다 — 라이닝 숫자가 한글과 키를 맞춘다.
+   local()만 쓰므로 네트워크 요청 0. Georgia가 없는 기기(안드로이드)는 Times New Roman → 그것도 없으면
+   이 규칙이 매치되지 않아 전부 system-ui가 된다(예전 폴백 동작과 같다). */
+@font-face {
+  font-family: 'HouseSlab';
+  src: local('Georgia Bold'), local('Georgia-Bold'), local('Georgia'), local('Times New Roman Bold'), local('Times New Roman');
+  font-weight: 700;
+  unicode-range: U+0041-005A, U+0061-007A, U+0026, U+0027, U+002C, U+002E, U+2019;
+}
+
+/* === 메뉴 패널 스크롤바 숨김 (WebKit) — Menu.ts 패널의 scrollbar-width:none과 짝 === */
+/* 컬렉션처럼 긴 시트에서 패널 오른쪽에 흰 막대가 섰다(2026-09-02 사용자 지적). 스크롤 자체(휠·터치)는 그대로. */
+.menu-panel::-webkit-scrollbar { display: none; }
+
 /* === HUD 점수 팝 — theme.ts에서 이동 === */
 /* 누적 점수가 새로 뜨거나 바뀔 때 톡 튀는 팝 (Hud) — 차분한 감속 이징, 피크에서 골드 플래시 */
 @keyframes juiceScorePop {

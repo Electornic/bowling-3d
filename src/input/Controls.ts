@@ -9,28 +9,16 @@ import { isCoarsePointer } from '../core/device';
 import { t, onLocaleChange } from '../i18n';
 import {
   BALL_START_Z,
-  BALL_RADIUS,
-  MIN_SPEED,
-  MAX_SPEED,
-  FRICTION_K,
-  REF_MASS,
-  SLIP_EPS,
-  SPIN_RATE,
-  effectiveSpin,
-  ROLL_RATIO,
-  HEADPIN_Z,
   AIM_RANGE,
   AIM_GAIN,
-  BALL_FRICTION,
-  LANE_FRICTION_OIL,
-  LANE_FRICTION_DRY,
   RELEASE_SWEET_LO,
   RELEASE_SWEET_HI,
   RELEASE_SIGMA_MIN,
   RELEASE_SIGMA_MAX,
   RELEASE_TOL,
 } from '../game/constants';
-import { hookFactor, oilEndZ } from '../game/oil';
+import { oilEndZ } from '../game/oil';
+import { predictPath } from '../game/predict'; // 조준선 적분 — 발사 물리와 같은 상수, tests/predict.test.ts가 Rapier와 대조
 import { gauss, ENTRY_DIST } from '../game/ai'; // 릴리스 타이밍 노이즈(#9) — ai와 동일 구현 단일소스 공유
 
 /** 하단 도크(스핀·파워)의 공용 베이스라인. 둘이 겹치면 syncDockLayout()이 파워바만 위로 올린다. */
@@ -39,7 +27,6 @@ const DOCK_BOTTOM = 'calc(10px + env(safe-area-inset-bottom))';
 const DOCK_GAP = 8;
 import { css, INK, HOUSE, FONT_UI, rgba, ensureHouseStyles, applyPanel } from '../ui/theme';
 
-const PREVIEW_DT = 0.08; // 예측 경로 적분 스텝 (s)
 
 // 조준선 색 — 매 재빌드마다 THREE.Color를 새로 할당하던 것을 모듈 스크래치로 재사용(무할당, #1).
 // tan/dark는 불변 상수, spinCol은 스핀 따라 .set()으로 갱신, tmp는 lerp 스크래치.
@@ -661,7 +648,7 @@ export class Controls {
     const p = 0.6;
     /**
      * 적분 종료 z — **고정값**이다(2026-09-02). 예전엔 '조준 난이도' 설정이 셋으로 갈랐다:
-     *   쉬움 `REF_Z`=14(적분 15m) · 보통 `oilEndZ()`≈10.5(11.5m) · 어려움 `BALL_START_Z+4`=3(4m)
+     *   쉬움 `REF_Z`=14(적분 15m) · 보통 `oilEndZ()`(당시 하우스 10.5 → 11.5m) · 어려움 `BALL_START_Z+4`=3(4m)
      * 설정을 없애고 **보통과 어려움 사이**로 고정했다(사용자 결정).
      *
      * ⚠️ 체감 길이는 endZ가 아니라 **endZ × k**다(k = (DRAW_Z−BALL_START_Z)/(REF_Z−BALL_START_Z) = 0.4).
@@ -672,13 +659,13 @@ export class Controls {
      * 장치였다. 중간값은 브레이크를 표시하지 못하니 따라갈 이유가 없고, 오히려 프리셋(short 9.5 /
      * house 10.5 / long 12.5)과 마름(최대 −1.5m)에 따라 길이가 흔들려 **패턴 정보를 흘린다.**
      *
-     * 미리보기는 **항상 직선**이다 — 훅은 브레이크(최소 8.0m) 뒤에서 시작하고 적분은 6.5m에서 끝난다.
+     * 미리보기는 **항상 직선**이다 — 훅은 브레이크(최소 9.0m = short 10.5 − 마름 1.5) 뒤에서 시작하고 적분은 6.5m에서 끝난다.
      * 이건 신규 제약이 아니라 구 '보통'과 같다(그쪽도 종료점이 오일 존 안이라 곡선이 안 생겼다):
      * 방향과 스키드는 보여주고 훅의 양은 온전히 플레이어가 읽는다.
      */
     const endZ = BALL_START_Z + 7.5;
     // 캐시 가드(#1): 조준·스핀·오일끝·볼물성이 그대로면 재적분·배열재빌드·버퍼 재업로드를 통째 스킵.
-    // ⚠️ oilEndZ()는 **지금은 inert하지만 일부러 키에 남긴다.** 미리보기가 브레이크(최소 8.0m) 앞에서
+    // ⚠️ oilEndZ()는 **지금은 inert하지만 일부러 키에 남긴다.** 미리보기가 브레이크(최소 9.0m) 앞에서
     //    끝나므로 hookFactor(z)가 구간 전체에서 0이고, 따라서 오일 마름이 선 모양을 안 바꾼다.
     //    하지만 AIM_PREVIEW_Z를 브레이크 뒤로 늘리는 순간 의존이 되살아난다 — 그때 키에 없으면
     //    마름이 반영 안 된 선이 굳는다(찾기 어려운 종류의 정지 렌더 버그).
@@ -695,48 +682,18 @@ export class Controls {
       return;
     }
     this.lastAimKey = key;
-    const speed = (MIN_SPEED + p * (MAX_SPEED - MIN_SPEED)) * this.ball.speedScale;
-    const nrm = Math.hypot(this.aim, 1);
-    let vx = (this.aim / nrm) * speed;
-    let vz = (1 / nrm) * speed;
-    let wzR = -vx * ROLL_RATIO + effectiveSpin(this.spin) * SPIN_RATE * BALL_RADIUS; // ωz·R
-    const wxR = vz * ROLL_RATIO; // ωx·R
-    const inject = (FRICTION_K * REF_MASS * 9.81) / this.ball.massKg;
-
-    // 경로 적분 (발사 물리와 동일 게이트). z가 Z_CAP/핀에 닿으면 종료.
-    let path: number[][] = [[0, BALL_START_Z]];
-    let x = 0;
-    let z = BALL_START_Z;
-    for (let i = 0; i < 80 && z < endZ && z < HEADPIN_Z; i++) {
-      const slipX = vx + wzR;
-      const slipZ = vz - wxR;
-      const mag = Math.hypot(slipX, slipZ);
-      const hook = hookFactor(z); // 오일 직진 → 드라이 레이트 훅
-      if (mag > SLIP_EPS) {
-        const laneFric = LANE_FRICTION_OIL + (LANE_FRICTION_DRY - LANE_FRICTION_OIL) * hook;
-        const rapier = Math.min(BALL_FRICTION, laneFric) * 9.81;
-        const a = inject * hook + rapier;
-        vx -= (slipX / mag) * a * PREVIEW_DT;
-        vz -= (slipZ / mag) * a * PREVIEW_DT;
-        wzR -= (slipX / mag) * rapier * 2.5 * PREVIEW_DT; // 마찰이 회전도 정렬 → 스핀 감쇠
-      }
-      x += vx * PREVIEW_DT;
-      z += vz * PREVIEW_DT;
-      path.push([x, z]);
-    }
-    // 마지막 점을 정확히 endZ에 트림 — 적분 스텝(~0.96m) 단위로 끝점이 튀던 "버벅" 제거.
-    // (예전 주석은 "endZ가 파워의 연속 함수라"고 적고 있었는데 **이미 거짓이었다** — endZ는 보조 단계별
-    //  상수였고 지금은 완전 상수다. 트림은 그래도 필요하다: 적분이 endZ를 넘어선 스텝에서 멈추기 때문에
-    //  트림이 없으면 끝점이 조준·스핀에 따라 최대 한 스텝만큼 들쭉날쭉해진다.)
-    if (path.length >= 2) {
-      const a = path[path.length - 2];
-      const b = path[path.length - 1];
-      if (b[1] > endZ && b[1] !== a[1]) {
-        const t = (endZ - a[1]) / (b[1] - a[1]);
-        b[0] = a[0] + (b[0] - a[0]) * t;
-        b[1] = endZ;
-      }
-    }
+    // 경로 적분은 predict.ts — 발사 물리(launchState·applySpinForce·레인 마찰)와 같은 상수를 import하고,
+    // tests/predict.test.ts가 같은 입력을 Rapier 헤드리스 투구와 대조한다(조준선이 거짓말하면 거기서 잡힌다).
+    // 끝점은 predictPath가 endZ에 정확히 트림해 준다(적분 스텝 단위로 끝이 튀던 "버벅" 제거).
+    let path = predictPath({
+      aim: this.aim,
+      power: p,
+      spin: this.spin,
+      massKg: this.ball.massKg,
+      speedScale: this.ball.speedScale,
+      endZ,
+      maxSteps: 80,
+    });
     if (path.length < 2) return;
 
     // REF_Z 곡선을 DRAW_Z로 비례 축소 (시작점 기준 균일 스케일 k)

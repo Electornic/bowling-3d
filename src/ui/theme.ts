@@ -64,6 +64,12 @@ export const HOUSE = {
 
 export const FONT_UI = '600 13px/1.4 system-ui, -apple-system, sans-serif';
 export const FONT_DIGITS = "700 14px/1 ui-monospace, 'SF Mono', 'Roboto Mono', Menlo, monospace";
+/**
+ * 모달 헤딩용 슬랩 세리프 패밀리 — 'HouseSlab'(ui.css @font-face: 라틴 문자에만 Georgia) → system-ui.
+ * 한글·숫자·기호는 system-ui로 떨어진다. 로고타입·태그라인처럼 **전부 대문자 라틴**인 곳은 그냥 Georgia를 써도
+ * 결과가 같지만, 숫자가 섞일 수 있는 헤딩(결과 '최종 212점')은 반드시 이걸 쓴다.
+ */
+export const FONT_SLAB_FAMILY = "'HouseSlab', system-ui, -apple-system, sans-serif";
 
 /** hex(#rrggbb) → rgba() 문자열 (알파 합성용) */
 export function rgba(hex: string, a: number): string {

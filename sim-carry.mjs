@@ -19,15 +19,16 @@ const PIN_RESTITUTION = arg('pinRest', 0.3);
 const PIN_FRICTION = arg('pinFric', 0.3);
 const BALL_RESTITUTION = arg('ballRest', 0.1);
 const PIN_COM_Y = arg('pinComY', 0); // 핀 무게중심 y 오프셋 (0=기하 중심, 음수=하향)
-const PIN_DAMP = arg('pinDamp', 0.8); // 핀 선형 감쇠 — 날아가는 핀 감속 (체인 스캐터 억제)
+const PIN_DAMP = arg('pinDamp', 0.7); // 핀 선형 감쇠 — 날아가는 핀 감속 (체인 스캐터 억제). constants.PIN_LINEAR_DAMPING과 동일
 const PIN_SPACING = 0.3048;
 const HEADPIN_Z = 18.29;
 const ROW_GAP = PIN_SPACING * Math.cos(Math.PI / 6);
 const PIN_DECK_END = HEADPIN_Z + 3 * ROW_GAP;
 const LANE_WIDTH = 1.05;
-// ⓐ 스핀 레버 CLI (기본값 = constants.ts와 동일 — import 아니라 복사라 드리프트 시 재확인):
+// ⚠️ .mjs라 constants.ts를 import 못 한다 — 아래 기본값은 **복사**다. 게임과 1:1이어야 하는 sim은 tests/helpers/headless.ts(import)를 쓴다.
+// ⓐ 스핀 레버 CLI (기본값 = constants.ts와 동일):
 //   node sim-carry.mjs --rollRatio 0.6 --slipEps 0.03 --spinRate 14 --frictionK 0.16 --oilEnd 10.5 --hookRamp 3.5
-const OIL_END_Z = arg('oilEnd', 10.5);
+const OIL_END_Z = arg('oilEnd', 11.9); // 2026-09-02 하우스 39 ft (oil.ts OIL_PRESETS.house)
 const HOOK_RAMP = arg('hookRamp', 3.5);
 const LANE_FRICTION_OIL = 0.015;
 const LANE_FRICTION_DRY = 0.14;
@@ -36,8 +37,12 @@ const FRICTION_K = arg('frictionK', 0.16);
 const REF_MASS = 5.0;
 const SLIP_EPS = arg('slipEps', 0.05);
 const SPIN_RATE = arg('spinRate', 14);
-const ROLL_RATIO = arg('rollRatio', 0.75);
-const SPIN_POW = arg('spinPow', 1); // 레버4 ⓐ: 스핀 입력 저역 부스트 (1=선형, 0.5=√곡선 → 약스핀 증폭, 풀스핀 1.0 불변→가드 안전)
+const ROLL_RATIO = arg('rollRatio', 0.85); // 2026-09-02 실척도: 0.75 → 0.85 (constants.ROLL_RATIO 주석)
+const SPIN_POW = arg('spinPow', 0.7); // 스핀 입력 저역 부스트 — constants.SPIN_POW와 동일(예전 기본 1은 게임과 달랐다)
+// 속도·감쇠 — constants.MIN_SPEED/MAX_SPEED/BALL_LINEAR_DAMPING과 동일 (2026-09-02 실척도 재매핑: 5~12/0.05 → 6.5~10.5/0)
+const MIN_SPEED = arg('minSpeed', 6.5);
+const MAX_SPEED = arg('maxSpeed', 10.5);
+const BALL_DAMP = arg('ballDamp', 0);
 const dt = 1 / 60;
 const ROWS = [[0], [-0.5, 0.5], [-1, 0, 1], [-1.5, -0.5, 0.5, 1.5]];
 const UP_COS_45 = Math.cos(Math.PI / 4);
@@ -99,7 +104,7 @@ function throwOnce({ aim, power, spin, massKg = 4.5359, speedScale = 0.928, pinD
     RAPIER.RigidBodyDesc.dynamic()
       .setTranslation(0, BALL_RADIUS, -1)
       .setCcdEnabled(true)
-      .setLinearDamping(0.05)
+      .setLinearDamping(BALL_DAMP)
       .setAngularDamping(0.1),
   );
   world.createCollider(
@@ -107,7 +112,7 @@ function throwOnce({ aim, power, spin, massKg = 4.5359, speedScale = 0.928, pinD
     ball,
   );
 
-  const speed = (5 + power * 7) * speedScale;
+  const speed = (MIN_SPEED + power * (MAX_SPEED - MIN_SPEED)) * speedScale;
   const len = Math.hypot(aim, 1);
   const vx0 = (aim / len) * speed;
   const vz0 = (1 / len) * speed;
@@ -323,7 +328,7 @@ console.log(
   `[params] pinMass=${PIN_MASS} pinRest=${PIN_RESTITUTION} pinFric=${PIN_FRICTION} ballRest=${BALL_RESTITUTION} pinComY=${PIN_COM_Y} pinDamp=${PIN_DAMP}`,
 );
 console.log(
-  `[spin]   spinRate=${SPIN_RATE} rollRatio=${ROLL_RATIO} slipEps=${SLIP_EPS} frictionK=${FRICTION_K} oilEnd=${OIL_END_Z} hookRamp=${HOOK_RAMP}`,
+  `[spin]   spinRate=${SPIN_RATE} rollRatio=${ROLL_RATIO} slipEps=${SLIP_EPS} frictionK=${FRICTION_K} oilEnd=${OIL_END_Z} hookRamp=${HOOK_RAMP} spinPow=${SPIN_POW} speed=${MIN_SPEED}~${MAX_SPEED} ballDamp=${BALL_DAMP}`,
 );
 
 // 진입 x가 대략 -16cm ~ +14cm(헤드핀 좌우)를 쓸도록 aim 스캔

@@ -10,14 +10,14 @@ import {
   BALL_RADIUS,
   CAM_APPROACH_Z,
   PIN_DECK_END,
-} from '../src/game/constants';
-import { APPROACH_POS, APPROACH_TARGET, GAMEOVER_POS, approachZFor } from '../src/camera/CameraRig';
+} from '../../src/game/constants';
+import { APPROACH_POS, APPROACH_TARGET, GAMEOVER_POS, approachZFor } from '../../src/camera/CameraRig';
 import {
   REPLAY_CAM_Y,
   REPLAY_LOOK_Y_OFF,
   REPLAY_TRAIL_NEAR,
   REPLAY_TRAIL_FAR,
-} from '../src/scene/Replay';
+} from '../../src/scene/Replay';
 
 /** 리플레이가 헤드핀에서 파킹하는 포즈 (Replay.placeCamera와 같은 식, 공은 레인 위 y=BALL_RADIUS) */
 const REPLAY_PARKED = {

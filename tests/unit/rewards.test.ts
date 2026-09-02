@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { evaluateAchievements, maxConsecutiveStrikes } from '../src/game/rewards';
+import { evaluateAchievements, maxConsecutiveStrikes } from '../../src/game/rewards';
 
 const base = { mode: 'full' as const, humanScore: 0, winner: 0, rivalKeys: [] as string[], rolls: [] as number[][], frames: 10 };
 
