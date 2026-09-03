@@ -20,10 +20,13 @@
 ## 1. 신호 경로 — 지금 이렇게 생겼다
 
 ```
-strike.wav  ──(BufferSource → Gain)──┐
-roll.wav    ──(BufferSource → 피킹필터 → Gain)──┤
-BGM mp3     ──(BufferSource loop → musicGain)──┼──▶ masterGain ──▶ DynamicsCompressor ──▶ ctx.destination
-해금 차임    ──(Oscillator → Gain)──┘              (볼륨·뮤트)     (리미터 −2dB/20:1)
+strike.wav              ──(BufferSource → Gain)───────────────────────┐
+roll.wav                ──(BufferSource → 거터 피킹 · 슬로모 LPF → rollGain)──┤
+BGM mp3                 ──(BufferSource loop → musicGain → LPF)────────┤  LPF = 메뉴 일시정지 먹먹함 18 k → 480 Hz(§2.13)
+PA 차임·해금 차임        ──(Oscillator → paOut 스피커 필터 / Gain)──────┼──▶ masterGain ──▶ DynamicsCompressor ──▶ ctx.destination
+릴리스·거터 덜컥         ──(합성 → Gain)────────────────────────────────┤   (볼륨·뮤트)      (리미터 −2dB/20:1)
+기계음·옆 레인·피트 사슬 ──(laneOut 거리 감쇠 → machineBus)────────────┤  machineBus = 일시정지 뮤트(§2.5)
+UI 틱·리플레이 슉        ──(uiSfx → uiBus)──────────────────────────────┘  uiBus = UI_VOL 트림(§2.12)
 ```
 
 **마스터 버스는 2026-09-02에 생겼다.** 그 전엔 네 경로가 각자 `destination`에 직결이었고 Web Audio는 거기 꽂힌
@@ -436,7 +439,7 @@ pitSfx.ts 상단 상수 아홉 개(`CUSHION_*` · `FRAME_CLUNK` · `DOOR_CLACK` 
 
 버스가 없던 시절 최악 합은 `굴림 0.85 + 크래시 1.0 + BGM 0.08 = 1.93`이었다 — ±1.0을 넘는 만큼 출력에서 하드
 클리핑(지직)이고, 소리를 더 얹으려면 기존 게인을 전부 재조정해야 했다. 지금은 `SoundManager.bus()`가 ctx 생성과 같은
-순간에 세워지고 네 소스가 전부 거기에 꽂힌다. `sound.volume`(0~1)이 전체 볼륨 한 손잡이다(아직 UI엔 안 노출).
+순간에 세워지고 모든 소스가 거기에 꽂힌다 — 직결 소스들과 서브 버스 둘(machineBus · uiBus, §1 그림). `sound.volume`(0~1)이 전체 볼륨 한 손잡이다(아직 UI엔 안 노출).
 
 | 리미터 파라미터 | 값 | 근거 |
 |---|---|---|
