@@ -1,4 +1,4 @@
-package com.electornic.bowling3d
+package com.electornic.starlitelanes
 
 import android.os.Bundle
 import androidx.activity.enableEdgeToEdge

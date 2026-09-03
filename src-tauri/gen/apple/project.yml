@@ -1,6 +1,6 @@
 name: app
 options:
-  bundleIdPrefix: com.electornic.bowling3d
+  bundleIdPrefix: com.electornic.starlitelanes
   deploymentTarget:
     iOS: 14.0
 fileGroups: [../../src]
@@ -11,7 +11,7 @@ settingGroups:
   app:
     base:
       PRODUCT_NAME: Bowling 3D
-      PRODUCT_BUNDLE_IDENTIFIER: com.electornic.bowling3d
+      PRODUCT_BUNDLE_IDENTIFIER: com.electornic.starlitelanes
 targetTemplates:
   app:
     type: application
