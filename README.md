@@ -57,6 +57,11 @@ npm run ios:dev      # iOS (Mac + Xcode)
 npm run android:dev  # Android (SDK/NDK 필요)
 ```
 
+빌드된 설치본은 main 푸시마다 CI가 만들어 **[Releases](https://github.com/Electornic/bowling-3d/releases)**
+에 올린다 — Android `.apk` · Windows `.msi`/`.exe` · macOS `.zip`(안에 `.app`, Intel·Apple Silicon 유니버설).
+코드 서명은 없어서 첫 실행에 SmartScreen·Gatekeeper 경고가 뜬다(우회법은 릴리스 노트에 적혀 있다).
+설치가 번거로우면 [웹](https://bowling-3d.vercel.app/)이 같은 빌드다.
+
 준비물·스토어·플랫폼별 주의는 [docs/APP_PACKAGING.md](docs/APP_PACKAGING.md) 참고.
 
 ## 조작
