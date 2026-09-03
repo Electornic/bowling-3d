@@ -365,7 +365,10 @@ export class Controls {
     const spinTrack = (this.spinTrack = document.createElement('div'));
     css(spinTrack, {
       position: 'relative',
-      flex: '1',
+      // ⚠️ 예전 `flex: '1'`은 세로 flex에서 **높이 basis 0**이라 트랙이 0px로 접힌다(자식이 전부
+      // absolute라 min-content도 0 → 히트영역까지 사라진다). display가 block으로 떨어져 있던 동안엔
+      // 드러나지 않던 지뢰다(위 setVisible 주석). 이 트랙은 높이가 고정이니 grow/shrink 둘 다 끈다.
+      flex: '0 0 auto',
       minWidth: '0',
       height: `${TRACK_HIT}px`,
       background: this.coarse ? 'transparent' : 'rgba(0,0,0,0.38)', // 잉크 홈(파워 트랙과 동일)
@@ -637,8 +640,14 @@ export class Controls {
 
     // 메뉴/AI 턴엔 입력 UI 전체 숨김 (로드맵 P1/P1.5)
     const inGame = this.game.state !== 'MENU' && this.game.isHumanTurn();
-    this.spinWrap.style.display = inGame ? '' : 'none';
-    this.powerWrap.style.display = inGame ? '' : 'none';
+    // ⚠️ 되돌릴 때 `''`를 넣으면 **생성자에서 준 `display:flex`가 지워진다**(인라인 속성 삭제 →
+    // 스타일시트 규칙이 없으니 `block`으로 떨어진다). 이 둘은 클래스가 아니라 전부 인라인 스타일이라
+    // 되돌릴 자리가 없다. 그 상태로 오래 굴렀고 두 패널 다 조용히 블록 레이아웃이었다:
+    // 파워는 `align-items:center`가 죽어 20px 트랙이 62px 패널 **왼쪽에 붙었고**(사용자 제보),
+    // 스핀은 `gap`이 안 먹어 라벨이 트랙에 붙었다(2026-09-03 "간격 조금 벌려"로 6→10을 올렸지만
+    // 애초에 gap 자체가 안 돌던 거라 화면은 그대로였다). 값을 명시해서 되돌린다.
+    this.spinWrap.style.display = inGame ? 'flex' : 'none';
+    this.powerWrap.style.display = inGame ? 'flex' : 'none';
     // 숨어 있는 동안엔 측정이 전부 0이라 겹침 판정을 못 한다 → 보이기 시작할 때 한 번 잡는다.
     if (inGame && !this.dockShown) this.syncDockLayout();
     this.dockShown = inGame;
