@@ -214,7 +214,7 @@ const tick = () => { __replay.record(__game.state); __engine.step(1/60); __game.
   근거·실측·대안 검토를 길게 남기는 관례가 있다 — 왜 이 값인지 궁금하면 `git log`가 문서보다 낫다.
 - **외부 에셋은 사운드 셋뿐**이다: `src/audio/roll.wav`(383KB)·`strike.wav`(388KB)·
   `mi_music-reggae-ruckus-157890.mp3`(1.5MB, 메뉴/매치 BGM). 나머지(도형·텍스처·UI·해금 차임)는
-  전부 코드 생성이다(핀세터 기계음도 합성 — `SoundManager.machineCue`). README가 오래 "에셋 0개"라고 적고 있었는데 2026-09-01에 고쳤고, BGM은
+  전부 코드 생성이다(핀세터 기계음·피트 사슬·UI 틱도 합성 — `machineSynth.ts`·`pitSfx.ts`·`uiSfx.ts`. 파라미터는 눈으로 A/B 하지 말고 OfflineAudioContext 렌더로 잰다 — SOUND.md §7. 스틸컷은 무음이다, §2.6). README가 오래 "에셋 0개"라고 적고 있었는데 2026-09-01에 고쳤고, BGM은
   2026-09-02에 합성 칩튠에서 실제 트랙으로 바뀌었다 — 번들 크기를 볼 때 이 셋을 빼먹지 말 것.
 
 ## 손대지 말 것
