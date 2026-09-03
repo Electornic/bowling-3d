@@ -11,7 +11,7 @@ import {
   KICKBACK_START_Z,
   PIN_BAY_TOP,
   LANE_FRICTION_OIL,
-  LANE_FRICTION_DRY,
+  LANE_FRICTION_DRY, PIT_DEPTH
 } from '../game/constants';
 import { hookFactor, oilEndZ, OIL_END_Z } from '../game/oil';
 import { makeWoodTexture } from './Environment';
@@ -152,7 +152,7 @@ export class Lane {
 
     // --- 핀덱 뒤 피트(pit): 데크가 deckEnd에서 끊겨 공/핀이 낮은 바닥으로 굴러떨어진다(핀 뒤에만, 실제 볼링).
     //     뒷벽은 Environment 마스킹 월(≈21.03) 앞·아래라 안 겹침. 옆은 피트가 아니라 거터+킥백(위 참고).
-    const PIT_DEPTH = 0.85; // 데크 윗면(y=0) 대비 피트 바닥 깊이 — 얕게: 낙하 짧아 포물선 완만
+    // PIT_DEPTH(0.85, 데크 윗면 대비 — 얕게: 낙하 짧아 포물선 완만)는 constants.ts로 갔다: GameState가 공의 피트 착지(낙하음)를 같은 값으로 판정한다.
     const PIT_LEN = 1.4; // deckEnd(≈19.48) → 뒷벽(≈20.88). 공이 뒷벽에 닿기 전 포물선으로 레인 레벨 아래(피트 안)까지 내려오게 충분히 길게 — 짧으면(구 0.7) 빠른 공이 레인 높이에서 뒷벽을 정면으로 때려 '퉁' 튕김. 마스킹월(≈21.03) 앞이라 여유.
     const pitHalfW = half + gw + 0.1; // 레인+거터 전폭 커버
     const pitMid = deckEnd + PIT_LEN / 2;

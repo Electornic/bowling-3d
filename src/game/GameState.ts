@@ -9,6 +9,8 @@ import {
   GUTTER_DEPTH,
   PIN_DECK_END,
   SETTLE_TIMEOUT,
+  POST_BALL_HOLD,
+  PIT_DEPTH,
   SLOWMO_SCALE,
   SLOWMO_REAL_SEC,
 } from './constants';
@@ -134,9 +136,14 @@ export class GameState {
   onThrow?: (power: number) => void;
   /** 굴림 럼블. timeScale = 그 스텝의 Loop.timeScale(슬로모 0.32~1) — 사운드가 피치·톤을 화면 배속에 맞춘다. */
   onRoll?: (speed: number, inGutter: boolean, timeScale: number) => void;
+  /** 공이 피트 바닥에 닿는 스텝 1회(투구당). speed = 그 순간 속력(m/s) — 낙하음 세기. 거터볼·정상 투구 모두. */
+  onPitDrop?: (speed: number) => void;
 
   private players: PlayerState[] = [];
   private settleTimer = 0;
+  private ballGone = false; // 이번 투구에서 공이 사라졌는가(ballGoneOrStopped가 한 번 참) — 래치. 피트에서 튀어도 되돌리지 않는다
+  private ballGoneTimer = 0; // 공이 사라진 뒤 흐른 시간 — POST_BALL_HOLD의 기준
+  private pitDropped = false; // 이번 투구에서 피트 착지음을 냈는가
   private gutterSettled = false; // 이번 투구에서 거터 perch 보정을 1회 적용했는가 (재스냅 방지)
   private standingAtThrow = 10;
   /** 이번 투구가 시작될 때 서 있던 핀 수 — 리플레이가 크래시를 다시 울릴 때 같은 세기를 쓴다. */
@@ -263,6 +270,9 @@ export class GameState {
     this.onThrow?.(power); // 릴리스 트랜지언트 — 굴림 럼블은 0에서 페이드인이라 이게 없으면 '던진' 순간이 없다
     this.state = 'ROLLING';
     this.settleTimer = 0;
+    this.ballGone = false;
+    this.ballGoneTimer = 0;
+    this.pitDropped = false;
     this.slowmoUsed = false;
     this.slowmoTimer = 0;
     this.gutterSettled = false;
@@ -352,8 +362,18 @@ export class GameState {
     } else if (this.state === 'SETTLING') {
       this.settleTimer += dt;
       this.settleGutterPerch(); // 레인 끝 모서리에 얹힌 느린 거터볼을 골로 굴려넣음 (perch 버그 보정)
-      const done = this.pins.allSettled() && this.ballGoneOrStopped();
-      if (done || this.settleTimer > SETTLE_TIMEOUT) {
+      this.checkPitDrop();
+      if (!this.ballGone && this.ballGoneOrStopped()) this.ballGone = true; // 래치 — 피트 바닥에서 한 번 튀어도 홀드가 다시 시작되지 않게
+      if (this.ballGone) this.ballGoneTimer += dt;
+      // 공이 사라진 뒤 최소 POST_BALL_HOLD(0.7 s) 홀드 — 거터·빗나감은 핀이 안 움직여 정착 조건이 즉시 참이라, 공이 피트로
+      // 떨어지는 순간 0.07 s 만에 프레임이 닫혔다(2026-09-03 실측). 정상 투구는 핀 정착이 이보다 길어 이 홀드가 걸리지 않는다.
+      const held = this.ballGone && this.ballGoneTimer >= POST_BALL_HOLD;
+      const done = this.pins.allSettled() && held;
+      // 타임아웃(핀이 영영 안 멎을 때)은 SETTLING 시작 기준 SETTLE_TIMEOUT 그대로지만 **홀드를 잘라먹지 못한다** — 거터볼은 파울라인
+      // 직후(0.18 s) SETTLING에 들어와 피트까지 3.7 s를 쓰므로, 홀드 없이 4 s만 보면 낙하 직후 닫힌다. 공이 영영 안 사라지는 병적 경우만
+      // SETTLING 기준 +4 s로 막는다(정상·거터 어느 경로도 여기 안 온다).
+      const timedOut = (this.settleTimer > SETTLE_TIMEOUT && held) || this.settleTimer > SETTLE_TIMEOUT + 4;
+      if (done || timedOut) {
         this.score();
       }
     }
@@ -405,12 +425,32 @@ export class GameState {
     return fastForward ? AI_FAST_FORWARD : 1;
   }
 
+  /**
+   * 피트 착지 — 공 중심이 핀덱 뒤(z > PIN_DECK_END)에서 피트 바닥 위 공 반지름 근처까지 내려온 첫 스텝에 onPitDrop 1회.
+   * 바닥 콜라이더 윗면이 −PIT_DEPTH이니 정지 높이는 −PIT_DEPTH + BALL_RADIUS(−0.741). 2 cm 위에서 잡아 접촉 직전에 울린다
+   * (낙하 속도 ~4 m/s면 5 ms 앞). 뒷벽을 먼저 치는 빠른 공도 결국 바닥에 닿으며 여기서 잡힌다.
+   */
+  private checkPitDrop() {
+    if (this.pitDropped || !this.onPitDrop) return;
+    const t = this.ballObj.body.translation();
+    if (t.z <= PIN_DECK_END || t.y > -PIT_DEPTH + BALL_RADIUS + 0.02) return;
+    this.pitDropped = true;
+    const v = this.ballObj.body.linvel();
+    this.onPitDrop(Math.hypot(v.x, v.y, v.z));
+  }
+
+  /**
+   * 공이 '사라졌다' — 정지 · 레인 밖 낙하 · **피트 바닥 착지**. 예전 세 번째 조건은 `z > PIN_DECK_END + 1`(핀덱 뒤 1 m 통과)이었는데
+   * 그러면 공이 아직 공중에 있을 때(피트 낙하 0.26 s 전) 사라진 것으로 쳐서 POST_BALL_HOLD가 낙하음보다 먼저 흐르기 시작했다 —
+   * 홀드는 '쿵' 뒤의 박자여야 하니 착지(checkPitDrop과 같은 높이 판정)로 바꿨다(2026-09-03 실측: 통과 3.92 s · 착지 4.18 s).
+   */
   private ballGoneOrStopped(): boolean {
     const b = this.ballObj.body;
     const v = b.linvel();
     const t = b.translation();
     const speed = Math.hypot(v.x, v.y, v.z);
-    return speed < 0.15 || t.y < -2 || t.z > PIN_DECK_END + 1;
+    const landedInPit = t.z > PIN_DECK_END && t.y < -PIT_DEPTH + BALL_RADIUS + 0.05;
+    return speed < 0.15 || t.y < -2 || landedInPit;
   }
 
   /**

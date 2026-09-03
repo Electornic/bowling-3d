@@ -1,6 +1,8 @@
 import { MAX_SPEED, SLOWMO_SCALE } from '../game/constants';
 import type { MachineCue, MachineLane, AmbBallCue } from './cues';
 import { MachineSynth } from './machineSynth';
+import { schedulePitDrop, scheduleBallReturn } from './pitSfx';
+import { makeNoise } from './synthKit';
 import type { GameSummary } from '../game/GameState';
 /**
  * 사운드 (Web Audio). 도안 §10.
@@ -230,6 +232,14 @@ export class SoundManager {
       this.rollTone = tone;
     }
     const now = ctx.currentTime;
+    // 거터 진입 엣지 (2026-09-03, SOUND.md §2.9) — 이 투구에서 inGutter가 처음 참이 되는 스텝에 '덜컥' 한 번. 음색 변화(아래 피킹·피치)는
+    // 이미 있었지만 '빠지는 순간'이 없었다(§5 B). 래치는 speed 0(정지·핀덱 뒤·리셋)에서 풀린다 — GameState.emitRoll이 매 스텝 부르므로
+    // 다음 투구의 첫 스텝엔 항상 풀려 있다. 레인으로 되올라오는 일은 규격 거터에선 거의 없지만, 오면 다시 울리게 둔다.
+    if (speed <= 0.01) this.gutterWas = false;
+    else if (inGutter && !this.gutterWas) {
+      this.gutterWas = true;
+      this.playGutterDrop(speed);
+    } else if (!inGutter) this.gutterWas = false;
     const MAX = MAX_SPEED; // 속도 1~MAX_SPEED → 게인·피치·밝기 종속 (예전엔 12 하드코딩 — 상수가 바뀌자 상단이 비었다)
     const t = Math.max(0, Math.min(1, (speed - 1) / (MAX - 1)));
     const gutterMul = inGutter ? 0.85 : 1; // 거터는 살짝만 작게 (사라지지 않게)
@@ -255,6 +265,87 @@ export class SoundManager {
       this.rollGutterFilter.gain.setTargetAtTime(inGutter ? 12 : 0, now, 0.04); // 거터: 380Hz 공명 부각(홀로우), 레인=평탄
     }
     if (this.rollLp) this.rollLp.frequency.setTargetAtTime(220 + t * 200, now, 0.05);
+  }
+
+  private gutterWas = false;
+
+  /**
+   * 거터 진입 '덜컥' — 공(약 7 kg)이 레인 모서리에서 4.8 cm 아래 골로 떨어져 채널 바닥을 치는 소리. 셋으로 만든다:
+   *  · 몸통 : 사인 95→60 Hz 110 ms + LPF 260 노이즈 60 ms — 무게
+   *  · 채널 : 노이즈 공진 BPF 380 Hz Q4 80 ms — 굴림음의 거터 피킹(380 Hz)과 같은 자리라 '그 골 안'으로 이어진다
+   *  · 모서리: 노이즈 HPF 1.5 kHz 5 ms — 공이 레인 모서리를 스치는 짧은 '틱'
+   * 세기는 속도에 살짝만 비례(0.8 + 0.2·t) — 낙차는 속도와 무관하다. 오실레이터는 몸통 사인 하나뿐(70 ms대, 음정 아래 — 타격음 톤 금지 규칙의 예외 범위).
+   * 실측(§7.x, 리미터 앞): 피크 ≈ −14 dBFS(클랙 −15와 클래터 −16 사이). 스틸컷이 무음이 된 뒤 거터의 유일한 사건음이다.
+   * ⚠️ 오프라인 렌더에서 bus()를 거치면 DynamicsCompressor의 시동 구간이 첫 50 ms를 11 dB 눌러 −25로 보인다 — 잴 때는 bus를 destination으로 바꿔 잰다.
+   */
+  private playGutterDrop(speed: number) {
+    const ctx = this.ctx!;
+    const out = this.bus();
+    const t0 = ctx.currentTime;
+    const k = 0.8 + 0.2 * Math.max(0, Math.min(1, (speed - 1) / (MAX_SPEED - 1)));
+    const o = ctx.createOscillator();
+    o.type = 'sine';
+    o.frequency.setValueAtTime(95, t0);
+    o.frequency.exponentialRampToValueAtTime(60, t0 + 0.08);
+    const og = ctx.createGain();
+    og.gain.setValueAtTime(0.0001, t0);
+    og.gain.exponentialRampToValueAtTime(0.2 * k, t0 + 0.005);
+    og.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.09); // 110 → 90 ms: 길면 킥드럼
+    o.connect(og).connect(out);
+    o.start(t0);
+    o.stop(t0 + 0.12);
+    const body = ctx.createBufferSource();
+    body.buffer = this.noise();
+    const blp = ctx.createBiquadFilter();
+    blp.type = 'lowpass';
+    blp.frequency.value = 260;
+    const bg = ctx.createGain();
+    bg.gain.setValueAtTime(0.0001, t0);
+    bg.gain.exponentialRampToValueAtTime(0.16 * k, t0 + 0.002);
+    bg.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.06);
+    body.connect(blp).connect(bg).connect(out);
+    body.start(t0);
+    body.stop(t0 + 0.09);
+    const ch = ctx.createBufferSource();
+    ch.buffer = this.noise();
+    ch.loop = true;
+    const cb = ctx.createBiquadFilter();
+    cb.type = 'bandpass';
+    cb.frequency.value = 380;
+    cb.Q.value = 4;
+    const cg = ctx.createGain();
+    cg.gain.setValueAtTime(0.0001, t0);
+    // BPF Q4는 대역이 좁아(95 Hz) 노이즈 RMS가 게인의 약 −24 dB — 보정 배율. 1.4에선 스펙트럼의 2%뿐이어서(순수 저역 '쿵', 폰에선 사라짐)
+    // 2.6으로: 150~600 Hz가 ~35%가 되어야 '채널에 떨어졌다'가 들린다. 4.5에선 피크가 −6~−9 dBFS로 튀어 전체를 6 dB 내렸다(§7.x 렌더).
+    cg.gain.exponentialRampToValueAtTime(2.6 * k, t0 + 0.003);
+    cg.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.1);
+    ch.connect(cb).connect(cg).connect(out);
+    ch.start(t0);
+    ch.stop(t0 + 0.13);
+    const edge = ctx.createBufferSource();
+    edge.buffer = this.noise();
+    const hp = ctx.createBiquadFilter();
+    hp.type = 'highpass';
+    hp.frequency.value = 1500;
+    const eg = ctx.createGain();
+    eg.gain.setValueAtTime(0.12 * k, t0);
+    eg.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.005);
+    edge.connect(hp).connect(eg).connect(out);
+    edge.start(t0);
+    edge.stop(t0 + 0.02);
+  }
+
+  /**
+   * 공 피트 낙하 → 쿠션 타격 + 볼 리턴 사슬 (2026-09-03, SOUND.md §2.10·§2.11 — 합성은 pitSfx.ts).
+   * 첫 버전(사인 70→45 Hz 한 방)은 청취에서 "밋밋"했다(피드백 ⑤): 실제 피트는 쿠션 '둥' → 프레임 클렁크 → 볼 도어 → 액셀러레이터 → 서브웨이
+   * 럼블 → 랙 클랙으로 4~5 s에 걸친 사건 사슬이다. 출구는 machineBus — 일시정지(메뉴)에 기계음과 함께 뮤트된다. speed = 착지 속력(m/s).
+   */
+  playPitDrop(speed: number) {
+    if (!this.ctx || !this.enabled) return;
+    const out = this.machineOut();
+    const t0 = this.ctx.currentTime;
+    schedulePitDrop(this.ctx, out, this.noise(), t0, speed);
+    scheduleBallReturn(this.ctx, out, this.noise(), t0);
   }
 
   /**
@@ -644,14 +735,7 @@ export class SoundManager {
   }
 
   private noise(): AudioBuffer {
-    if (!this.noiseBuf) {
-      const ctx = this.ctx!;
-      const len = ctx.sampleRate; // 1초 백색 노이즈 — 모든 합성 층이 공유(루프)
-      const buf = ctx.createBuffer(1, len, ctx.sampleRate);
-      const d = buf.getChannelData(0);
-      for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
-      this.noiseBuf = buf;
-    }
+    if (!this.noiseBuf) this.noiseBuf = makeNoise(this.ctx!); // 1초 백색 노이즈 — 모든 합성 층이 공유(루프)
     return this.noiseBuf;
   }
 

@@ -193,7 +193,15 @@ export const RELEASE_SIGMA_MAX = 6; // 최악 릴리스 노이즈 (cm). sim --no
 export const RELEASE_TOL = 0.3; // 구간 밖 이 거리(파워 단위)에서 σ_MAX 도달. 0.3 → power 1.0(띠+0.1)≈σ2, 패닉 릴리스(≤0.3)≈σ_MAX.
 
 export const SETTLE_VEL_EPS = 0.05;
-export const SETTLE_TIMEOUT = 4; // s
+export const SETTLE_TIMEOUT = 4; // s — **공이 사라진 뒤**부터 잰다(GameState SETTLING 주석). 핀이 영영 안 멎을 때의 안전망
+/**
+ * 공이 사라진(피트 낙하·정지·핀덱 뒤 통과) 뒤 프레임을 닫기까지의 최소 홀드(s) — 2026-09-03, 사용자 결정.
+ * 거터·빗나감은 핀이 안 움직여 정착 조건이 즉시 참이라 공이 시야에서 사라지는 순간 프레임이 닫혔다(실측 0.07 s:
+ * 거터볼 총 3.92 s 중 피트 낙하 3.85 s → AIMING 3.92 s). 정상 투구는 핀 정착이 이보다 길어 영향이 없다.
+ */
+export const POST_BALL_HOLD = 0.7;
+/** 핀덱 뒤 피트 바닥 깊이(m, 데크 윗면 y=0 기준). Lane이 바닥을 깔고 GameState가 공의 피트 착지(낙하음)를 이 값으로 판정한다. */
+export const PIT_DEPTH = 0.85;
 export const PIN_FALL_ANGLE = Math.PI / 4; // 45° 쓰러짐 임계
 
 // --- P2 타격감 (juice) ---

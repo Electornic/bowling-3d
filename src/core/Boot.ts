@@ -501,6 +501,7 @@ function buildScene(engine: Engine): {
   // 공 굴림 럼블 — 매 스텝 공 속도로 지속 저역음 (임팩트 직전 긴장감)
   game.onRoll = (v, inGutter, timeScale) => sound.setRoll(v, inGutter, timeScale); // timeScale = 슬로모 동기(피치·LPF)
   game.onThrow = (power) => sound.playRelease(power); // 릴리스 팝 + 착지 둥 — 사람·AI 공통
+  game.onPitDrop = (v) => sound.playPitDrop(v); // 공이 피트 바닥을 치는 '쿵' — 거터볼의 마무리 박자(POST_BALL_HOLD와 짝), 정상 투구도 크래시 뒤에 온다
   // 리플레이 사운드 — 리플레이는 물리를 얼려 위 두 훅이 안 불린다. 같은 SoundManager 경로로 다시 울린다(Replay 주석).
   replay.onImpact = () => sound.playRackCrash(game.impactStanding);
   replay.onBall = (v, inGutter, timeScale) => sound.setRoll(v, inGutter, timeScale);

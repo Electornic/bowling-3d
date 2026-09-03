@@ -28,8 +28,7 @@ import {
   PIN_ROWS,
   PIN_SPACING,
   HEADPIN_Z,
-  ROW_GAP,
-} from '../../src/game/constants';
+  ROW_GAP, PIN_DECK_END, PIT_DEPTH } from '../../src/game/constants';
 import { PIN_NUMBERS, pinIndexByNumber } from '../../src/game/splits';
 import { GameState, type MatchConfig, type GameEvent, type GameSummary } from '../../src/game/GameState';
 import type { HudView } from '../../src/ui/Hud';
@@ -81,6 +80,9 @@ class FakeBody {
     this.t.x += this.v.x * dt;
     this.t.y += this.v.y * dt;
     this.t.z += this.v.z * dt;
+    // 핀덱 뒤(deckEnd = PIN_DECK_END + 0.4)를 넘으면 피트 바닥에 착지한 것으로 친다 — GameState.ballGoneOrStopped()의 '피트 착지' 조건
+    // (2026-09-03, POST_BALL_HOLD와 함께)이 가짜 씬에서도 참이 되게. 진짜 씬은 Rapier 중력이 0.85 m를 떨어뜨리지만 여기선 순간 착지.
+    if (this.t.z > PIN_DECK_END + 0.4) this.t.y = -PIT_DEPTH + BALL_RADIUS;
   }
 }
 

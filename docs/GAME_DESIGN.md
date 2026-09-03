@@ -282,6 +282,7 @@ M1부터 0부터 찍지 않도록 출발 숫자를 고정. 이후 손맛 보며 
 | `MIN_SPEED` / `MAX_SPEED` | 6.5 / 10.5 m/s | 파워 게이지 매핑(무게 보정은 §4.5). 초기 5/12 → 2026-09-02 실척도 재매핑(릴리스 14.5~23.5 mph, 골드 띠가 USBC 최적 21→17 mph에 앉음). 측정 도구 `BALL_SIM=1 npx vitest run tests/ball-motion-sim.test.ts` |
 | `SETTLE_VEL_EPS` | 0.05 | 정지 판정 속도 |
 | `SETTLE_TIMEOUT` | 4 s | 무한대기 방지 |
+| `POST_BALL_HOLD` | 0.7 s | 공이 사라진(피트 착지·정지) 뒤 프레임을 닫기까지의 최소 홀드. 거터·빗나감은 정착 조건이 즉시 참이라 공이 시야에서 사라지는 순간 닫혔다(0.07 s) → 한 박자(2026-09-03, [SOUND.md §2.10](SOUND.md)). 타임아웃은 이 홀드를 못 잘라먹는다 |
 | `PIN_FALL_ANGLE` | 45° | 쓰러짐 각도 임계 |
 | ~~`CONTACT_FORCE_THRESHOLD`~~ | — | **상수 자체가 없다.** contact force 방식 폐기 → [SOUND.md §3](SOUND.md) |
 | `HEADPIN_Z` / `PIN_DECK_END` | 18.29 / 19.08 | 1번핀 / 핀덱 끝 z. 전환 트리거 기준(§3·§4.2) |
