@@ -20,7 +20,7 @@ import { HOUSE } from '../ui/theme';
 const UP_COS_FALL = Math.cos(PIN_FALL_ANGLE); // ≈0.707 — 상수는 constants.ts가 갖는다(여기서 재구현 금지)
 
 // ── 핀세터 사이클 타임라인(초) ────────────────────────────────────────────────
-// 실제 기계(AMF 82-30 계열) 순서를 그대로 따른다. 이전 버전은 스윕과 리프트를 동시에 시작하고
+// 프리폴 핀세터 공통 순서를 그대로 따른다(AMF 82-70 계열·Brunswick GS-X 동일 — 소리 기준은 GS-X, machineSynth.ts). 이전 버전은 스윕과 리프트를 동시에 시작하고
 // **테이블이 아예 없어서**, 핀이 저 혼자 떠오르는 바람에 기계가 아니라 줄넘기로 읽혔다.
 // 핀을 드는 물체가 보이지 않으면 어떤 이징을 써도 뜀뛰기다 — 순서보다 이게 핵심 수정이다.
 //   ① 스윕이 먼저 '가드' 위치로 내려온다(쓸기 위해서가 아니라 기계 보호용)
@@ -371,7 +371,10 @@ export class PinSet {
     const ph = t < CY_GUARD ? 0 : t < CY_GRIP ? 1 : t < CY_LIFT ? 2 : t < CY_SWEEP ? 3 : t < CY_RETURN ? 4 : t < CY_SET ? 5 : t < CY_END ? 6 : 7;
     if (ph !== this.cyclePhase && ph < CY_PHASES.length) {
       this.cyclePhase = ph;
-      this.onCycle?.({ phase: CY_PHASES[ph], dur: CY_DURS[ph], pins: ph >= 5 ? this.cyclePlace.length : 0 });
+      // pins — sweep(3): 바가 실제로 밀 데드우드 수(④와 같은 판정: 아직 BAR_Z1 안쪽에 있는 것만. 피트에 이미 떨어진 핀은 다시 안 운다) ·
+      // set/raise(5·6): 놓는 핀 수 · 그 외 0. 사운드의 클래터·탁 밀도가 된다(cues.ts).
+      const pins = ph === 3 ? this.cycleSweep.filter((p) => p.body.translation().z <= BAR_Z1).length : ph >= 5 ? this.cyclePlace.length : 0;
+      this.onCycle?.({ phase: CY_PHASES[ph], dur: CY_DURS[ph], pins });
     }
     const spotY = PIN_HEIGHT / 2;
     /** 물린 핀을 테이블에 붙여 함께 움직인다 — '기계가 든다'로 읽히게 하는 부분 */

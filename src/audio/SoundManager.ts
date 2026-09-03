@@ -1,5 +1,6 @@
 import { MAX_SPEED, SLOWMO_SCALE } from '../game/constants';
-import type { MachineCue, MachineLane, MachinePhase, AmbBallCue } from './cues';
+import type { MachineCue, MachineLane, AmbBallCue } from './cues';
+import { MachineSynth } from './machineSynth';
 import type { GameSummary } from '../game/GameState';
 /**
  * 사운드 (Web Audio). 도안 §10.
@@ -549,29 +550,23 @@ export class SoundManager {
   }
 
   // ────────────────────────────────────────────────────────────────────────────
-  // 핀세터 기계음 — 전부 합성 (2026-09-02, SOUND.md §5 B·§8.5). 방향은 리얼·다이제틱.
+  // 핀세터 기계음 — 합성, 기준 기계는 Brunswick GS-X (2026-09-02 재설계, SOUND.md §2.5). 방향은 리얼·다이제틱.
   //
-  // 왜 합성인가: CC0 클로즈 녹음은 두 건뿐이고 전부 통짜 앰비언스라 7단계에 맞춰 자를 수 없다(§8.4).
-  // 실기계(AMF 82-30)의 소리는 ① 사이클 내내 도는 모터 험 ② 바·테이블이 움직이는 동안의 활주·윙윙
-  // ③ 부품이 끝에 닿는 '쿵' ④ 핀이 스폿에 놓이는 '탁' 넷으로 요약된다. 여기서도 그 넷을 층으로 쓴다:
-  //   motor  : 톱니파 2개(48·96.3Hz, 살짝 디튠) → LPF 380 + 노이즈 BPF 1.5kHz(래틀) → 사이클 시작~done
-  //   whir   : 노이즈 → BPF 주파수를 단계 길이 동안 f0→f1로 스윕 — 내려가는 부품은 하강, 올라가는 부품은 상승
-  //   clunk  : 노이즈 LPF 240 버스트 + 사인 80→55Hz 피치 드롭 — 바가 가드·끝·홈에 닿을 때
-  //   tak    : 노이즈 BPF 2.6kHz 8ms + 삼각파 950→700Hz 40ms — 핀 수만큼 140ms 안에 흩어 놓는다
-  // 큐(cues.ts)는 단계가 **시작**할 때 오므로, 직전 단계가 끝나며 나는 타격음을 그 시각에 얹는다
-  // (grip/sweep 시작 = 바가 가드에 닿음, return 시작 = 바가 끝에 닿음, set 시작 = 바 귀환, raise 시작 = 핀 놓임).
+  // 합성 자체는 machineSynth.ts(MachineSynth)가 갖는다 — BaseAudioContext만 받으므로 OfflineAudioContext로도 그대로 렌더된다.
+  // 브라우저 콘솔에서 `import('/src/audio/machineSynth.ts')`로 한 사이클을 렌더해 대역 에너지·단계별 RMS를 재는 게 검증 방법이다
+  // (SOUND.md §7). 층 구성·레벨 근거·이전 설계가 왜 저역 드론이 됐는지는 그 파일 상단 주석.
+  // 여기 남는 건 배선이다: 레인별 출구(laneOut — 거리 게인·LPF·팬) · 기계 버스(machineBus — 일시정지 뮤트) · 공유 노이즈 버퍼.
   //
   // 옆 레인(Environment)은 같은 큐를 cx와 함께 보낸다 — laneOut()이 거리로 게인·LPF·팬을 정한다. 옆 레인 공(굴림·크래시)도
   // 같은 출구를 쓰므로 machineBus는 사실상 '옆 레인 + 기계' 버스다 — 일시정지 뮤트도 그 전부에 걸린다.
-  // 레벨 기준: 크래시 1.0 · 굴림 ≤0.85 · BGM 0.08. 기계는 볼러가 18m 뒤에서 듣는 소리라 0.05~0.3에 둔다.
-  // ⚠️ 일시정지(메뉴·리플레이)에 물리가 멈추면 사이클도 멈추는데 모터는 노드라 계속 돈다 — setMachinePaused로 뮤트한다.
+  // 레벨 기준: 크래시 1.0 · 굴림 ≤0.85 · BGM 0.08. 기계는 볼러가 18m 뒤에서 듣는 소리라 연속음 RMS −40 dBFS · 타격 피크 −20 dBFS 근처(§2.5 실측표).
+  // ⚠️ 일시정지(메뉴·리플레이)에 물리가 멈추면 사이클도 멈추는데 합성기의 연속음은 노드라 계속 돈다 — setMachinePaused로 뮤트한다.
   // ────────────────────────────────────────────────────────────────────────────
   private machineBus: GainNode | null = null;
   private machinePaused = false;
   private noiseBuf: AudioBuffer | null = null;
   private readonly laneOuts = new Map<string, GainNode>();
-  private readonly motors = new Map<string, { srcs: AudioScheduledSourceNode[]; gain: GainNode }>();
-  private readonly lastPhase = new Map<string, MachinePhase>();
+  private machine: MachineSynth | null = null;
 
   /** 일시정지(메뉴·리플레이)에 기계음 뮤트 — Boot.applyPause가 loop.paused와 같은 값으로 부른다. */
   setMachinePaused(p: boolean) {
@@ -582,51 +577,17 @@ export class SoundManager {
     this.machineBus.gain.setTargetAtTime(p ? 0 : 1, now, 0.03);
   }
 
-  /** 핀세터 단계 큐 (PinSet.onCycle · Environment.onAmbMachine). lane 생략 = 플레이 레인. */
+  /**
+   * 핀세터 단계 큐 (PinSet.onCycle · Environment.onAmbMachine). lane 생략 = 플레이 레인.
+   * done은 enabled와 무관하게 넘긴다 — 사운드를 끈 뒤에도 돌고 있던 연속음·예약 소스를 끊어야 하니까.
+   */
   machineCue(cue: MachineCue, lane: MachineLane = { key: 'main', cx: 0 }) {
     if (!this.ctx) return;
-    if (cue.phase === 'done') {
-      this.motorStop(lane.key, !!cue.cut);
-      if (!cue.cut && this.enabled) this.clunk(this.laneOut(lane), this.ctx.currentTime, 0.16, 60);
-      this.lastPhase.delete(lane.key);
-      return;
-    }
-    if (!this.enabled) return;
-    const out = this.laneOut(lane);
-    const now = this.ctx.currentTime;
-    const prev = this.lastPhase.get(lane.key);
-    this.lastPhase.set(lane.key, cue.phase);
-    switch (cue.phase) {
-      case 'guard':
-        this.motorStart(lane.key, out);
-        this.whir(out, now, cue.dur, 650, 480, 0.07); // 바 하강
-        break;
-      case 'grip':
-        this.clunk(out, now, 0.22, 80); // 바가 가드에 닿음
-        this.whir(out, now, cue.dur, 480, 380, 0.05); // 테이블 하강
-        this.click(out, now + cue.dur * 0.65, 0.09); // 핑거가 목을 문다
-        break;
-      case 'lift':
-        this.whir(out, now, cue.dur, 420, 820, 0.06); // 들고 상승
-        break;
-      case 'sweep':
-        if (prev === 'guard') this.clunk(out, now, 0.22, 80); // rack은 grip을 건너뛰어 여기서 바가 가드에 닿는다
-        this.whir(out, now, cue.dur, 750, 1000, 0.09); // 긴 활주
-        break;
-      case 'return':
-        this.clunk(out, now, 0.32, 70); // 바가 끝에 닿음 — 가장 무거운 쿵
-        this.whir(out, now, cue.dur, 1000, 780, 0.07);
-        break;
-      case 'set':
-        this.clunk(out, now, 0.2, 80); // 바 귀환
-        this.whir(out, now, cue.dur, 480, 380, 0.05); // 테이블 하강
-        break;
-      case 'raise':
-        this.taks(out, now, cue.pins); // 핀이 스폿에 놓인다
-        this.whir(out, now + 0.08, Math.max(0.1, cue.dur - 0.08), 400, 820, 0.06); // 테이블·바 상승
-        break;
-    }
+    if (cue.phase !== 'done' && !this.enabled) return;
+    if (!this.machine) this.machine = new MachineSynth(this.ctx, this.noise());
+    this.machine.cue(cue, lane.key, this.laneOut(lane), this.ctx.currentTime, this.enabled);
   }
+
 
   // ── 옆 레인 공 소리 (2026-09-02, SOUND.md §2.8) — 기계음과 같은 laneOut 감쇠 경로(거리 게인·LPF 1.4k·팬)로,
   // 굴림은 roll.wav를 레인마다 따로 돌리고(속도→게인·피치는 주 레인 setRoll과 같은 식) 크래시는 playStrike를 그 출구로 보낸다.
@@ -718,104 +679,6 @@ export class SoundManager {
     return this.noiseBuf;
   }
 
-  private motorStart(key: string, out: AudioNode) {
-    if (this.motors.has(key)) return;
-    const ctx = this.ctx!;
-    const now = ctx.currentTime;
-    const g = ctx.createGain();
-    g.gain.setValueAtTime(0.0001, now);
-    g.gain.exponentialRampToValueAtTime(0.06, now + 0.12);
-    g.connect(out);
-    const lp = ctx.createBiquadFilter();
-    lp.type = 'lowpass';
-    lp.frequency.value = 380;
-    lp.Q.value = 1;
-    lp.connect(g);
-    const srcs: AudioScheduledSourceNode[] = [];
-    for (const f of [48, 96.3]) {
-      const o = ctx.createOscillator();
-      o.type = 'sawtooth';
-      o.frequency.value = f;
-      o.connect(lp);
-      o.start(now);
-      srcs.push(o);
-    }
-    // 래틀 — 기계 안 체인·판금이 떠는 소리. 없으면 험이 전기 소음으로 들린다.
-    const r = ctx.createBufferSource();
-    r.buffer = this.noise();
-    r.loop = true;
-    const bp = ctx.createBiquadFilter();
-    bp.type = 'bandpass';
-    bp.frequency.value = 1500;
-    bp.Q.value = 1.2;
-    const rg = ctx.createGain();
-    rg.gain.value = 0.22; // 험 대비 비율 (0.06 × 0.22 ≈ 0.013)
-    r.connect(bp).connect(rg).connect(g);
-    r.start(now);
-    srcs.push(r);
-    this.motors.set(key, { srcs, gain: g });
-  }
-
-  private motorStop(key: string, cut: boolean) {
-    const m = this.motors.get(key);
-    if (!m) return;
-    this.motors.delete(key);
-    const now = this.ctx!.currentTime;
-    const tail = cut ? 0.06 : 0.3; // 잘리면 즉시, 자연 종료면 모터가 관성으로 잦아든다
-    m.gain.gain.cancelScheduledValues(now);
-    m.gain.gain.setValueAtTime(Math.max(0.0001, m.gain.gain.value), now);
-    m.gain.gain.exponentialRampToValueAtTime(0.0001, now + tail);
-    for (const s of m.srcs) s.stop(now + tail + 0.02);
-  }
-
-  /** 활주·윙윙 — 노이즈 BPF 스윕. 어택 60ms · 릴리즈 100ms. */
-  private whir(out: AudioNode, t: number, dur: number, f0: number, f1: number, vol: number) {
-    const ctx = this.ctx!;
-    const src = ctx.createBufferSource();
-    src.buffer = this.noise();
-    src.loop = true;
-    const bp = ctx.createBiquadFilter();
-    bp.type = 'bandpass';
-    bp.Q.value = 1.4;
-    bp.frequency.setValueAtTime(f0, t);
-    bp.frequency.linearRampToValueAtTime(f1, t + dur);
-    const g = ctx.createGain();
-    g.gain.setValueAtTime(0.0001, t);
-    g.gain.exponentialRampToValueAtTime(vol, t + 0.06);
-    g.gain.setValueAtTime(vol, t + Math.max(0.06, dur - 0.1));
-    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
-    src.connect(bp).connect(g).connect(out);
-    src.start(t);
-    src.stop(t + dur + 0.05);
-  }
-
-  /** 쿵 — 저역 노이즈 버스트 + 피치가 떨어지는 사인. tone = 시작 주파수(Hz). */
-  private clunk(out: AudioNode, t: number, vol: number, tone: number) {
-    const ctx = this.ctx!;
-    const n = ctx.createBufferSource();
-    n.buffer = this.noise();
-    const lp = ctx.createBiquadFilter();
-    lp.type = 'lowpass';
-    lp.frequency.value = 240;
-    const ng = ctx.createGain();
-    ng.gain.setValueAtTime(vol, t);
-    ng.gain.exponentialRampToValueAtTime(0.0001, t + 0.09);
-    n.connect(lp).connect(ng).connect(out);
-    n.start(t);
-    n.stop(t + 0.12);
-    const o = ctx.createOscillator();
-    o.type = 'sine';
-    o.frequency.setValueAtTime(tone, t);
-    o.frequency.exponentialRampToValueAtTime(tone * 0.7, t + 0.12);
-    const og = ctx.createGain();
-    og.gain.setValueAtTime(0.0001, t);
-    og.gain.exponentialRampToValueAtTime(vol * 0.9, t + 0.006);
-    og.gain.exponentialRampToValueAtTime(0.0001, t + 0.15);
-    o.connect(og).connect(out);
-    o.start(t);
-    o.stop(t + 0.18);
-  }
-
   /** 릴레이·핑거 클릭 — 고역 노이즈 4ms. */
   private click(out: AudioNode, t: number, vol: number) {
     const ctx = this.ctx!;
@@ -830,40 +693,6 @@ export class SoundManager {
     n.connect(hp).connect(g).connect(out);
     n.start(t);
     n.stop(t + 0.02);
-  }
-
-  /** 핀이 스폿에 놓이는 '탁' × n — 140ms 안에 흩어 놓고 피치·게인을 조금씩 흔든다(같은 소리 n번은 기계총이 된다). */
-  private taks(out: AudioNode, t0: number, n: number) {
-    const ctx = this.ctx!;
-    const count = Math.max(0, Math.min(10, n));
-    for (let i = 0; i < count; i++) {
-      const t = t0 + (i / Math.max(1, count - 1)) * 0.14 + Math.random() * 0.012;
-      const vol = 0.14 + Math.random() * 0.05;
-      const nz = ctx.createBufferSource();
-      nz.buffer = this.noise();
-      const bp = ctx.createBiquadFilter();
-      bp.type = 'bandpass';
-      bp.frequency.value = 2600 * (0.95 + Math.random() * 0.1);
-      bp.Q.value = 5;
-      const ng = ctx.createGain();
-      ng.gain.setValueAtTime(vol, t);
-      ng.gain.exponentialRampToValueAtTime(0.0001, t + 0.008);
-      nz.connect(bp).connect(ng).connect(out);
-      nz.start(t);
-      nz.stop(t + 0.03);
-      const o = ctx.createOscillator();
-      o.type = 'triangle';
-      const f = 950 * (0.94 + Math.random() * 0.12);
-      o.frequency.setValueAtTime(f, t);
-      o.frequency.exponentialRampToValueAtTime(f * 0.74, t + 0.04);
-      const og = ctx.createGain();
-      og.gain.setValueAtTime(0.0001, t);
-      og.gain.exponentialRampToValueAtTime(vol * 0.8, t + 0.003);
-      og.gain.exponentialRampToValueAtTime(0.0001, t + 0.04);
-      o.connect(og).connect(out);
-      o.start(t);
-      o.stop(t + 0.06);
-    }
   }
 
   // ────────────────────────────────────────────────────────────────────────────

@@ -931,7 +931,12 @@ export class Environment {
       case 'guard': this.onAmbMachine({ phase: 'guard', dur: AMB_GUARD_T, pins: 0 }, lane); break;
       case 'grip': this.onAmbMachine({ phase: 'grip', dur: AMB_GRIP_T, pins: 0 }, lane); break;
       case 'hoist': this.onAmbMachine({ phase: 'lift', dur: AMB_HOIST_T, pins: 0 }, lane); break;
-      case 'sweep': this.onAmbMachine({ phase: 'sweep', dur: AMB_SWEEP_T, pins: 0 }, lane); break;
+      case 'sweep': {
+        // 클래터 밀도 = 피트로 쓸려 나가는 핀 수. 리스팟은 넘어진 핀만(선 핀은 테이블이 들고 있다), 새 랙은 남은 것까지 전부 쓸린다.
+        const down = L.pins.reduce((n, p) => n + (this.isAmbStanding(L, p) ? 0 : 1), 0);
+        this.onAmbMachine({ phase: 'sweep', dur: AMB_SWEEP_T, pins: L.respot ? down : L.pins.length }, lane);
+        break;
+      }
       case 'set': this.onAmbMachine({ phase: 'return', dur: AMB_SET_T, pins: 0 }, lane); break;
       case 'rack': this.onAmbMachine({ phase: 'set', dur: AMB_RACK_T, pins: L.respot ? held : 10 }, lane); break;
       case 'lift': this.onAmbMachine({ phase: 'raise', dur: AMB_LIFT_T, pins: L.respot ? held : 10 }, lane); break;
