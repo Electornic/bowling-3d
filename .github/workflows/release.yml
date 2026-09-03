@@ -71,9 +71,34 @@ jobs:
           name: release-notes
           path: notes.md
 
+  # ---------------------------------------------------------------- 테스트 게이트
+  # 여태 빌드가 깨져야만 릴리스가 막혔다 — 타입·테스트가 깨진 채로도 발행됐다.
+  # 스위트가 0.6초라 게이트 비용은 사실상 npm install 시간뿐이고, 빌드 3종을 돌리기 전에 끊는다.
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - run: npm install
+
+      # tsc는 각 빌드 job의 beforeBuildCommand(`npm run build`)에도 들어 있지만, 여기서 먼저
+      # 깨뜨려야 Android NDK·Windows·macOS 러너를 띄우기 전에 알 수 있다.
+      - name: Typecheck
+        run: npx tsc --noEmit
+
+      # sim 층(BALL_SIM·AI_CAL·AI_SIM·GUTTER_SIM)은 describe.runIf(env)로 기본 skip이다.
+      # 릴리스마다 돌리기엔 너무 길어 의도적으로 뺀다 — "N skipped"는 정상이다.
+      - name: Test
+        run: npx vitest run
+
   # ---------------------------------------------------------------- Android APK
   android:
-    needs: meta
+    needs: [meta, test]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -130,7 +155,7 @@ jobs:
 
   # ---------------------------------------------------------------- Windows · macOS
   desktop:
-    needs: meta
+    needs: [meta, test]
     # 한 플랫폼이 죽어도 나머지는 끝까지 — 릴리스는 성공한 것만 싣는다
     strategy:
       fail-fast: false
@@ -222,10 +247,12 @@ jobs:
 
   # ---------------------------------------------------------------- 릴리스 발행
   release:
-    needs: [meta, android, desktop]
+    needs: [meta, test, android, desktop]
     # 일부 플랫폼이 실패해도 성공한 것만 실어 발행한다 — 3플랫폼 전원 성공을 요구하면
     # 러너 하나가 흔들릴 때 잘 되던 Android 릴리스까지 같이 죽는다.
-    if: ${{ !cancelled() && needs.meta.result == 'success' }}
+    # 단 test는 예외다: 깨진 걸 발행하지 않는다(플랫폼 실패는 러너 사정일 수 있어도
+    # 테스트 실패는 언제나 코드 문제다). test가 죽으면 빌드가 skip되므로 여기도 조용히 skip된다.
+    if: ${{ !cancelled() && needs.meta.result == 'success' && needs.test.result == 'success' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4
