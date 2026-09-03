@@ -23,6 +23,8 @@ export const en: Record<I18nKey, string> = {
 
   'controls.spin': 'SPIN',
 
+  'controls.power': 'POWER',
+
   'boot.rotatePortrait': '↻ Please rotate to portrait',
   'boot.menu': '☰ Menu',
   'boot.onFire': '{streak} IN A ROW · ON FIRE',

@@ -22,6 +22,8 @@ export const zh: Record<I18nKey, string> = {
 
   'controls.spin': '旋转',
 
+  'controls.power': '力度',
+
   'boot.rotatePortrait': '↻ 请竖屏使用',
   'boot.menu': '☰ 菜单',
   'boot.onFire': '连续{streak}次 · ON FIRE',

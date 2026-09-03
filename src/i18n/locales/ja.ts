@@ -21,6 +21,8 @@ export const ja: Record<I18nKey, string> = {
 
   'controls.spin': 'スピン',
 
+  'controls.power': 'パワー',
+
   'boot.rotatePortrait': '↻ 縦向きにしてください',
   'boot.menu': '☰ メニュー',
   'boot.onFire': '{streak}連続・ON FIRE',

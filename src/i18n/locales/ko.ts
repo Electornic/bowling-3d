@@ -21,6 +21,7 @@ export const ko = {
 
   // ─── 조작 UI ───
   'controls.spin': '스핀',
+  'controls.power': '파워',
 
   // ─── 인게임 알림·버튼 ───
   'boot.rotatePortrait': '↻ 세로로 돌려주세요',

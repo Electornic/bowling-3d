@@ -208,12 +208,18 @@ export class Controls {
     this.aimGroup.visible = false;
     engine.scene.add(this.aimGroup);
 
-    // 하단 도크 통합(docs/legacy/UI_REVAMP.md P2): 스핀=좌하단 컴팩트 · 파워=우하단 세로, 같은 글래스+시안 액센트로 한 쌍.
+    // 하단 도크 통합(docs/legacy/UI_REVAMP.md P2): 스핀=좌하단 컴팩트 · 파워=우하단 세로 한 쌍.
     // 가운데를 비워 공·조준 화살표(바나나 곡선) 밑동이 그대로 보이게 한다(공 가림 해소, 진단④).
+    //
+    // 2026-09-02 톤앤매너 정리(사용자: "전반적인 톤앤매너에 맞게") — 도크 둘과 핀 인디케이터(PinDeck)가 마지막으로 남은
+    // 글래스 시절 위젯이었다(시안 테두리 + 999px 알약 트랙 + 글로우 채움 + ⚡ 이모지). 점수 시트·메뉴는 이미 인쇄물 문법
+    // (크림 규선·머스터드 잉크 블록·자간 라벨·3px 모서리)이라 그 문법으로 맞춘다: 테두리 = 크림 규선, 트랙 = 잉크 홈(3px),
+    // 존 = 인쇄 해칭, 채움 = 하드 스톱 3색 띠(sage/mustard/brick — 존 경계와 같은 위치), 노브 = 페이더 캡, 라벨 = 활자.
+    // 글로우·이모지·그라데 확산은 전부 걷었다. 바탕(PANEL_BG 슬레이트)은 그대로다 — 톤은 구조·액센트로 낸다(theme.ts 합의).
 
     // === 파워 게이지 (우측 하단 — 중앙은 공과 겹침) ===
     const powerWrap = (this.powerWrap = document.createElement('div'));
-    applyPanel(powerWrap, HOUSE.turquoise);
+    applyPanel(powerWrap, HOUSE.cream); // 크림 규선 — 점수 시트 RULE과 같은 인쇄 문법
     css(powerWrap, {
       position: 'fixed', // 우측 세로 파워바 (가운데 레인을 비움)
       bottom: DOCK_BOTTOM, // 스핀과 같은 베이스라인 — 좁은 화면에선 syncDockLayout()이 위로 올린다
@@ -228,17 +234,24 @@ export class Controls {
       alignItems: 'center',
       gap: '7px',
     });
-    // ⚡ 아이콘 — 세로 게이지 위. 이전엔 "POWER" 텍스트가 바(14px)보다 넓어 패널이 불균형해 뺐는데,
-    // 아이콘 1자는 바 폭과 비슷해 균형 유지 + "이게 파워"임을 한눈에 (빈 캡슐 문제 해소, docs/legacy/UI_REVAMP.md 진단①).
-    const powerIcon = document.createElement('div');
-    powerIcon.textContent = '⚡';
-    css(powerIcon, {
-      fontSize: '15px',
-      lineHeight: '1',
-      opacity: '0.95',
-      filter: `drop-shadow(0 0 5px ${rgba(HOUSE.turquoise, 0.7)})`,
+    // 라벨 — 세로 게이지 위, 스핀 라벨과 같은 가로 자간 활자. 예전엔 ⚡ 이모지였다(이모지 아이콘은 83b67c5에서 전부 걷었는데
+    // 여기만 남아 있었다). 한 번 세로쓰기(vertical-rl)로 놓아 봤는데 한글이 한 자씩 쌓여 "파/워"가 됐다 — 사용자: "세로로 쓰는 게 맞을까"
+    // → 가로로 돌린다. 한·중 글자(18px)는 바 폭(20px) 안에 들고, 일본어(27px)·영어 "POWER"(40px)에선 패널이 그만큼 넓어진다(최대 62px).
+    // 그 불균형이 옛날 텍스트를 뺀 이유였지만, 지금은 라벨이 스핀 패널과 같은 활자라 '한 세트'로 읽히는 쪽이 낫다.
+    const powerLabel = document.createElement('span');
+    powerLabel.textContent = t('controls.power');
+    css(powerLabel, {
+      font: FONT_UI,
+      fontSize: '9px',
+      letterSpacing: '0.14em',
+      color: HOUSE.dim,
+      textTransform: 'uppercase',
+      whiteSpace: 'nowrap',
     });
-    powerWrap.appendChild(powerIcon);
+    onLocaleChange(() => {
+      powerLabel.textContent = t('controls.power');
+    });
+    powerWrap.appendChild(powerLabel);
 
     const gaugeTrack = document.createElement('div');
     css(gaugeTrack, {
@@ -249,42 +262,45 @@ export class Controls {
       // 가로 375px→97px). 세로 바의 길이는 화면 높이에 비례하는 게 맞지만 하한이 없으면 가로에서
       // 반토막이 된다. clamp로 하한·상한을 줘서 두 방향 모두에서 충분히 길다.
       height: this.coarse ? 'clamp(190px, 30vh, 300px)' : '220px',
-      background: 'rgba(255,255,255,0.12)',
-      border: `1.5px solid ${rgba(HOUSE.turquoise, 0.42)}`, // 0.25 → 0.42 (대비↑)
-      borderRadius: '10px',
+      background: 'rgba(0,0,0,0.38)', // 잉크 홈 — 밝은 반투명(0.12 white)은 글래스 문법이었다
+      border: `1px solid ${rgba(HOUSE.cream, 0.28)}`, // 점수 시트 RULE과 같은 값
+      borderRadius: '3px',
       overflow: 'hidden',
     });
-    // 최적 파워 존(흐리게 암시) — 은은한 골드 띠 + 진입 하단 경계선만. 정확 눈금은 의도적으로 없음.
+    // 최적 파워 존 — 인쇄 해칭 띠 + 진입 하단 경계선(크림 규선). 정확 눈금은 의도적으로 없음.
+    const lo = POWER_SWEET_LO * 100;
+    const hi = POWER_SWEET_HI * 100;
     const zoneBand = document.createElement('div');
     css(zoneBand, {
       position: 'absolute',
       left: '0',
-      bottom: `${POWER_SWEET_LO * 100}%`,
+      bottom: `${lo}%`,
       width: '100%',
-      height: `${(POWER_SWEET_HI - POWER_SWEET_LO) * 100}%`,
-      background: rgba(HOUSE.mustard, 0.13),
+      height: `${hi - lo}%`,
+      // 반투명 색면(0.13) → 45° 해칭. 인쇄물이 '구역'을 표시하는 방식이고, 채움이 지나가도 줄무늬로 남아 존이 계속 읽힌다.
+      background: `repeating-linear-gradient(135deg, ${rgba(HOUSE.mustard, 0.34)} 0 2px, transparent 2px 6px)`,
     });
-    const zoneLine = document.createElement('div'); // 존 진입 경계 (은은한 골드 글로우 라인)
+    const zoneLine = document.createElement('div'); // 존 진입 경계 — 글로우 없는 1px 규선
     css(zoneLine, {
       position: 'absolute',
-      left: '-1px',
-      right: '-1px',
-      bottom: `${POWER_SWEET_LO * 100}%`,
-      height: '1.5px',
-      background: rgba(HOUSE.mustard, 0.5),
-      boxShadow: `0 0 6px ${rgba(HOUSE.mustard, 0.45)}`,
+      left: '0',
+      right: '0',
+      bottom: `${lo}%`,
+      height: '1px',
+      background: rgba(HOUSE.cream, 0.7),
     });
     this.gaugeFill = document.createElement('div');
     css(this.gaugeFill, {
       position: 'absolute',
       left: '0',
-      bottom: '0', // 아래에서 위로 차오름
+      bottom: '0',
       width: '100%',
-      height: '0%',
-      // 아래=안전 위=과다. 이 그라데는 **값을 인코딩하는 기능**이라 남긴다(장식 그라데와 다르다).
-      // 정지점만 팔레트에서 유도 — 예전엔 green-400·yellow-400·red-500 리터럴이었다.
-      background: `linear-gradient(0deg,${HOUSE.sage},${HOUSE.mustard},${HOUSE.brick})`,
-      boxShadow: `0 0 14px ${rgba(HOUSE.mustard, 0.5)}`, // 채움 위치를 어두운 트랙에서 읽히게 하는 최소 확산
+      height: '100%',
+      // 아래=안전 위=과다. 값을 인코딩하는 색이라 남기되 **부드러운 그라데 → 하드 스톱 3색 띠**로: 경계가 존(lo·hi)과
+      // 정확히 같은 위치라 채움이 존에 들어서는 순간 색이 머스터드로 바뀐다(인쇄 미터). 채움량은 height가 아니라
+      // clip-path로 드러낸다 — height로 하면 그라데가 채움 길이에 따라 늘어나 띠 위치가 움직인다.
+      background: `linear-gradient(0deg, ${HOUSE.sage} 0 ${lo}%, ${HOUSE.mustard} ${lo}% ${hi}%, ${HOUSE.brick} ${hi}% 100%)`,
+      clipPath: 'inset(100% 0 0 0)',
     });
     gaugeTrack.appendChild(zoneBand); // 뒤: 존 띠
     gaugeTrack.appendChild(this.gaugeFill); // 중간: 차오르는 채움
@@ -293,7 +309,7 @@ export class Controls {
 
     // === 스핀 게이지 (파워 위) — 휠(데스크톱) 또는 드래그(터치)로 좌/우 훅 설정 ===
     const spinWrap = (this.spinWrap = document.createElement('div'));
-    applyPanel(spinWrap, HOUSE.turquoise); // 파워와 동일 액센트로 통일 (입력 쌍)
+    applyPanel(spinWrap, HOUSE.cream); // 파워와 동일 규선으로 통일 (입력 쌍)
     css(spinWrap, {
       position: 'fixed', // 좌하단 컴팩트 — 풀폭 폐기(공·조준선 밑동 가림). 2단: 헤더(라벨+값) / 트랙.
       bottom: DOCK_BOTTOM,
@@ -306,10 +322,10 @@ export class Controls {
       width: this.coarse ? 'clamp(250px, 62vw, 340px)' : '360px',
       zIndex: '20',
       pointerEvents: 'none',
-      padding: '8px 12px',
+      padding: '9px 12px 10px',
       display: 'flex',
       flexDirection: 'column',
-      gap: '6px',
+      gap: '10px', // 6 → 10: 라벨이 트랙에 붙어 보였다(사용자, 2026-09-03 "스핀과 바 사이 간격 조금 벌려")
       // **휠을 보기 전까진 상시 노출** — 그때까진 이 바가 유일한 스핀 입력일 수 있다(태블릿·휠 없는
       // 마우스). 첫 wheel 이벤트에서 트랜지언트로 강등된다(demoteSpinBarToIndicator).
       opacity: '1',
@@ -344,9 +360,9 @@ export class Controls {
       flex: '1',
       minWidth: '0',
       height: `${TRACK_HIT}px`,
-      background: this.coarse ? 'transparent' : 'rgba(255,255,255,0.1)',
-      border: this.coarse ? 'none' : `1px solid ${rgba(HOUSE.turquoise, 0.25)}`,
-      borderRadius: '999px',
+      background: this.coarse ? 'transparent' : 'rgba(0,0,0,0.38)', // 잉크 홈(파워 트랙과 동일)
+      border: this.coarse ? 'none' : `1px solid ${rgba(HOUSE.cream, 0.28)}`,
+      borderRadius: '3px', // 999px 알약은 글래스 문법 — 인쇄물 모서리
       // 데스크톱은 휠이 입력을 담당하고 바는 표시기 — 숨겨진 상태로 클릭되면 사고라 아예 끈다.
       pointerEvents: 'auto', // 휠 강등 시 none으로 바뀐다 — 그전까진 드래그가 유일한 입력일 수 있다
       cursor: 'ew-resize',
@@ -362,9 +378,9 @@ export class Controls {
         marginTop: `${-BAR_H / 2}px`,
         width: '100%',
         height: `${BAR_H}px`,
-        background: 'rgba(255,255,255,0.12)',
-        border: `1.5px solid ${rgba(HOUSE.turquoise, 0.42)}`, // 파워 트랙과 같은 대비로 통일
-        borderRadius: '999px',
+        background: 'rgba(0,0,0,0.38)',
+        border: `1px solid ${rgba(HOUSE.cream, 0.28)}`, // 파워 트랙과 같은 규선
+        borderRadius: '3px',
       });
       spinTrack.appendChild(line);
     }
@@ -387,24 +403,27 @@ export class Controls {
       width: '0%',
       height: `${BAR_H}px`,
       marginTop: `${-BAR_H / 2}px`,
-      borderRadius: '999px',
+      borderRadius: '2px',
     });
+    // 노브 = **페이더 캡**(세로로 긴 직사각 + 가운데 홈). 원판은 글래스 시절 슬라이더 문법이고, 크림 원판은 핀 인디케이터의
+    // '서 있는 핀'과 같은 모양이라 뜻이 겹쳤다. 미드센추리 기기의 페이더 캡은 직사각이다. 크림 + 하드 잉크 테두리는 유지
+    // (글로우는 그 전에 이미 걷었다 — 플레이 화면에서 유일하게 발광하던 요소였다).
+    const THUMB_W = Math.round(THUMB * 0.62);
+    const THUMB_H = THUMB + 6;
     this.spinThumb = document.createElement('div');
     css(this.spinThumb, {
       position: 'absolute',
       left: '50%',
       top: '50%',
-      width: `${THUMB}px`,
-      height: `${THUMB}px`,
-      marginLeft: `${-THUMB / 2}px`,
-      marginTop: `${-THUMB / 2}px`,
-      borderRadius: '50%',
-      // 글로우(0 0 8px) 제거 — 플레이 화면에서 유일하게 발광하던 요소였다.
-      // 노브는 **플랫 크림 원판 + 하드 잉크 테두리**로 읽는다(PinDeck의 서 있는 핀과 같은 문법).
-      // 흰색 #fff → cream: 팔레트 안으로 들이고, 잉크 테두리와 대비 15:1.
-      background: HOUSE.cream,
+      width: `${THUMB_W}px`,
+      height: `${THUMB_H}px`,
+      marginLeft: `${-THUMB_W / 2}px`,
+      marginTop: `${-THUMB_H / 2}px`,
+      borderRadius: '2px',
+      // 가운데 홈 — 캡의 손가락 자리. 2px 잉크 선.
+      background: `linear-gradient(to right, ${HOUSE.cream} 0 calc(50% - 1px), ${INK} calc(50% - 1px) calc(50% + 1px), ${HOUSE.cream} calc(50% + 1px))`,
       border: `2px solid ${INK}`,
-      boxShadow: '0 1px 3px rgba(0,0,0,0.55)', // 확산 아닌 드롭섀도 — 어두운 트랙에서 원판을 떼어놓는다
+      boxShadow: '0 1px 3px rgba(0,0,0,0.55)', // 확산 아닌 드롭섀도 — 어두운 트랙에서 캡을 떼어놓는다
     });
     spinTrack.appendChild(this.spinFill);
     spinTrack.appendChild(tick);
@@ -574,7 +593,7 @@ export class Controls {
         this.chargeDir = 1;
       }
     }
-    this.gaugeFill.style.height = `${this.power * 100}%`;
+    this.gaugeFill.style.clipPath = `inset(${(1 - this.power) * 100}% 0 0 0)`; // 위에서 가려 아래부터 드러난다(띠 위치 고정)
 
     // 스핀 게이지: 중앙에서 좌(시안)/우(앰버)로 차오름 + 썸. 입력은 휠 또는 바 드래그.
     const s = this.spin;

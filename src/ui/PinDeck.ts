@@ -68,17 +68,19 @@ function ensurePinDeckStyles(): void {
   width:${DOT}; height:${DOT}; border-radius:50%;
   display:grid; place-items:center;
   font:700 ${DOT_FS}/1 ui-monospace, 'SF Mono', 'Roboto Mono', Menlo, monospace;
-  /* 쓰러진 핀 = 자리는 남기고 비운다. 자리가 사라지면 삼각형이 무너져 도면으로 안 읽힌다. */
-  background:transparent; color:${HOUSE.faint};
-  border:1px solid ${rgba(HOUSE.cream, 0.28)};
-  transition:background 0.16s ease, color 0.16s ease;
+  /* 쓰러진 핀 = 자리는 남기고 비운다(꺼진 전구). 자리가 사라지면 삼각형이 무너져 도면으로 안 읽힌다. */
+  background:${rgba(INK, 0.45)}; color:${HOUSE.faint};
+  border:1px solid ${rgba(HOUSE.cream, 0.22)};
+  transition:background 0.16s ease, color 0.16s ease, border-color 0.16s ease;
 }
-/* 서 있는 핀 = **플랫 크림 색면 + 잉크 숫자.** 예전엔 여기에 터쿼이즈 글로우(0 0 7px)가 있었는데,
-   도면은 인쇄물이라 알이 발광하지 않는다 — 색면 대비만으로 이미 충분히 튄다(대비 15:1).
-   transition에서 box-shadow도 뺐다(애니메이션할 대상이 없어졌다). */
+/* 서 있는 핀 = **켜진 앰버 전구 + 잉크 숫자.** 모델은 AMF 'Pindicator'(1953) — 마스킹 유닛 위에서 서 있는 핀을
+   앰버 전구로 켜 주던 장치라, 미드센추리 하우스에 실제로 있던 물건이다. 예전의 크림 원판은 흰 점 10개로 읽혀
+   팔레트 밖 요소처럼 보였다(사용자 2026-09-02: "컬러 좀 바꾸고"). 머스터드는 점수 시트의 현재 프레임 블록과 같은
+   잉크 — 같은 뜻(지금 살아 있는 것). 글로우는 넣지 않는다 — 도면은 인쇄물이고 '켜짐'은 색면 대비(머스터드 위 잉크
+   8:1)로 충분하다. transition에 box-shadow가 없는 것도 그래서다. */
 #hud-pindeck .pd-dot.pd-up{
-  background:${HOUSE.cream}; color:${INK};
-  border-color:${HOUSE.cream};
+  background:${HOUSE.mustard}; color:${INK};
+  border-color:${HOUSE.amber};
 }
 
 @media (max-width:760px){
@@ -102,7 +104,7 @@ export class PinDeck {
     this.root.id = 'hud-pindeck';
     this.root.classList.add('is-hidden');
     this.root.setAttribute('role', 'img');
-    applyPanel(this.root, HOUSE.turquoise);
+    applyPanel(this.root, HOUSE.cream); // 크림 규선 — 도크·점수 시트와 같은 인쇄 문법(2026-09-02 톤앤매너)
     for (const nums of DISPLAY_ROWS) {
       const row = document.createElement('div');
       row.className = 'pd-row';

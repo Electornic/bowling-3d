@@ -234,7 +234,7 @@ export class Hud {
     this.pill.classList.add('is-hidden');
     this.pill.setAttribute('aria-controls', 'hud-scoreboard');
     this.pill.setAttribute('aria-expanded', 'false');
-    applyPanel(this.pill, HOUSE.turquoise);
+    applyPanel(this.pill, HOUSE.cream); // 도크·핀 인디케이터와 같은 크림 규선(2026-09-02 톤앤매너 — 시안 테두리는 글래스 잔재)
     css(this.pill, {
       // 좌상단 ☰ 메뉴(높이 40)와 같은 가로선 — top이 같으니 높이를 맞춰 세로 중심을 일치시킨다.
       minHeight: '40px',
