@@ -439,7 +439,8 @@ export class SoundManager {
   }
 
   // ────────────────────────────────────────────────────────────────────────────
-  // 하우스 PA 차임 — 게임 이벤트 5종 (2026-09-02, SOUND.md §2.6). 방향은 리얼·다이제틱: 관중 반응이 아니라
+  // 하우스 PA 차임 — 게임오버 스팅어·해금 차임만. 스틸컷 4종은 2026-09-02에 도장 쿵으로 갔다가 2026-09-03에 소리를 뺐다(핀세터 사이클과
+  // 같은 순간에 시작해 묻힌다 — SOUND.md §2.6). 방향은 리얼·다이제틱: 관중 반응이 아니라
   // **이 볼링장 천장 스피커가 내는 신호음**이다(실제 하우스가 스트라이크에 전광판 애니메이션 + 짧은 팡파르를 내듯).
   // 해금 차임과 같은 합성 계열(blip)이고, 스피커 질감을 위해 paOut() 필터 체인(HPF 300 · 2.2kHz 프레즌스 · LPF 6k)을 거친다
   // — UI 소리와 구분되고 "저 위 스피커"로 읽힌다.
@@ -493,31 +494,6 @@ export class SoundManager {
     return (notes.length - 1) * gap + last;
   }
 
-  /** 스트라이크 — 스트릭이 길수록 음이 하나씩 늘어난다(1: C E G · 2: +C · 3: +E · 4+: +G). */
-  playStrikeChime(streak: number) {
-    if (!this.ctx || !this.enabled) return;
-    const n = Math.min(6, 2 + Math.max(1, streak)); // 3·4·5·6음
-    const scale = [72, 76, 79, 84, 88, 91]; // C5 E5 G5 C6 E6 G6
-    this.chime(scale.slice(0, n), 0.095, 0.32, 0.2, 'sine', 0.7);
-  }
-
-  /** 스페어 — 가벼운 긍정 2음(G5 → C6). */
-  playSpareChime() {
-    if (!this.ctx || !this.enabled) return;
-    this.chime([79, 84], 0.11, 0.3, 0.18, 'sine', 0.5);
-  }
-
-  /** 거터·0핀 — 하강 2음(E4 → C4), 삼각파, 느리게. 축하가 아니라 '삐-빕' 디플레이팅. */
-  playGutterChime() {
-    if (!this.ctx || !this.enabled) return;
-    this.chime([64, 60], 0.22, 0.34, 0.16, 'triangle', 0.5);
-  }
-
-  /** 스플릿 컨버전 — 가장 희귀한 사건. 4음 팡파르 + 긴 종지(C5 F5 A5 C6). */
-  playSplitChime() {
-    if (!this.ctx || !this.enabled) return;
-    this.chime([72, 77, 81, 84], 0.085, 0.3, 0.22, 'sine', 1.0);
-  }
 
   /**
    * 게임 종료 스팅어. 승/솔로 = 상승 4음 종지(C E G C), 무 = G 두 번, 패 = 하강 3음(E C G4). 신기록이면 뒤에 트릴(C6 E6 C6 E6).

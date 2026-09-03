@@ -119,7 +119,10 @@ export class StillCut {
     document.body.appendChild(this.root);
   }
 
-  /** 결과 스틸컷 발화. kind=strike|spare|split|gutter, label=큰 문구, sub=보조 문구. */
+  /**
+   * 결과 스틸컷 발화. kind=strike|spare|split|gutter, label=큰 문구, sub=보조 문구.
+   * 소리는 없다(2026-09-03) — 한때 착지 시각(sc-fly 65% ≈ 0.32 s)을 돌려줘 도장 쿵을 맞췄지만 뺐다(SOUND.md §2.6).
+   */
   show(kind: StillCutKind, label: string, sub = '') {
     if (this.hideTimer != null) clearTimeout(this.hideTimer);
     this.root.replaceChildren();

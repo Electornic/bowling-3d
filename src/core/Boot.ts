@@ -268,29 +268,24 @@ function wireGameEvents(d: {
         const label =
           e.streak >= 4 ? `${e.streak} BAGGER!!` : e.streak === 3 ? 'TURKEY!!' : e.streak === 2 ? 'DOUBLE!' : 'STRIKE!';
         const sub = e.streak >= 2 ? t('boot.onFire', { streak: e.streak }) : t('boot.strike');
-        // 스트라이크 = 풀연출: 짧은 리플레이 → 프리즈에 스틸컷 슬램 + PA 차임. 녹화 부족 시 즉시.
-        // 차임은 이벤트 시각이 아니라 **스틸컷이 뜨는 순간**에 — 리플레이 중엔 크래시 재발화가 울리고 있다.
-        const slam = () => {
-          stillCut.show('strike', label, sub);
-          sound.playStrikeChime(e.streak);
-        };
+        // 스트라이크 = 풀연출: 짧은 리플레이 → 프리즈에 스틸컷 슬램. 녹화 부족 시 즉시.
+        // 스틸컷엔 **소리가 없다**(2026-09-03, 사용자 결정). PA 차임(게임 징글로 들림) → 도장 쿵(스페어·거터·스플릿은 핀세터 사이클과
+        // 같은 순간에 시작해 묻힘) 둘을 거쳐 뺐다 — SOUND.md §2.6. 리플레이 중엔 크래시 재발화가 울리고, 그 뒤는 기계음이 채운다.
+        const slam = () => stillCut.show('strike', label, sub);
         if (!replay.start(slam)) slam();
         break;
       }
       case 'spare':
         stillCut.show('spare', 'SPARE!', t('boot.spareCleared')); // 스페어 = 스틸컷만 (리플레이 X)
-        sound.playSpareChime();
         break;
       case 'gutter':
         stillCut.show('gutter', 'GUTTER', t('boot.zeroPins')); // 거터 = 디플레이팅 스틸컷 (축하 X)
-        sound.playGutterChime();
         break;
       case 'splitConverted':
         // 스플릿은 **성공만** 연출한다. '발생' 배너는 핀을 보면 아는 정보를 2구 조준 정면에 2.2초
         // 띄우는 부정 피드백이었고, 라벨도 볼링 용어가 아니라 남은 핀 번호 나열이었다.
         // AI 턴 배너도 걷었다 — 점수판이 현재 차례를 골드 액센트로 이미 표시한다(Hud.renderSheet).
         stillCut.show('split', 'SPLIT CONVERTED!', t('boot.splitConverted', { label: e.label }));
-        sound.playSplitChime();
         break;
       case 'gameOver': {
         replay.cancel(); // 마지막 결정타 리플레이가 결과화면과 겹치지 않게 즉시 접음
