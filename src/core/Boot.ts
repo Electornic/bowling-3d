@@ -119,6 +119,7 @@ export async function boot() {
   pauseHook.set = (p) => {
     menuPaused = p; // 일시정지 모달 — 열려 있는 동안 물리·상태머신을 실제로 멈춘다
     applyPause();
+    sound.setMenuPaused(p); // 메뉴 사유만: BGM 로패스 + 굴림 럼블 끊기(리플레이 정지엔 안 건다 — 리플레이가 굴림음을 다시 낸다, SOUND.md §2.13)
   };
   loop.start();
 
@@ -464,6 +465,10 @@ function buildScene(engine: Engine): {
       setLocale(resolveLocale(lang));
     },
   );
+  // UI 효과음 (SOUND.md §2.12) — 메뉴는 패널 위임(버튼 클릭·호버·패널 개폐·장착·무게 노치), 컨트롤은 파워 래칫·스핀 노치.
+  // 부팅 직후 showMenu의 'open'은 ctx가 없어(첫 제스처 전) 조용히 빠진다.
+  menu.onSfx = (k, x) => sound.ui(k, x);
+  controls.onSfx = (k, x) => sound.ui(k, x);
   applySavedCosmetics(game, environment, settings);
   menu.showMenu();
 
@@ -505,6 +510,7 @@ function buildScene(engine: Engine): {
   // 리플레이 사운드 — 리플레이는 물리를 얼려 위 두 훅이 안 불린다. 같은 SoundManager 경로로 다시 울린다(Replay 주석).
   replay.onImpact = () => sound.playRackCrash(game.impactStanding);
   replay.onBall = (v, inGutter, timeScale) => sound.setRoll(v, inGutter, timeScale);
+  replay.onCue = (dir) => sound.playReplayCue(dir); // 진입(첫 재생 프레임)/복귀(finish·스킵) 슉 — SOUND.md §2.13
   // 핀세터 기계음 — 플레이 레인은 PinSet 단계 큐, 옆 레인은 Environment가 같은 어휘로 cx와 함께 보낸다(cues.ts)
   pins.onCycle = (cue) => sound.machineCue(cue);
   environment.onAmbMachine = (cue, lane) => sound.machineCue(cue, lane);
@@ -550,6 +556,7 @@ function buildScene(engine: Engine): {
     });
   };
   const exitBtn = createExitButton(forfeit);
+  exitBtn.addEventListener('click', () => sound.ui('click')); // 메뉴 패널 밖의 유일한 버튼 — 패널 위임이 안 닿는다(Esc는 패널 'open' 슉만)
 
   // 초기 카메라 (이후 CameraRig가 상태별로 보간) — AIMING 뷰와 동일
   engine.camera.position.set(0, 1.12, -2.7);

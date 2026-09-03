@@ -85,6 +85,13 @@ export class Replay {
    */
   onImpact?: () => void;
   onBall?: (speed: number, inGutter: boolean, timeScale: number) => void;
+  /**
+   * 진입/복귀 큐 (Boot가 SoundManager.playReplayCue로 배선, SOUND.md §2.13). 'in'은 start가 아니라 **첫 재생 프레임**(update)에 낸다 —
+   * 10프레임 마지막 스트라이크는 같은 스텝에서 strike → gameOver가 연달아 와 start 직후 cancel되는데, 그 리플레이는 화면에 한 프레임도 안
+   * 나오니 소리도 없어야 한다. 'out'은 finish(자연 종료·스킵)에서, 'in'이 났을 때만.
+   */
+  onCue?: (dir: 'in' | 'out') => void;
+  private cueIn = false;
 
   private snaps: Float32Array[] = [];
   private lastState: GameStateName | '' = '';
@@ -163,6 +170,7 @@ export class Replay {
     if (this.snaps.length < 2) return false; // 녹화 부족 — 미발동
     this.active = true;
     this.frozen = false;
+    this.cueIn = false;
     this.parkedCam = null; // 새 리플레이마다 파킹 해제 (다시 공을 따라가다 핀 앞에서 래치)
     this.onFreeze = onFreeze;
     // 임팩트 = 공이 레일을 벗어나는(핏 낙하 y↓ 또는 핀덱 한참 통과) 첫 스냅. 리드인·프리즈 계산의 기준점.
@@ -229,6 +237,10 @@ export class Replay {
 
   update(dt: number) {
     if (!this.active) return;
+    if (!this.cueIn) {
+      this.cueIn = true;
+      this.onCue?.('in'); // 첫 재생 프레임 = 화면이 실제로 리플레이로 컷된 순간
+    }
     this.playTime += dt * PLAYBACK_SPEED;
     if (!this.impactFired && this.playTime >= this.hitTime) {
       this.impactFired = true;
@@ -338,6 +350,7 @@ export class Replay {
   private finish() {
     if (!this.active) return;
     this.active = false;
+    if (this.cueIn) this.onCue?.('out'); // 복귀 슉 — 스킵도 같은 컷이다
     if (!this.frozen) {
       this.frozen = true;
       this.onFreeze?.(); // 스킵/취소(프리즈 도달 전 종료) 시에도 스틸컷은 띄운다

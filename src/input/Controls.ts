@@ -89,6 +89,8 @@ const MIN_SEG_PX = AIM_CASE_W + 1;
 // 파워 차징 속도(단위 /초). 기존엔 프레임당 +0.018(프레임레이트 의존 — 고주사율/저FPS에서 속도가
 // 달라지는 버그)이었다. ×60fps = 1.08/s로 환산해 dt를 곱하면 어떤 FPS에서도 0→1 약 0.93초로 일정.
 const CHARGE_RATE = 1.08;
+/** 파워 래칫 칸 수 — 게이지를 이만큼 나눠 칸이 바뀔 때 틱 하나(onSfx 'charge'). CHARGE_RATE × 16 ≈ 초당 17틱, 58 ms 간격. SOUND.md §2.12 */
+const CHARGE_DETENTS = 16;
 // 스트라이크 최적 파워 존(흐리게 암시 — docs/legacy/UI_REVAMP.md 결정②). carry sim상 윈도우는 "풀파워 근방"이나
 // 풀스핀은 미드파워가 더 휘어 *정확한* 최적은 플레이별로 갈림 → 넓고 은은한 상단~중상 띠로만 힌트.
 // 꼭대기(=최대)는 직진 과속이라 살짝 못 미치게 둔다. 정밀 조준은 실력에 맡김(난이도 보존).
@@ -124,6 +126,12 @@ export class Controls {
     return this.charging;
   }
   private chargeDir = 1;
+  /**
+   * UI 효과음 훅 (Boot가 SoundManager.ui로 배선, SOUND.md §2.12) — 파워 래칫('charge', x = 파워 0..1: 오르면 밝고 내려오면 어두워져 핑퐁
+   * 방향이 들린다) · 스핀 노치('detent', x = |spin|: 휠 1노치·바 드래그로 칸이 바뀔 때). 조준 이동엔 소리를 넣지 않는다(§8.1 — 연속 입력).
+   */
+  onSfx?: (kind: 'charge' | 'detent', x: number) => void;
+  private chargeDetent = 0; // 마지막으로 틱을 낸 래칫 칸 = floor(power × CHARGE_DETENTS)
   private draggingSpin = false;
   private wasAiming = false;
   // 데스크톱 스핀 HUD 트랜지언트 — 남은 노출 시간(초)과 직전 프레임 스핀값
@@ -481,7 +489,9 @@ export class Controls {
     const r = this.spinTrack.getBoundingClientRect();
     const ratio = (clientX - r.left) / r.width; // 0..1
     const s = Math.max(-1, Math.min(1, ratio * 2 - 1));
-    this.spin = Math.round(s / SPIN_STEP) * SPIN_STEP;
+    const next = Math.round(s / SPIN_STEP) * SPIN_STEP;
+    if (next !== this.spin) this.onSfx?.('detent', Math.abs(next)); // 노치를 넘을 때만 — 같은 칸 안의 드래그는 조용
+    this.spin = next;
   }
 
   private bindEvents() {
@@ -516,6 +526,7 @@ export class Controls {
       this.charging = true;
       this.power = 0;
       this.chargeDir = 1;
+      this.chargeDetent = 0; // 누르는 순간엔 소리 없음 — 첫 틱은 첫 칸(1/16)을 넘을 때
     });
 
     window.addEventListener('pointerup', (e) => {
@@ -574,7 +585,9 @@ export class Controls {
         }
         this.lastWheelMs = now;
         const step = Math.sign(e.deltaY) * SPIN_STEP; // 아래 = 오른쪽 훅(R) · 위 = 왼쪽 훅(L)
-        this.spin = Math.max(-1, Math.min(1, Math.round((this.spin + step) * 100) / 100));
+        const next = Math.max(-1, Math.min(1, Math.round((this.spin + step) * 100) / 100));
+        if (next !== this.spin) this.onSfx?.('detent', Math.abs(next)); // 끝(±1)에서 더 굴리면 조용 — 노치가 없다
+        this.spin = next;
         e.preventDefault();
       },
       { passive: false }, // 기본 스크롤 차단 (body가 overflow:hidden이라 실효는 없지만 명시)
@@ -591,6 +604,12 @@ export class Controls {
       } else if (this.power <= 0) {
         this.power = 0;
         this.chargeDir = 1;
+      }
+      // 래칫 — 칸이 바뀐 프레임에 틱 하나. 일시정지 중엔 Boot가 update를 안 불러 저절로 멎는다.
+      const d = Math.floor(this.power * CHARGE_DETENTS + 1e-6);
+      if (d !== this.chargeDetent) {
+        this.chargeDetent = d;
+        this.onSfx?.('charge', this.power);
       }
     }
     this.gaugeFill.style.clipPath = `inset(${(1 - this.power) * 100}% 0 0 0)`; // 위에서 가려 아래부터 드러난다(띠 위치 고정)

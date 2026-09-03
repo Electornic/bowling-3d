@@ -8,6 +8,7 @@ import { saveScreenVideo, loadScreenVideo, clearScreenVideo } from '../game/scre
 import { houseBallColor } from '../game/BallSpec';
 import type { BallSkin } from '../game/rewards';
 import type { Settings, Quality } from '../game/settings';
+import type { UiSfx } from '../audio/uiSfx'; // 타입만 — 메뉴는 오디오 런타임을 모른다(Boot가 onSfx로 배선)
 import { t, getLocale, LOCALES, LOCALE_LABEL, type I18nKey, type LocaleSetting } from '../i18n';
 import { css, HOUSE, PANEL_BG, rgba, FONT_SLAB_FAMILY } from '../ui/theme'; // 디자인 시스템 단일소스(#6) — 로컬 css 복제 제거, 하우스 팔레트 토큰 공유
 import { buildResultSheets, SHEET_MAX } from './Hud'; // 결과 모달 점수 시트 — HUD와 같은 렌더러(마크 규칙·5칸 접기 공유)
@@ -133,6 +134,12 @@ export class MenuUI {
   private weight: number; // 볼 무게(lb) — 시작 메뉴·일시정지 모달에서 선택. 초기값은 저장된 설정.
   private selectedSkin: string = loadRewards().selectedSkin; // 장착 볼 스킨 (보상)
   private skinTab: 'skins' | 'achievements' = 'skins'; // 컬렉션 시트 활성 탭 (A안 탭형). 전광판은 2026-09-02에 독립 화면(showScreen)으로 나갔다
+  /**
+   * UI 효과음 훅 (Boot가 SoundManager.ui로 배선, 2026-09-03 — SOUND.md §2.12). 패널 안 모든 <button>의 클릭·호버는 생성자의 **위임
+   * 리스너 하나**가 잡으므로 빌더마다 걸지 않는다. 기본 'click', `data-sfx`로 바꾼다 — 'none'은 자기 소리를 따로 내는 버튼(스킨 장착 → equipSkin).
+   * 패널 개폐(open/close)는 reveal/hide가, 무게 슬라이더 노치(detent)는 weightRow가 보낸다.
+   */
+  onSfx?: (kind: UiSfx, x?: number) => void;
 
   constructor(
     private readonly onStart: (cfg: MatchConfig) => void,
@@ -193,9 +200,28 @@ export class MenuUI {
     });
     this.backdrop.appendChild(this.panel);
     document.body.appendChild(this.backdrop);
+
+    // UI 효과음 — 패널 단위 위임. 클릭은 버블링으로, 호버는 pointerover로 잡는다(pointerenter는 버블링이 없어 위임이 안 된다).
+    // 버튼의 자기 onclick이 먼저 돌고 이 리스너가 뒤에 돈다 — 그래서 사운드 토글은 켤 때만 '톡'이 난다(끄면 enabled=false 뒤라 무음).
+    this.panel.addEventListener('click', (e) => {
+      const b = (e.target as HTMLElement | null)?.closest('button');
+      if (!b || b.disabled) return;
+      const k = b.dataset.sfx as UiSfx | 'none' | undefined;
+      if (k === 'none') return;
+      this.onSfx?.(k ?? 'click');
+    });
+    this.panel.addEventListener('pointerover', (e) => {
+      if (e.pointerType !== 'mouse') return; // 터치엔 호버가 없다 — 터치·펜의 pointerover는 곧 클릭이라 겹친다
+      const b = (e.target as HTMLElement | null)?.closest('button');
+      if (!b || b.disabled) return;
+      const from = e.relatedTarget as Node | null;
+      if (from && b.contains(from)) return; // 버튼 안에서 자식(SVG·span) 사이 이동은 재진입이 아니다
+      this.onSfx?.('hover');
+    });
   }
 
   hide() {
+    if (this.backdrop.style.display === 'flex') this.onSfx?.('close'); // 실제로 열려 있던 패널만 — 부팅 직후 등 이미 닫힌 hide는 조용
     this.backdrop.style.display = 'none';
   }
 
@@ -209,6 +235,7 @@ export class MenuUI {
     if (opening) {
       playOnce(this.backdrop, 'juice-fade-in');
       playOnce(this.panel, 'juice-panel-in');
+      this.onSfx?.('open'); // 등장 슉 — 애니와 같은 조건(재렌더는 조용)
     }
   }
 
@@ -341,6 +368,7 @@ export class MenuUI {
       this.weight = parseFloat(wInput.value);
       wVal.textContent = `${this.weight} lb`;
       this.onWeight(this.weight);
+      this.onSfx?.('detent', (this.weight - 6) / 10); // 1 lb 노치 — step=1이라 input은 값이 바뀔 때만 온다
     });
     wRow.appendChild(wInput);
     wRow.appendChild(wVal);
@@ -686,6 +714,7 @@ export class MenuUI {
       if (lastAch) {
         const skin = resolveSkin(lastAch.reward);
         const equip = this.primaryButton(t('menu.result.equip', { label: t(skin.labelKey) }), 'gold', { size: 13, padding: '9px', radius: 3, marginTop: '8px' });
+        equip.dataset.sfx = 'none'; // 클릭 '톡' 대신 equipSkin의 '클랙'
         equip.onclick = () => {
           this.equipSkin(skin.id);
           equip.textContent = t('menu.result.equipped', { label: t(skin.labelKey) });
@@ -1324,6 +1353,7 @@ export class MenuUI {
 
         const cell = document.createElement('button');
         cell.disabled = !isUnlocked;
+        cell.dataset.sfx = 'none'; // 장착 '클랙'은 equipSkin이 낸다
         css(cell, {
           position: 'relative',
           display: 'flex',
@@ -1431,5 +1461,6 @@ export class MenuUI {
     this.selectedSkin = id;
     saveSelectedSkin(id);
     this.onSkinChange(id);
+    this.onSfx?.('equip'); // 랙에서 공을 집는 '클랙' — 결과 화면 장착 버튼·컬렉션 셀 공통
   }
 }

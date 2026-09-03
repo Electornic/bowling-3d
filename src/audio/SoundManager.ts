@@ -2,6 +2,7 @@ import { MAX_SPEED, SLOWMO_SCALE } from '../game/constants';
 import type { MachineCue, MachineLane, AmbBallCue } from './cues';
 import { MachineSynth } from './machineSynth';
 import { schedulePitDrop, scheduleBallReturn } from './pitSfx';
+import { scheduleUi, scheduleReplayCue, type UiSfx } from './uiSfx';
 import { makeNoise } from './synthKit';
 import type { GameSummary } from '../game/GameState';
 /**
@@ -11,9 +12,10 @@ import type { GameSummary } from '../game/GameState';
  * gesture 뒤에 디코드해 쓴다. 합성으로 남아 있는 건 굴림 폴백 노이즈와 해금 차임 둘뿐이다.
  * (README·CLAUDE.md의 에셋 목록은 이 셋을 다 세야 한다 — 번들 크기 볼 때 빼먹지 말 것.)
  *
- * 소리 7종: 릴리스(합성, playRelease) · 핀 크래시(투구 1회, strike.wav) · 굴림 럼블(지속, roll.wav 루프) · 핀세터 기계음(합성, machineCue) ·
- * 하우스 PA 차임(합성, playEvent — 스트라이크·스페어·거터·스플릿 컨버전·게임오버) · 해금 차임(합성) ·
- * 메뉴 BGM(mp3 루프, MUSIC_URL). AudioContext는 클릭/키 제스처로 활성된다.
+ * 소리: 릴리스(합성, playRelease) · 핀 크래시(투구 1회, strike.wav) · 굴림 럼블(지속, roll.wav 루프) · **거터 진입 '덜컥'**(합성, setRoll의 inGutter 상승 엣지) · **피트 낙하·볼 리턴 사슬**(합성, playPitDrop → pitSfx.ts) · 핀세터 기계음(합성, machineCue) ·
+ * 하우스 PA 차임(합성 — 게임오버 스팅어만. 스틸컷 4종의 소리는 2026-09-03에 뺐다, SOUND.md §2.6) · 해금 차임(합성) ·
+ * **UI 틱**(합성, ui → uiSfx.ts — 클릭·호버·패널 개폐·노치·래칫·장착, 2026-09-03 §2.12) · **리플레이 진입/복귀 슉**(playReplayCue, §2.13) ·
+ * 메뉴 BGM(mp3 루프, MUSIC_URL — 메뉴 일시정지엔 로패스로 먹먹해진다, setMenuPaused). AudioContext는 클릭/키 제스처로 활성된다.
  *
  * 신호 경로 (SOUND.md §1): 모든 소스 → masterGain → DynamicsCompressor(리미터) → destination.
  * 소스는 `destination`에 직결하지 않고 반드시 `this.bus()`에 꽂는다 — 안 그러면 마스터 볼륨·
@@ -23,6 +25,12 @@ import type { GameSummary } from '../game/GameState';
 // 0.105s에 날카로운 크랙(피크 0.113s)이 있어 그 직전(0.10)부터 재생 — 어택 보존 + 충돌 동기.
 // 더 빠르게 = 값↑, 늦게 = 값↓.
 const STRIKE_LEADIN = 0.10;
+
+/** UI 버스 트림 — 종류별 레벨은 uiSfx.ts 상수가 정하고(§2.12 실측표), 이건 전체를 한 번에 올리고 내리는 손잡이다. */
+const UI_VOL = 1;
+/** BGM 로패스 — 평시 투명(18 kHz) / 메뉴 일시정지 480 Hz(setMenuPaused). 슬로모의 굴림 LPF 바닥(800)보다 더 닫는다 — '한 발 물러선' 소리. */
+const MUSIC_LPF_OPEN = 18000;
+const MUSIC_LPF_PAUSED = 480;
 
 /**
  * 메뉴/매치 배경음악 에셋 — Pixabay "Reggae Ruckus" (업로더: Mi_Music).
@@ -253,7 +261,8 @@ export class SoundManager {
     // 최대 1.0이고 임팩트 순간엔 공이 아직 빠르게 굴러 둘이 겹치므로, 당시엔 합 1.85가 곧 클리핑이었다.
     // 지금은 마스터 리미터가 넘치는 만큼 눌러 주지만(bus() 주석), 리미터는 안전망이지 밸런스 도구가
     // 아니다 — 크래시가 굴림보다 크게 들리려면 게인 비율은 여기서 정한다. 더 필요하면 BGM을 내리는 게 순서다.
-    this.rollGain.gain.setTargetAtTime(Math.pow(t, 1.5) * this.rollMax * gutterMul, now, 0.02); // 빠른 추종 (지연감 줄임, 클릭은 방지)
+    // 메뉴 일시정지 중엔 0 — 리플레이가 일시정지 위에서 setRoll을 다시 부르는 경우(리플레이 중 Esc)까지 덮는다(setMenuPaused 주석).
+    this.rollGain.gain.setTargetAtTime(this.menuPaused ? 0 : Math.pow(t, 1.5) * this.rollMax * gutterMul, now, 0.02); // 빠른 추종 (지연감 줄임, 클릭은 방지)
     const slow = Math.max(SLOWMO_SCALE, Math.min(1, timeScale)); // 빨리감기(>1)는 피치를 올리지 않는다 — 다람쥐 소리 방지
     const rateMul = Math.sqrt(slow); // 슬로모 바닥 0.57 (≈ −10 semitone)
     this.rollSrc!.playbackRate.setTargetAtTime(((inGutter ? 0.95 : 0.85) + t * 0.4) * rateMul, now, 0.05); // 거터는 살짝 높게(텅한 질감)
@@ -346,6 +355,57 @@ export class SoundManager {
     const t0 = this.ctx.currentTime;
     schedulePitDrop(this.ctx, out, this.noise(), t0, speed);
     scheduleBallReturn(this.ctx, out, this.noise(), t0);
+  }
+
+  // ────────────────────────────────────────────────────────────────────────────
+  // UI 효과음 (2026-09-03, SOUND.md §2.12) — 스코어러 콘솔의 **물리 스위치 어휘**(합성은 uiSfx.ts). 톤 없는 노이즈 공진이라 PA 차임(천장
+  // 스피커 신호음)·기계음(핀덱 너머)과 자리가 갈린다: 이건 손 앞의 콘솔 소리다. 별도 uiBus → 마스터. machineBus에 두지 않는다 —
+  // 일시정지 중에도 모달 버튼은 눌린다. 위계(§8.1): hover −36 < detent·charge·open/close −24~−30 < click·equip −18~−21 dBFS(피크, 리미터 앞).
+  // Menu는 패널 위임 리스너 하나로 모든 <button>의 클릭·호버를 보내고(data-sfx로 종류 변경), Controls는 래칫·노치를 보낸다.
+  // ────────────────────────────────────────────────────────────────────────────
+  private uiBus: GainNode | null = null;
+
+  private uiOut(): GainNode {
+    if (!this.uiBus) {
+      this.uiBus = this.ctx!.createGain();
+      this.uiBus.gain.value = UI_VOL;
+      this.uiBus.connect(this.bus());
+    }
+    return this.uiBus;
+  }
+
+  /** UI 효과음 1회. x = 종류별 보조값(charge: 파워 0..1 → 밝기 · detent: 위치 0..1). 제스처 전(ctx 없음)·사운드 OFF엔 무음. */
+  ui(kind: UiSfx, x = 0) {
+    if (!this.ctx || !this.enabled) return;
+    scheduleUi(this.ctx, this.uiOut(), this.noise(), this.ctx.currentTime, kind, x);
+  }
+
+  /** 리플레이 진입('in', 첫 재생 프레임)·복귀('out', finish — 스킵 포함) 슉 — Replay.onCue가 부른다(SOUND.md §2.13). */
+  playReplayCue(dir: 'in' | 'out') {
+    if (!this.ctx || !this.enabled) return;
+    scheduleReplayCue(this.ctx, this.uiOut(), this.noise(), this.ctx.currentTime, dir);
+  }
+
+  // ── 메뉴 일시정지 (2026-09-03, SOUND.md §2.13) — 리플레이 정지와 다르다. 리플레이는 자기 굴림·크래시를 다시 내니 세계를 그대로 두고 기계만
+  // 뮤트하지만(setMachinePaused — Boot.applyPause가 두 사유의 합으로 부른다), 메뉴 일시정지는 '한 발 물러선' 상태다: BGM을 로패스로
+  // 먹먹하게(레벨은 그대로 — 매치 중 0.08이라 이미 낮다), 굴리던 도중이면 럼블을 끊는다. 예전엔 ROLLING 중 Esc를 누르면 물리는 멈췼는데
+  // **럼블은 마지막 게인에 얼어붙어 계속 울렸다** — setRoll은 스텝마다 불려서만 갱신되는데 일시정지는 스텝을 안 돌린다. 재개하면 다음
+  // 스텝의 setRoll이 게인을 되살린다(τ 0.02 → 60 ms 페이드인). 패널 개폐 슉·버튼 클릭은 Menu가 UI 경로로 따로 낸다.
+  private menuPaused = false;
+  private musicTone: BiquadFilterNode | null = null;
+
+  setMenuPaused(p: boolean) {
+    this.menuPaused = p;
+    if (!this.ctx) return;
+    const now = this.ctx.currentTime;
+    if (this.musicTone) {
+      this.musicTone.frequency.cancelScheduledValues(now);
+      this.musicTone.frequency.setTargetAtTime(p ? MUSIC_LPF_PAUSED : MUSIC_LPF_OPEN, now, 0.12);
+    }
+    if (p && this.rollGain) {
+      this.rollGain.gain.cancelScheduledValues(now);
+      this.rollGain.gain.setTargetAtTime(0, now, 0.05);
+    }
   }
 
   /**
@@ -833,7 +893,13 @@ export class SoundManager {
     const ctx = this.ctx;
     if (!this.musicGain) {
       this.musicGain = ctx.createGain();
-      this.musicGain.connect(this.bus()); // 드라이 — 리버브 없이 마스터 버스로
+      // 일시정지 로패스(setMenuPaused) — 평시 18 kHz(투명), 메뉴 일시정지 480 Hz. 굴림의 슬로모 LPF(rollTone)와 같은 방식.
+      const tone = ctx.createBiquadFilter();
+      tone.type = 'lowpass';
+      tone.Q.value = 0.5;
+      tone.frequency.value = this.menuPaused ? MUSIC_LPF_PAUSED : MUSIC_LPF_OPEN;
+      this.musicGain.connect(tone).connect(this.bus()); // 드라이 — 리버브 없이 마스터 버스로
+      this.musicTone = tone;
     }
     // stopMusic이 페이드아웃 뒤 정지로 예약해 둔 이전 노드가 아직 살아 있을 수 있다(0.55s 창).
     // 그 안에 사운드를 다시 켜면 게인이 되살아나며 두 벌이 겹쳐 들리므로 즉시 끊는다.
